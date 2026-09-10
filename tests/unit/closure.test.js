@@ -595,3 +595,48 @@ test('the holiday reaches the browser, and never the opening hours', async () =>
   assert.notEqual(liveETag('"abc"', settings), quiet);
   assert.ok(!liveETag('"abc"', settings).includes(','), 'no comma: If-None-Match splits on it');
 });
+
+
+test('a holiday is published as special hours, and never as the week', async () => {
+  const { setHoliday, clearHoliday, readSettings, forgetCache } =
+    await import('../../worker/settings.js');
+  const { withLiveData } = await import('../../worker/page-render.js');
+  const env = { DB: freshDatabase() };
+
+  const markup = '<html><head></head><body>' +
+    '<script id="restaurantSchema" type="application/ld+json">{"@type":"Restaurant"}</script>' +
+    '<!--hours:start--><!--hours:end--></body></html>';
+  const schemaOf = (page) => JSON.parse(
+    page.match(/<script id="restaurantSchema"[^>]*>([\s\S]*?)<\/script>/)[1]
+  );
+
+  await setHoliday(env, '2026-09-09', '2026-09-19', '2026-09-01');
+  forgetCache(env);
+  const away = schemaOf(withLiveData(markup, await readSettings(env)));
+
+  /* One entry for the run, and `validThrough` is the LAST DAY CLOSED — the
+     18th, from a stored pair that only names the 9th and the 19th. Off by one
+     here and the site tells Google it is shut on the morning it reopens. */
+  assert.deepEqual(away.specialOpeningHoursSpecification, [{
+    '@type': 'OpeningHoursSpecification',
+    opens: '00:00',
+    closes: '00:00',
+    validFrom: '2026-09-09',
+    validThrough: '2026-09-18'
+  }]);
+
+  /* And the week is untouched: that is what the Google and Apple place cards
+     cache, and a fortnight away is not a new week. */
+  assert.ok(away.openingHoursSpecification.length > 0);
+  for (const spec of away.openingHoursSpecification) {
+    assert.ok(!spec.validFrom && !spec.validThrough, 'the week carries no dates');
+  }
+
+  /* Gone when the holiday is gone. A closure left in the markup tells every
+     crawler the restaurant is shut on days it is open, and nothing on the page
+     would look wrong to the person reading it. */
+  await clearHoliday(env);
+  forgetCache(env);
+  const back = schemaOf(withLiveData(markup, await readSettings(env)));
+  assert.equal(back.specialOpeningHoursSpecification, undefined);
+});

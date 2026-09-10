@@ -18,6 +18,7 @@
    lives in the `switch` project and runs serially. */
 
 import { test, expect } from '@playwright/test';
+import assert from 'node:assert/strict';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -170,6 +171,36 @@ test('the corporate page carries it too', async ({ page }) => {
 
   await page.goto('/firmencatering');
   await expect(band(page)).toBeVisible();
+});
+
+test('the days away are published as special hours, and lift with the band', async ({ page }) => {
+  /* The band is for a guest reading the page; this is for the crawlers behind
+     the Google and Apple place cards, which never see it. Both are written
+     from the same two dates, so they cannot say different things. */
+  const from = berlinToday();
+  const back = plusDays(7);
+  await announce(page, from, back);
+
+  await page.goto('/');
+  const schema = async () => page.evaluate(() =>
+    JSON.parse(document.getElementById('restaurantSchema').textContent));
+
+  const away = await schema();
+  assert(away.specialOpeningHoursSpecification, 'special hours are emitted');
+  expect(away.specialOpeningHoursSpecification).toHaveLength(1);
+  expect(away.specialOpeningHoursSpecification[0]).toMatchObject({
+    opens: '00:00', closes: '00:00', validFrom: from, validThrough: plusDays(6)
+  });
+
+  // The published week never learns about it: that is what the place cards
+  // cache, and a fortnight away is not a new week.
+  for (const spec of away.openingHoursSpecification || []) {
+    expect(spec.validFrom).toBeUndefined();
+  }
+
+  await takeDown(page);
+  await page.goto('/');
+  expect((await schema()).specialOpeningHoursSpecification).toBeUndefined();
 });
 
 test('taking it down takes it off the site', async ({ page }) => {

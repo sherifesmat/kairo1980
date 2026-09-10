@@ -87,6 +87,39 @@ export function deliveryFor(hours, key) {
     .map((s) => ({ from: from && from > s.from ? from : s.from, to: s.to }));
 }
 
+/* The days the restaurant is away, as structured data.
+   ---------------------------------------------------------------------------
+   `openingHoursSpecification` states what happens every week and is what the
+   place cards cache; a fortnight away is not a change to the week, so it is
+   never written there. `specialOpeningHoursSpecification` is the field that
+   exists for exactly this — dates that override the week — and a closure is
+   said in it the way Google reads one: `opens` and `closes` both '00:00'.
+
+   One entry for the whole run rather than one per day: `validThrough` is
+   INCLUSIVE, so it is the last day closed, derived here from the day we are
+   back exactly as the band derives it. The stored pair is still two dates and
+   the third is still nobody's to type.
+
+   It disappears when the holiday does, and the holiday disappears by being
+   read against the clock — so the day the shop reopens, the page stops saying
+   it is shut without anyone editing anything. */
+function specialClosure(holiday) {
+  if (!holiday || !holiday.from || !holiday.until) return null;
+  const ms = Date.parse(holiday.until + 'T12:00:00Z');
+  if (!Number.isFinite(ms)) return null;
+  const through = new Date(ms - 86400000).toISOString().slice(0, 10);
+  if (through < holiday.from) return null;
+
+  return [{
+    '@type': 'OpeningHoursSpecification',
+    // Both '00:00' is how a closed day is stated: the window has no width.
+    opens: '00:00',
+    closes: '00:00',
+    validFrom: holiday.from,
+    validThrough: through
+  }];
+}
+
 function schemaHours(hours) {
   const spec = [];
   for (const [key] of DAYS) {
@@ -196,6 +229,15 @@ export function withLiveData(html, settings) {
       try {
         const data = JSON.parse(body);
         data.openingHoursSpecification = schemaHours(hours);
+
+        /* Set when there is a holiday, REMOVED when there is not. A stale
+           closure in the markup is the one failure worth guarding here: it
+           tells every crawler the restaurant is shut on days it is open, and
+           nothing on the page would look wrong to the person reading it. */
+        const away = specialClosure(settings.holiday);
+        if (away) data.specialOpeningHoursSpecification = away;
+        else delete data.specialOpeningHoursSpecification;
+
         return open + JSON.stringify(data) + close;
       } catch {
         // Unparseable markup is left as found: a page still stating last

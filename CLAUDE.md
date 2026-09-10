@@ -237,6 +237,15 @@ are only the no-JavaScript fallback — update both or neither.
   the extension. It does NOT stop the till: that is the ordering switch, which
   the same card offers as its own tap. There is no holiday in `config.js` on
   purpose; a date that needs a deploy reaches the site a week late.
+  The same two dates are published as `specialOpeningHoursSpecification` —
+  `opens` and `closes` both `00:00`, `validThrough` the last day closed — which
+  is the ONE place a date may touch the structured data. `openingHoursSpecification`
+  stays the week, because that is what the place cards cache. The entry is
+  removed when the holiday lapses: a stale closure tells every crawler the shop
+  is shut on days it is open, and nothing on the page looks wrong to a reader.
+  A holiday must be set on the Google Business Profile by hand as well
+  (Edit profile → Hours → Special hours) — Google reads the place card from the
+  profile, not from the page.
 - **A closure always carries its own end.** By default midnight tonight; a date
   set at `/admin` overrides it. It expires by being read against the clock, so
   nothing has to run for it to lift. The failure being guarded is not a shop

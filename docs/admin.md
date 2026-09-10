@@ -100,6 +100,14 @@ kept apart deliberately: a kitchen away for a fortnight still wants its band up
 the evening before it reopens, and a shop closed for a burst pipe wants no band
 at all.
 
+The same two dates are also published in the page's structured data as
+`specialOpeningHoursSpecification`, so a crawler that never renders the band
+still reads the closure. That is not a substitute for the Google Business
+Profile: Google builds the place card from the profile, so the dates have to be
+entered there by hand too — Edit profile → Hours → Special hours, each day
+marked Closed. Apple Business Connect has the same field, and Lieferando and
+Uber Eats take orders independently of this site, so both need pausing.
+
 A pair of dates that cannot be true — back before you left, back in the past,
 or a stay over 90 days — is refused whole and nothing is announced. Announcing
 a closure is the most expensive sentence this site can publish, so a typo is
