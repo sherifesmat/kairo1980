@@ -874,10 +874,21 @@ summary:focus-visible {
    drops the tag's letter-spacing and uppercasing through the `:root[lang="ar"]`
    list further down, which names `.announce-tag` — this variant needs no rule
    of its own there, and must not grow one. */
-.announce-event { background: #1c1409; border-bottom-color: rgba(184,165,90,0.45); }
+/* The holiday band is the same inversion, and shares these rules rather than
+   restating them: the two never appear together — a holiday outranks a
+   festival next door — so a second dark bar would only be a copy that could
+   drift. What it does not share is the hover: it is a <div>, not a link, and a
+   band that lightens under the pointer promises somewhere to go. The base
+   `.announce:hover` outweighs a bare class, so it is answered here rather than
+   left off. */
+.announce-event,
+.announce-holiday { background: #1c1409; border-bottom-color: rgba(184,165,90,0.45); }
 .announce-event:hover { background: #241a0c; }
-.announce-event .announce-text { color: #f0e0bd; }
-.announce-event .announce-tag { background: #c8a55a; color: #1c1409; }
+.announce-holiday:hover { background: #1c1409; }
+.announce-event .announce-text,
+.announce-holiday .announce-text { color: #f0e0bd; }
+.announce-event .announce-tag,
+.announce-holiday .announce-tag { background: #c8a55a; color: #1c1409; }
 .announce-event .announce-arrow { color: #c8a55a; }
 
 /* ===========================================================================

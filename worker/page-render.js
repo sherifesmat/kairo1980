@@ -177,7 +177,11 @@ export function withLiveData(html, settings) {
          an unusual time can leak into the opening hours Google caches for the
          place card. */
       extension: settings.extension || null,
-      deliveryShift: settings.deliveryShift || null
+      deliveryShift: settings.deliveryShift || null,
+      /* The holiday band's two dates. Also never merged into `hours`: a
+         fortnight away is not a change to what the restaurant does every
+         week, and the place cards must not learn otherwise. */
+      holiday: settings.holiday || null
     }).replace(/</g, '\\u003c')
   }</script>\n`;
   if (out.includes('</head>')) out = out.replace('</head>', island + '</head>');
@@ -240,6 +244,13 @@ export function liveETag(assetETag, settings) {
   const shift = settings.deliveryShift
     ? `d${settings.deliveryShift.from}@${settings.deliveryShift.until}`
     : 'd-';
+  /* And the holiday, for the same reason as the two above: it is stated in the
+     island, so a copy cached before it was announced states that there is no
+     holiday — and would go on saying so, revalidating its way back to itself,
+     because index.html never moved. */
+  const holiday = settings.holiday
+    ? `h${settings.holiday.from}@${settings.holiday.until}`
+    : 'h-';
 
-  return `W/"${base}~${settings.hoursVersion}~${settings.soldOutVersion || '0'}~${state}~${extension}~${shift}"`;
+  return `W/"${base}~${settings.hoursVersion}~${settings.soldOutVersion || '0'}~${state}~${extension}~${shift}~${holiday}"`;
 }

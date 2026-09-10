@@ -19,7 +19,7 @@ import * as dishesView from './dishes.js';
 import * as hoursView from './hours.js';
 import {
   readSettings, closeOrdering, openOrdering, extendHours, clearExtension,
-  setDeliveryShift, clearDeliveryShift
+  setDeliveryShift, clearDeliveryShift, setHoliday, clearHoliday
 } from '../settings.js';
 import { timeOf } from '../berlin.js';
 
@@ -42,9 +42,20 @@ export async function handle(request, env, url) {
 
   if (path === '/admin' && method === 'GET') {
     const nonce = newNonce();
-    const { ordering, hours, hoursAreCustom, extension, deliveryShift } = await readSettings(env);
+    const { ordering, hours, hoursAreCustom, extension, deliveryShift, holiday } =
+      await readSettings(env);
     return html(dashboardPage({
-      nonce, ordering, hours, hoursAreCustom, extension, deliveryShift,
+      nonce, ordering, hours, hoursAreCustom, extension, deliveryShift, holiday,
+      /* Why a holiday was refused, carried in the URL rather than rendered
+         into the redirect: a reload must not resend the form. The dates are
+         refused as a pair and reported as a pair — the alternative is a page
+         that says "the second date is wrong" about two dates that are only
+         wrong together. */
+      holidayError: url.searchParams.get('hol') === 'bad'
+        ? 'Check the dates: you must be back after the first day closed, the '
+          + 'date you are back cannot be in the past, and a holiday cannot run '
+          + 'longer than 90 days.'
+        : null,
       // Set by the test below, carried in the URL so a reload does not resend.
       alert: url.searchParams.get('alert'),
       alertError: url.searchParams.get('why')
@@ -69,6 +80,29 @@ export async function handle(request, env, url) {
   }
 
   if (path === '/admin/ordering' && method === 'POST') return setOrdering(request, env);
+
+  /* The holiday band: the fortnight the restaurant is away, said on the site in
+     three languages. It is the one thing on this page that speaks to guests
+     rather than to the till — so it never touches the ordering switch, and the
+     card next to it says as much and offers the switch as a separate tap.
+
+     A refused save changes nothing and says so. Announcing "we are closed" is
+     the most expensive sentence this site can publish, so a pair of dates that
+     do not make sense is not repaired into a pair that does. */
+  if (path === '/admin/holiday' && method === 'POST') {
+    const form = await request.formData();
+    let query = '';
+    if (String(form.get('mode') || '') === 'clear') {
+      await clearHoliday(env);
+    } else {
+      const saved = await setHoliday(env,
+        String(form.get('from') || ''), String(form.get('until') || ''));
+      if (!saved) query = '?hol=bad';
+    }
+    return new Response(null, {
+      status: 303, headers: { Location: '/admin' + query, 'Cache-Control': 'no-store' }
+    });
+  }
 
   /* Staying open later than the fixed hours say. The opposite of the switch
      above and deliberately the same shape: one tap, its own end, and no edit to

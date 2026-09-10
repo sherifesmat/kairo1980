@@ -474,3 +474,124 @@ test('today\'s driver never becomes a published opening hour', async () => {
     'the standing delivery time is untouched'
   );
 });
+
+
+/* --- the fortnight the restaurant is away ----------------------------------
+   The band that tells guests the shop is shut. It is the most expensive
+   sentence this site can publish, and it is typed on a phone — so what is
+   tested here is that a pair of dates which cannot be true is refused whole
+   rather than repaired, that it lapses by being read against the clock, and
+   that it never becomes an opening hour. */
+
+test('a holiday is two dates, and the band is up from the moment it is saved', async () => {
+  const { setHoliday, readSettings, forgetCache } = await import('../../worker/settings.js');
+  const env = { DB: freshDatabase() };
+
+  assert.equal((await readSettings(env)).holiday, null, 'nothing announced');
+
+  const saved = await setHoliday(env, '2026-09-09', '2026-09-19', '2026-08-20');
+  assert.deepEqual(saved, { from: '2026-09-09', until: '2026-09-19' });
+
+  forgetCache(env);
+  const live = (await readSettings(env)).holiday;
+  assert.deepEqual(live, { from: '2026-09-09', until: '2026-09-19' });
+});
+
+test('the pair that cannot be true is refused, not repaired', async () => {
+  const { setHoliday, readSettings, forgetCache } = await import('../../worker/settings.js');
+  const env = { DB: freshDatabase() };
+  const today = '2026-08-20';
+
+  // Back before we left, and back on the day we left: neither is a holiday.
+  assert.equal(await setHoliday(env, '2026-09-19', '2026-09-09', today), null);
+  assert.equal(await setHoliday(env, '2026-09-09', '2026-09-09', today), null);
+
+  // Not dates at all — including the one a date field yields when it is empty.
+  assert.equal(await setHoliday(env, '', '2026-09-19', today), null);
+  assert.equal(await setHoliday(env, '09.09.2026', '19.09.2026', today), null);
+
+  /* Already over. The failure this guards is the expensive one: a band that
+     goes up saying the shop is shut for a fortnight that ended in March. */
+  assert.equal(await setHoliday(env, '2026-03-01', '2026-03-10', today), null);
+
+  // A mistyped year is a year-long closure, so it is refused as well.
+  assert.equal(await setHoliday(env, '2026-09-09', '2027-09-19', today), null);
+
+  forgetCache(env);
+  assert.equal((await readSettings(env)).holiday, null, 'and nothing was stored');
+});
+
+test('a holiday lapses on the morning we are back, with nothing to run', async () => {
+  const { setHoliday, readSettings, forgetCache } = await import('../../worker/settings.js');
+  const env = { DB: freshDatabase() };
+
+  /* Stored while it is still ahead, and read back on the day we return: the
+     row is untouched and the answer is "no holiday". Nothing sweeps it — the
+     clock is read, which is the same way the closure and the extension end. */
+  const from = dayOf(Date.now() - 3 * 86400000);
+  const until = dayOf(Date.now() + 2 * 86400000);
+  assert.ok(await setHoliday(env, from, until));
+
+  forgetCache(env);
+  assert.ok((await readSettings(env)).holiday, 'up while it runs');
+
+  const { normaliseHoliday } = await import('../../worker/settings.js');
+  assert.equal(normaliseHoliday({ from, until }, until), null, 'gone the day we are back');
+  assert.equal(normaliseHoliday({ from, until }, dayOf(Date.now() + 9 * 86400000)), null);
+});
+
+test('clearing it takes the band down, and nothing else changes', async () => {
+  const { setHoliday, clearHoliday, readSettings, forgetCache } =
+    await import('../../worker/settings.js');
+  const env = { DB: freshDatabase() };
+
+  const before = await readSettings(env);
+  await setHoliday(env, dayOf(), dayOf(Date.now() + 5 * 86400000));
+  forgetCache(env);
+  assert.ok((await readSettings(env)).holiday);
+
+  await clearHoliday(env);
+  forgetCache(env);
+  const after = await readSettings(env);
+  assert.equal(after.holiday, null);
+
+  /* A holiday announces; it does not close. The till and the week are the
+     ordering switch's business and the hours table's, and neither may move
+     because a band went up or came down. */
+  assert.equal(after.ordering.open, before.ordering.open);
+  assert.deepEqual(after.hours, before.hours);
+});
+
+test('the holiday reaches the browser, and never the opening hours', async () => {
+  const { setHoliday, readSettings, forgetCache } = await import('../../worker/settings.js');
+  const { withLiveData, liveETag } = await import('../../worker/page-render.js');
+  const env = { DB: freshDatabase() };
+
+  const until = dayOf(Date.now() + 6 * 86400000);
+  await setHoliday(env, dayOf(), until);
+  forgetCache(env);
+  const settings = await readSettings(env);
+
+  const markup = '<html><head></head><body>' +
+    '<script id="restaurantSchema" type="application/ld+json">{"@type":"Restaurant"}</script>' +
+    '<!--hours:start--><!--hours:end--></body></html>';
+  const page = withLiveData(markup, settings);
+
+  // The band reads it out of the island, synchronously, at boot.
+  assert.ok(page.includes(`"holiday":${JSON.stringify(settings.holiday)}`),
+    'the band reads the two dates out of the island, synchronously, at boot');
+
+  /* And the week is untouched: openingHoursSpecification is what Google caches
+     for the place card, and a fortnight away is not a change to what the
+     restaurant does every week. */
+  const schema = JSON.parse(
+    page.match(/<script id="restaurantSchema"[^>]*>([\s\S]*?)<\/script>/)[1]
+  );
+  assert.ok(!JSON.stringify(schema).includes(until), 'no holiday date in the structured data');
+
+  /* And a page cached before it was announced has to go stale, or it would
+     revalidate its way back to a copy saying there is no holiday for ever. */
+  const quiet = liveETag('"abc"', { ...settings, holiday: null });
+  assert.notEqual(liveETag('"abc"', settings), quiet);
+  assert.ok(!liveETag('"abc"', settings).includes(','), 'no comma: If-None-Match splits on it');
+});

@@ -36,6 +36,12 @@
      publishes the hours it launched with and keeps working. */
   var LIVE = readLiveData();
   if (LIVE.hours && LIVE.hours.days) CFG.hours = LIVE.hours;
+  /* The holiday the restaurant announced at /admin. config.js deliberately
+     ships no default for it — a holiday is never typed by a developer, see the
+     note there — so the island is the only source, and it is put onto CFG at
+     boot exactly as the live hours are. Everything downstream then asks one
+     object for what is configured, whoever configured it. */
+  if (LIVE.holiday) CFG.holiday = LIVE.holiday;
 
   /* Dishes the kitchen has run out of, written into the page by the Worker so
      the answer is right in the markup rather than a moment after load. The
@@ -57,7 +63,7 @@
     var node = document.getElementById('kairoLive');
     var out = {
       hours: null, ordering: { open: true, resumesAt: null }, soldOut: {},
-      extension: null, deliveryShift: null
+      extension: null, deliveryShift: null, holiday: null
     };
     if (!node) return out;
     try {
@@ -66,6 +72,7 @@
       out.soldOut = data.soldOut || {};
       out.extension = data.extension || null;
       out.deliveryShift = data.deliveryShift || null;
+      out.holiday = data.holiday || null;
       if (data.ordering && data.ordering.open === false) {
         out.ordering = { open: false, resumesAt: data.ordering.resumesAt || null };
       }
@@ -3100,6 +3107,14 @@
       // note in config.js — and written once there so all three languages
       // change together.
       ringDistanceKm: (CFG.event || {}).ringDistanceKm,
+      /* The holiday band's three dates, written from the two the restaurant
+         saved at /admin and in the reader's own language. The last day closed is DERIVED from the
+         day we are back rather than stored beside it: two dates that have to
+         stay one apart are one date, and the one nobody would notice going
+         wrong is the one in the middle. */
+      holidayFrom: dayMonth((CFG.holiday || {}).from),
+      holidayTo: dayMonth(dayBefore((CFG.holiday || {}).until)),
+      holidayBack: dayMonth((CFG.holiday || {}).until),
       // The two delivery rules as sentences, written from the same config the
       // basket applies. Wherever a page shows a minimum or a threshold it can
       // print the rule with it, and neither can be edited into disagreeing
@@ -3152,48 +3167,86 @@
       el.hidden = !canPayOnline;
     });
 
-    renderEventBand();
+    renderBands();
 
     if (!CFG.order.cartEnabled) {
       document.body.classList.add('no-cart');
     }
   }
 
-  /* --- the band for an event next door -------------------------------------
-     Shown only while the dates in config.js contain today, compared as Berlin
-     calendar dates. `berlinNow().iso` is already 'YYYY-MM-DD' and so are both
-     bounds, so this is a string comparison: no Date parsing, no timezone of
-     its own, and no way for the band to be a day out for a reader in Cairo.
-     `until` is EXCLUSIVE, which is what lets config.js name the morning after
-     rather than an end-of-day time nobody would get right.
+  /* --- the dated bands: a holiday, and an event next door -------------------
+     Two announcements with two different authors. The festival next door is
+     set by a developer in config.js, because that is where a date somebody
+     else publishes belongs; the holiday is set by the restaurant at /admin and
+     arrives in the live island, because a fortnight away is the restaurant's
+     own calendar and waiting for a deploy is how a site announces a holiday
+     that ended last week.
 
-     Read against the clock on every tick, exactly as the closure and the
-     extension are: a phone left on the homepage over the weekend drops the
-     band by itself when the festival ends. Nothing has to run, and nobody has
-     to remember to take it down.
+     Both are read against the clock, on every tick, exactly as the closure and
+     the extension are. Berlin calendar dates all the way down: `berlinNow().iso`
+     is 'YYYY-MM-DD' and so are the bounds, so this is a string comparison — no
+     Date parsing, no timezone of its own, and no way for a band to be a day out
+     for a reader in Cairo. Nothing has to run for either to lapse, and nobody
+     has to remember to take one down.
 
-     While it is up the corporate bar stands down. Two announcement bars
-     stacked read as one bar with a fold in it, and for these few days the
-     festival is the more urgent of the two — the office-lunch offer is still
-     in the nav and still has its own page. Both conditions are re-applied on
-     every call rather than latched, so the corporate bar comes back on the
-     tick after the festival ends without a reload.
+     They differ in when they GO UP, and deliberately. The festival band is up
+     for the days of the festival: it advertises something happening, and
+     before it starts there is nothing to say. The holiday band is up from the
+     moment it is saved until the day we are back: it warns of an absence, and
+     a warning that arrives on the first morning of the absence has missed
+     everyone who was going to order this week. So the restaurant announces it
+     by saving it, and the copy reads the same either side of the first day —
+     "closed from the 9th to the 18th, back on the 19th" is as true in August
+     as it is on the 12th.
+
+     `until` is EXCLUSIVE in both: for the festival it is the morning after, for
+     the holiday it is the day we are back. That is what lets the last day be
+     derived rather than stored, and two dates that must stay one apart cannot
+     drift when only one of them is written down.
+
+     Only one bar is ever up. Two announcement bars stacked read as one bar
+     with a fold in it, so they are ranked by what they cost to get wrong: a
+     holiday says we are shut and outranks both, a festival next door outranks
+     the standing office-lunch offer, and the offer is still in the nav and
+     still has its own page either way.
   ------------------------------------------------------------------------- */
-  function eventRunning(now) {
-    var e = CFG.event || {};
-    if (!e.enabled || !e.from || !e.until) return false;
+  function bandRunning(block, now) {
+    var b = block || {};
+    if (!b.enabled || !b.from || !b.until) return false;
     var today = (now || berlinNow() || {}).iso;
-    return !!today && today >= e.from && today < e.until;
+    return !!today && today >= b.from && today < b.until;
   }
 
-  function renderEventBand(now) {
-    var live = eventRunning(now);
-    var businessOn = !!(CFG.business || {}).enabled;
+  /* The server already refuses to serve a holiday whose last day has passed;
+     this asks again because a page does not reload at midnight. A tab open on
+     the morning we reopen has an island saying we are away, and that is the
+     one morning the band costs a day of orders. */
+  function holidayRunning(now) {
+    var h = CFG.holiday;
+    if (!h || !h.from || !h.until) return false;
+    var today = (now || berlinNow() || {}).iso;
+    return !!today && today < h.until;
+  }
+
+  /* One band at a time, and which one is not a preference. A holiday says the
+     kitchen is shut; the other two invite an order — so while it runs it is
+     the only thing the bar can honestly say, and both of the others stand
+     down. Every condition is recomputed here rather than latched, so the
+     festival band and the corporate bar come back on the tick after the
+     holiday ends, without a reload. */
+  function renderBands(now) {
+    var holiday = holidayRunning(now);
+    var event = !holiday && bandRunning(CFG.event, now);
+    var businessOn = !!(CFG.business || {}).enabled && !holiday && !event;
+
+    [].forEach.call(document.querySelectorAll('[data-requires="holiday"]'), function (el) {
+      el.hidden = !holiday;
+    });
     [].forEach.call(document.querySelectorAll('[data-requires="event"]'), function (el) {
-      el.hidden = !live;
+      el.hidden = !event;
     });
     [].forEach.call(document.querySelectorAll('.announce[data-requires="business"]'), function (el) {
-      el.hidden = !businessOn || live;
+      el.hidden = !businessOn;
     });
   }
 
@@ -3266,6 +3319,27 @@
         timeZone: 'Europe/Berlin', weekday: 'long', day: 'numeric', month: 'long'
       }).format(new Date(ms));
     } catch (e) { return berlinDayOf(ms); }
+  }
+
+  /* A calendar date in the reader's own language and without a weekday: a band
+     names days, not appointments, and "Mittwoch, 9. September" in a sentence
+     that already carries two more dates reads as a timetable. Parsed at midday
+     UTC and formatted in UTC so that no timezone can shift it onto the day
+     before — the value is a calendar date, not a moment. */
+  function dayMonth(iso) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ''))) return '';
+    try {
+      return new Intl.DateTimeFormat(DATE_LOCALE[lang()], {
+        timeZone: 'UTC', day: 'numeric', month: 'long'
+      }).format(new Date(iso + 'T12:00:00Z'));
+    } catch (e) { return iso; }
+  }
+
+  /* The day before an exclusive end date. Midday UTC again, so a month or a
+     year boundary is arithmetic and not a special case. */
+  function dayBefore(iso) {
+    var ms = Date.parse(String(iso || '') + 'T12:00:00Z');
+    return isNaN(ms) ? '' : new Date(ms - 86400000).toISOString().slice(0, 10);
   }
 
   var OFF_REASON = {
@@ -3502,7 +3576,7 @@
          while the basket had already gone back to the standing shift — a note
          contradicting the button, which is the one thing it must not do. */
       renderExtensionNote();
-      renderEventBand();
+      renderBands();
     }, 60000);
   }
 

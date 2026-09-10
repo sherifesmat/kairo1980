@@ -97,6 +97,19 @@ window.KAIRO_CONFIG = {
     ringDistanceKm: 2
   },
 
+  /* --- A holiday is NOT here ----------------------------------------------
+     The fortnight the restaurant is away is set at /admin, not in this file,
+     and this note exists because this is the first place anyone will look for
+     it. A holiday is the restaurant's own calendar: it is decided on a phone
+     in August, it has to be announced the day it is decided, and a date that
+     needs a developer and a deploy is a date that ends up on the site a week
+     after the shop has reopened.
+
+     So it lives beside the ordering switch in `settings` — see the block in
+     worker/settings.js — and reaches the page in the live island, exactly as
+     the hours do. The band itself is the markup in index.html and
+     firmencatering.html marked `data-requires="holiday"`. */
+
   /* --- Business / corporate catering ------------------------------------ */
   business: {
     // Shows or hides the whole "Firmenbestellungen" section, its nav link

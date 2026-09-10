@@ -228,6 +228,15 @@ are only the no-JavaScript fallback — update both or neither.
   the browser and at `/api/payments`, which applies the same comparison rather
   than trusting the browser's verdict. Blocking the basket outright was the
   first version and it was wrong — it broke the rule directly above it.
+- **A holiday is announced from `/admin`, and it announces nothing else.** Two
+  dates put the band on `/` and `/firmencatering` in three languages; `until`
+  is EXCLUSIVE and is the day we are back, so the last day closed is derived
+  and cannot be a day out. It is up from the moment it is saved — a warning
+  that arrives on the first morning of an absence has missed everyone it was
+  for — and comes down by being read against the clock, like the closure and
+  the extension. It does NOT stop the till: that is the ordering switch, which
+  the same card offers as its own tap. There is no holiday in `config.js` on
+  purpose; a date that needs a deploy reaches the site a week late.
 - **A closure always carries its own end.** By default midnight tonight; a date
   set at `/admin` overrides it. It expires by being read against the clock, so
   nothing has to run for it to lift. The failure being guarded is not a shop

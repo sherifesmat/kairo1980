@@ -81,6 +81,30 @@ otherwise fall through to the 404 asset; `worker/index.js` claims it explicitly.
 | `/admin` | The list. |
 | `/admin/orders` | Settled payments for a day, and — highlighted — every paid order that never reached the chat. Never a name, phone number or address: those never reach this server. |
 
+## The holiday band
+
+Two dates on the dashboard put a band across the top of the homepage and of
+`/firmencatering`, in all three languages: *closed from the 9th to the 18th,
+back on the 19th*. `Back on` is the day the shop reopens, not the last day
+closed — the last day closed is derived from it, so the dashboard and the
+website cannot name different days.
+
+It goes up the moment it is saved and comes down by itself on the morning you
+are back. Nothing has to run and nothing has to be undone; a band nobody
+remembers to remove is exactly the failure this shape avoids.
+
+**It announces; it does not close.** The till is the switch at the top of the
+same page, and while a holiday is announced with orders still running, the card
+says so and offers one tap to stop them until the day you are back. Two facts,
+kept apart deliberately: a kitchen away for a fortnight still wants its band up
+the evening before it reopens, and a shop closed for a burst pipe wants no band
+at all.
+
+A pair of dates that cannot be true — back before you left, back in the past,
+or a stay over 90 days — is refused whole and nothing is announced. Announcing
+a closure is the most expensive sentence this site can publish, so a typo is
+never repaired into something plausible.
+
 ## What it is not
 
 `/api/reports/settlement` is unchanged and still answers to

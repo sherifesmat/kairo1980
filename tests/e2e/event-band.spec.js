@@ -32,6 +32,12 @@ async function berlinToday(page) {
 async function setWindow(page, from, until) {
   await page.evaluate(([f, u]) => {
     window.KAIRO_CONFIG.event = { enabled: true, from: f, until: u, ringDistanceKm: 2 };
+    /* A holiday outranks a festival, and the restaurant may well have one
+       announced the day this runs — it arrives from /admin in the live island
+       and is put on the config at boot. These tests are about the festival
+       band, so it is cleared for them; the ranking itself is under test in
+       holiday-band.spec.js. */
+    window.KAIRO_CONFIG.holiday = null;
     document.dispatchEvent(new CustomEvent('kairo:lang',
       { detail: document.documentElement.lang }));
   }, [from, until]);
@@ -83,6 +89,7 @@ test('switched off in config, nothing appears whatever the date', async ({ page 
 
   await page.evaluate((t) => {
     window.KAIRO_CONFIG.event = { enabled: false, from: t, until: '2099-01-01', ringDistanceKm: 2 };
+    window.KAIRO_CONFIG.holiday = null;
     document.dispatchEvent(new CustomEvent('kairo:lang',
       { detail: document.documentElement.lang }));
   }, today);

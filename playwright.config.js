@@ -7,9 +7,10 @@ import { defineConfig, devices } from '@playwright/test';
 
 const PORT = 8788;
 
-/* Specs that write settings shared by the whole run — see the `switch` project
-   below for why they are kept out of everything else. */
-const SHARED_STATE = /ordering-switch\.spec\.js/;
+/* Specs that write settings shared by the whole run — the ordering switch, the
+   hours and the holiday band are all one row in one database. See the `switch`
+   project below for why they are kept out of everything else. */
+const SHARED_STATE = /(ordering-switch|holiday-band)\.spec\.js/;
 
 export default defineConfig({
   testDir: './tests/e2e',

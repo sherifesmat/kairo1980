@@ -26,13 +26,14 @@
    a closing time it could have asked for. */
 
 import { CONFIG } from './site-data.js';
-import { nextMidnight, nextTimeOfDay, instantOf } from './berlin.js';
+import { dayOf, nextMidnight, nextTimeOfDay, instantOf } from './berlin.js';
 
 const ORDERING = 'ordering';
 const HOURS = 'hours';
 const SOLDOUT = 'soldout';
 const EXTENSION = 'extension';
 const SHIFT = 'shift';
+const HOLIDAY = 'holiday';
 
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -69,6 +70,7 @@ export async function readSettings(env) {
       soldOut: {},
       extension: null,
       deliveryShift: null,
+      holiday: null,
       hoursVersion: '0',
       soldOutVersion: '0'
     };
@@ -108,6 +110,11 @@ export async function readSettings(env) {
        earlier because somebody is free, later because nobody is yet. Same
        reasoning as the extension, and equally never published. */
     deliveryShift: normaliseDeliveryShift(raw[SHIFT]),
+    /* Weeks, not a night: the fortnight the restaurant is away. Unlike the two
+       above it is announced to guests rather than merely obeyed, and unlike
+       them it is set days in advance — but it is the same shape underneath,
+       and it lapses the same way. */
+    holiday: normaliseHoliday(raw[HOLIDAY]),
     // So the admin page can say which of the two is in effect without guessing.
     hoursAreCustom: !!custom,
     /* When the hours last changed. The pages that state opening hours in their
@@ -509,5 +516,79 @@ export async function setDeliveryShift(env, from, until) {
 /** Back to the standing delivery time, now. */
 export async function clearDeliveryShift(env) {
   await env.DB.prepare('DELETE FROM settings WHERE key = ?1').bind(SHIFT).run();
+  forgetCache(env);
+}
+
+
+/* --- the fortnight the restaurant is away ----------------------------------
+   The band on the homepage that says we are on holiday, and the two dates it
+   prints. It is set from /admin because it is the restaurant's own calendar:
+   asking a developer to deploy a date is exactly how a site ends up announcing
+   a holiday that finished a week ago.
+
+   THIS ANNOUNCES; IT DOES NOT CLOSE. Stopping the till is the ordering switch,
+   which the same page already carries and which the server reads before it
+   takes a payment. Two facts, deliberately: a kitchen away for a fortnight
+   still wants the band up on the day it reopens' eve, and a closure set for a
+   flood has no band at all. The admin page puts them next to each other and
+   says which is which, rather than tying one to the other and being wrong
+   half the time.
+
+   IT IS UP FROM THE MOMENT IT IS SAVED, and comes down on the day we are back.
+   That is one rule instead of two, and it puts the choice where it belongs:
+   the restaurant announces a holiday when it wants it announced, by saving it
+   then. The copy reads the same before and during — "closed from the 9th to
+   the 18th, back on the 19th" is as true in August as it is on the 12th.
+
+   `until` is EXCLUSIVE and is the day we are BACK. The last day closed is
+   never stored: the band derives it, so the two cannot be a day apart.
+
+   It expires by being READ AGAINST THE CLOCK, like everything else here.
+   Nothing has to run, nobody has to remember, and a band left up over a
+   fortnight comes down by itself on the morning the shop reopens — which is
+   the one morning a "we are away" sign costs a whole day of orders. */
+
+/* Long enough for a summer closing, short enough that a mistyped year is
+   refused rather than announced for eleven months. */
+const HOLIDAY_MAX_DAYS = 90;
+const DAY_MS = 86400000;
+
+/* Exported for the tests, which have to be able to ask what this says on a
+   day that is not today — the whole point of it is what it answers on the
+   morning we are back. */
+export function normaliseHoliday(value, today = dayOf()) {
+  if (!value) return null;
+  const from = String(value.from || '');
+  const until = String(value.until || '');
+  if (!DATE.test(from) || !DATE.test(until) || until <= from) return null;
+  // Already over is the same as never set. Both are Berlin calendar dates, so
+  // this is a string comparison and no timezone can move it a day.
+  if (until <= today) return null;
+  return { from, until };
+}
+
+/** Announce a holiday: closed from `from`, back on `until` (both
+ *  'YYYY-MM-DD', `until` exclusive).
+ *
+ *  A date that is not a date, a pair the wrong way round, an end already past
+ *  or a stay longer than three months REFUSES THE WHOLE SAVE and returns null.
+ *  The alternative is a band that publishes something nobody typed — and this
+ *  one tells every guest the restaurant is shut. */
+export async function setHoliday(env, from, until, today = dayOf()) {
+  const a = String(from || '').trim();
+  const b = String(until || '').trim();
+  if (!DATE.test(a) || !DATE.test(b) || b <= a || b <= today) return null;
+
+  const span = (Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / DAY_MS;
+  if (!Number.isFinite(span) || span > HOLIDAY_MAX_DAYS) return null;
+
+  const value = { from: a, until: b };
+  await put(env, HOLIDAY, value);
+  return normaliseHoliday(value, today);
+}
+
+/** Take the band down now — the holiday is off, or it is over early. */
+export async function clearHoliday(env) {
+  await env.DB.prepare('DELETE FROM settings WHERE key = ?1').bind(HOLIDAY).run();
   forgetCache(env);
 }

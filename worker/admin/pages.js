@@ -142,11 +142,13 @@ const SWITCH_CSS = `
     card. They keep SEPARATE class names because a page with two identical
     hooks is a page where a test — or a person reading the markup — cannot say
     which form they are looking at. */
- .extend,.shift{background:#fff;border:1px solid #e6dcc9;padding:12px 14px;margin:0 0 14px}
- .extend.on,.shift.on{border-color:#bcd8b0;background:#eef6ea}
- .extend .lead,.shift .lead{margin:0 0 6px;font-size:15px;color:#31601f}
- .extend .hint,.shift .hint{font-size:12.5px;color:#7a6030;margin:6px 0 0;line-height:1.5}
- .extend .cap,.shift .cap{font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+ .extend,.shift,.holiday{background:#fff;border:1px solid #e6dcc9;padding:12px 14px;margin:0 0 14px}
+ .extend.on,.shift.on,.holiday.on{border-color:#bcd8b0;background:#eef6ea}
+ .extend .lead,.shift .lead,.holiday .lead{margin:0 0 6px;font-size:15px;color:#31601f}
+ .extend .hint,.shift .hint,.holiday .hint{font-size:12.5px;color:#7a6030;margin:6px 0 0;line-height:1.5}
+ .holiday .msg.bad{margin:0 0 8px;font-size:13.5px;color:#a03509}
+ .holiday form{margin-top:10px}
+ .extend .cap,.shift .cap,.holiday .cap{font-size:11px;letter-spacing:.08em;text-transform:uppercase;
               color:#7a6030;margin:0 0 8px}
 
  .alertbox{background:#fff;border:1px solid #e6dcc9;padding:12px 14px;margin:0 0 14px}
@@ -267,6 +269,27 @@ function todayLine(hours) {
   };
 }
 
+/** "Wednesday 9 September", from 'YYYY-MM-DD'. Read at midday UTC and printed
+ *  in UTC: the value is a calendar date, not a moment, and formatting it in a
+ *  timezone is how it arrives on the screen as the day before. */
+function dateWords(iso) {
+  try {
+    return new Date(iso + 'T12:00:00Z').toLocaleDateString('en-GB', {
+      timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long'
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/** The last day closed: the day before the day we are back. Derived here and
+ *  in the band from the same one stored date, so the dashboard cannot say the
+ *  18th while the website says the 17th. */
+function dayBefore(iso) {
+  const ms = Date.parse(iso + 'T12:00:00Z');
+  return Number.isFinite(ms) ? new Date(ms - 86400000).toISOString().slice(0, 10) : iso;
+}
+
 /* The dashboard leads with the switch rather than a menu of pages, because the
    reason this page gets opened in a hurry is always the switch. */
 /** "01:00", in the restaurant's own clock. */
@@ -280,7 +303,7 @@ function untilClock(iso) {
   }
 }
 
-export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extension, deliveryShift, alert, alertError }) {
+export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extension, deliveryShift, holiday, holidayError, alert, alertError }) {
   const closed = !ordering.open;
   const resumesAt = closed ? Date.parse(ordering.resumesAt) : null;
   const today = todayLine(hours);
@@ -417,6 +440,51 @@ export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extensio
         deliveries sooner, a later one holds them back. Today only; the times on
         the website do not change.</p>
       </details>
+    </form>`}
+</div>
+
+<!-- Away for a few days. Not "what is true right now" like the three blocks
+     above, but the same shape underneath: two dates, its own end, and no edit
+     to the week — so it sits with them rather than under a tile of its own.
+
+     It ANNOUNCES; it does not close. The till is the switch at the top of this
+     page, and the line below says so in as many words, because a band that
+     silently stopped orders would be the one thing on this page nobody could
+     undo without understanding it. -->
+<div class="holiday ${holiday ? 'on' : ''}">
+  ${holidayError ? `<p class="msg bad"><b>Not saved.</b> ${esc(holidayError)}</p>` : ''}
+  ${holiday ? `<p class="lead">On the website now: closed
+      <b>${esc(dateWords(holiday.from))}</b> to <b>${esc(dateWords(dayBefore(holiday.until)))}</b>,
+      back <b>${esc(dateWords(holiday.until))}</b>.</p>
+    <p class="hint">The band comes down on its own that morning — nothing to come
+    back and undo. The opening hours on the website are unchanged.</p>
+    ${ordering.open ? `<p class="hint"><b>Orders are still being taken</b> for those
+      days. The band tells guests; it does not stop the till.</p>
+      <form method="post" action="/admin/ordering">
+        <input type="hidden" name="open" value="0">
+        <input type="hidden" name="reason" value="holiday">
+        <input type="hidden" name="untilDate" value="${esc(holiday.until)}">
+        <button class="stop wide" type="submit">Also stop taking orders until then</button>
+      </form>` : ''}
+    <form method="post" action="/admin/holiday">
+      <button class="go2" name="mode" value="clear" type="submit">Take the holiday band down</button>
+    </form>`
+  : `<p class="cap">Away for a few days?</p>
+    <form method="post" action="/admin/holiday">
+      <div class="row">
+        <div class="grow">
+          <label for="holFrom">First day closed</label>
+          <input id="holFrom" name="from" type="date" required>
+        </div>
+        <div class="grow">
+          <label for="holUntil">Back on</label>
+          <input id="holUntil" name="until" type="date" required>
+        </div>
+      </div>
+      <button class="stop wide" name="mode" value="set" type="submit">Put the holiday band up</button>
+      <p class="hint">A band appears on the website straight away, in all three
+      languages, and disappears by itself on the morning you are back. It does
+      not stop orders — use the switch at the top of this page for that.</p>
     </form>`}
 </div>
 

@@ -133,6 +133,26 @@
 </nav>
 
 <main>
+<!-- The holiday band. Hidden in the markup and revealed by JS for the same
+     reason the festival band below it is: it names specific days, and a
+     "we are away" that outlives the holiday turns away a guest standing in
+     front of an open shop. No clock, no band.
+
+     The three dates are filled from config.js -> holiday by applyConfig(), and
+     only two of them are stored: the last closed day is derived from `until`,
+     which is the day we are back, so the two can never disagree. The literals
+     below are the no-JavaScript fallback and nothing else.
+
+     Not a link: it asks for nothing and there is nowhere useful to send a
+     reader who has just been told the kitchen is shut. -->
+<div class="announce announce-holiday" data-requires="holiday" hidden>
+  <span class="announce-tag t" data-de="Urlaub" data-en="Holiday" data-ar="إجازة">Urlaub</span>
+  <span class="announce-text t"
+        data-de="KAIRO 1980 macht Urlaub — vom {holidayFrom} bis {holidayTo} bleibt die Küche geschlossen. Ab {holidayBack} sind wir wieder für Sie da."
+        data-en="KAIRO 1980 is on holiday — the kitchen is closed from {holidayFrom} to {holidayTo}. We are back for you on {holidayBack}."
+        data-ar="KAIRO 1980 في إجازة — المطبخ مقفول من {holidayFrom} لغاية {holidayTo}. راجعين نستقبلكم يوم {holidayBack}.">KAIRO 1980 macht Urlaub — vom 9. September bis 18. September bleibt die Küche geschlossen. Ab 19. September sind wir wieder für Sie da.</span>
+</div>
+
 <section id="firmencatering" class="business">
   <div class="business-inner">
     <span class="menu-eyebrow t" data-de="Für Unternehmen" data-en="For companies" data-ar="للشركات">Für Unternehmen</span>
