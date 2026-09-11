@@ -644,9 +644,13 @@ test('a holiday is published as special hours, and never as the week', async () 
 
 /* --- the two facts, joined -------------------------------------------------
    A holiday announces and the switch closes, and for a while nothing asked
-   both. The switch's default is midnight tonight — right for a closure, and
-   wrong every single night of a fortnight away: it lapsed at midnight and the
-   till opened at breakfast, on a morning with nobody in the building.
+   both. The band went up for a fortnight, the switch was left alone, the till
+   sold straight through the absence, and an order arrived on the third morning
+   for a kitchen with nobody in it.
+
+   Closing the switch by hand would not have saved it either, which is the
+   second test below: with no end named it runs to midnight tonight — right for
+   a closure, and a nightly reopening across a fortnight away.
 
    These are the cases that cost the order. ------------------------------- */
 
@@ -670,9 +674,10 @@ test('a closure that lapses at midnight cannot shorten the holiday — COSTS MON
   const { orderingNow, normaliseHoliday } = await import('../../worker/settings.js');
   const holiday = normaliseHoliday({ from: '2026-09-09', until: '2026-09-19' }, '2026-09-11');
 
-  /* Exactly what was live on the morning this was found: somebody tapped the
-     plain stop switch, which names no end, so it ran to midnight tonight —
-     with eight days of the holiday still to go. */
+  /* The workaround, and why it is not one. Closing the till by hand is what a
+     restaurant reaches for on discovering the band did not — but the plain
+     stop switch names no end, so it runs to midnight tonight, with eight days
+     of the holiday still to go. */
   const tonight = Date.parse('2026-09-11T09:00:00Z');
   assert.equal(orderingNow({
     ordering: {
@@ -683,8 +688,9 @@ test('a closure that lapses at midnight cannot shorten the holiday — COSTS MON
   }, tonight).open, false, 'closed either way, while both are on');
 
   /* And tomorrow morning, after the switch has let go by itself. readSettings
-     reports it as open again from that moment — which is right for a closure
-     and was, on its own, a shop taking orders with nobody in the building. */
+     reports it as open again from that moment — right for a closure, and on
+     its own a shop taking orders with nobody in the building, every morning
+     until somebody thinks to close it again from wherever they are. */
   const tomorrow = Date.parse('2026-09-12T09:00:00Z');
   const after = orderingNow({
     ordering: { open: true, reason: null, resumesAt: null },

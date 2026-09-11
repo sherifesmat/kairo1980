@@ -599,14 +599,18 @@ export async function clearHoliday(env) {
    now only one of them was ever asked: the switch. The holiday announced, and
    the shop kept selling.
 
-   The switch's own safety rule is what made that expensive. It is the right
-   rule — a closure with no end named runs to midnight tonight, because the
-   failure worth guarding against is a Tuesday lunchtime spent wondering why
-   nobody is ordering. But a kitchen away for ten days is the one case where
-   "back tomorrow" is wrong every single night: the closure lapsed at midnight,
-   the till opened at breakfast, and an order arrived for a shop with nobody in
-   it. That happened, on 11 September 2026, on the third morning of a holiday
-   that had been announced correctly and stopped nothing.
+   The restaurant put the band up for 9-19 September, left the switch alone —
+   the card said in as many words that the band did not stop orders, and
+   announcing a fortnight away is not something anyone expects to have to say
+   twice — and an order arrived on the morning of the 11th, for a kitchen with
+   nobody in it. That happened. The till had been open the whole time.
+
+   Closing the switch by hand is the workaround, and it is a second trap rather
+   than a fix: a closure with no end named runs to midnight tonight. That
+   default is right — the failure it guards against is a Tuesday lunchtime
+   spent wondering why nobody is ordering — but across a fortnight away it
+   lapses every night and reopens the till every morning. So the holiday cannot
+   be something a person remembers to enforce; it has to enforce itself.
 
    So the holiday now answers for its own days too, and the two are resolved
    into ONE verdict here rather than at each of the places that ask. Whichever

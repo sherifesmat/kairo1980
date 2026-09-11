@@ -448,11 +448,15 @@ export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extensio
      to the week — so it sits with them rather than under a tile of its own.
 
      It announces AND, on the days it covers, it stops the till. It did not,
-     once: the band went up, the switch at the top of this page was tapped
-     without an end named, it lapsed at midnight, and orders arrived on the
-     third morning of a holiday for a shop with nobody in it. The two dates
-     already say which days those are, and nothing else on this page had to be
-     remembered for them to mean it.
+     once: this card said "orders are still being taken" and offered the switch
+     as a separate tap, the switch was left alone, and an order arrived on the
+     third morning of a fortnight away for a shop with nobody in it. The two
+     dates already say which days those are, and nothing else on this page has
+     to be remembered for them to mean it.
+
+     Nor could the switch have covered it by hand: with no end named it runs to
+     midnight tonight, which is right for a closure and lapses every night of a
+     holiday.
 
      Days BEFORE the first one are untouched, which is why the card says which
      of the two it is doing. A holiday saved a fortnight early must not stop

@@ -247,12 +247,15 @@ are only the no-JavaScript fallback — update both or neither.
   It withholds a MOMENT, not the order, exactly as the closure does: a guest
   ordering ahead for the evening we reopen goes through untouched, and that is
   the most valuable order the site takes all fortnight.
-  It used to announce and nothing more. The band went up, the till kept
-  selling, and the switch — tapped with no end named, so it ran to midnight as
-  it is supposed to — lapsed every night and reopened the shop every morning of
-  the absence. An order arrived on the third morning, for a kitchen with nobody
-  in it, on 11 September 2026. The dates already said which days those were;
-  nothing asked them.
+  It used to announce and nothing more. The band went up for 9-19 September
+  2026, the switch was left alone — `/admin` said in as many words that the
+  band did not stop orders — and the till sold through the absence until an
+  order arrived on the morning of the 11th, for a kitchen with nobody in it.
+  The dates already said which days those were; nothing asked them. The switch
+  was no workaround either: with no end named it runs to midnight tonight,
+  which is right for a closure and lapses every night of a fortnight, so
+  enforcing a holiday by hand means re-closing the till every morning from
+  wherever you are.
   The same two dates are published as `specialOpeningHoursSpecification` —
   `opens` and `closes` both `00:00`, `validThrough` the last day closed — which
   is the ONE place a date may touch the structured data. `openingHoursSpecification`

@@ -118,11 +118,13 @@
   /* And when the HOLIDAY ends, which is the other thing that can stop the
      till and was for a while the only one that could not.
 
-     The switch defaults to midnight tonight and that default is right: a shop
-     closed by accident on a Saturday must be open again on Tuesday. But a
-     kitchen away for ten days is the case it gets wrong every single night —
-     the closure lapsed at midnight, the till opened at breakfast, and orders
-     arrived for a shop with nobody in it.
+     The band went up for a fortnight, the switch was left alone — the admin
+     card said the band did not stop orders — and the till sold through the
+     absence until an order arrived for an empty kitchen.
+
+     Closing the switch by hand is not the fix either: with no end named it
+     runs to midnight tonight, which is right for a closure and lapses every
+     night of a fortnight. The dates have to enforce themselves.
 
      Nothing before `from` is withheld. The band goes up the moment the dates
      are saved, usually a fortnight early, and those are days the restaurant is

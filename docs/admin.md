@@ -99,10 +99,14 @@ morning you are back, in the browser and at `/api/payments` both, and they
 start again by themselves.
 
 It did not always. The band and the till were two facts and the routes asked
-only one, so a holiday announced correctly went on selling; the switch at the
-top of the page was tapped without an end named, ran to midnight as it is
-supposed to, lapsed — and orders arrived on the third morning away for a shop
-with nobody in it. The two dates already said which days those were.
+only one, so a holiday announced correctly went on selling for the whole
+absence — and an order arrived on the third morning away, for a shop with
+nobody in it. The two dates already said which days those were.
+
+Nor was the switch a workaround. Closed by hand with no end named it runs to
+midnight tonight, which is right for a closure and lapses every night of a
+fortnight, reopening the till each morning. A holiday cannot be something
+somebody remembers to re-enforce daily from wherever they are.
 
 **Days before the first one are untouched.** The band is meant to go up weeks
 ahead, and those weeks are open for business. The card says which of the two it
