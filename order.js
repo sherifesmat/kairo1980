@@ -74,7 +74,17 @@
       out.deliveryShift = data.deliveryShift || null;
       out.holiday = data.holiday || null;
       if (data.ordering && data.ordering.open === false) {
-        out.ordering = { open: false, resumesAt: data.ordering.resumesAt || null };
+        /* The WHOLE verdict. `reason` and `namedEnd` were dropped here, which
+           made orderingNotice() unable to say either why we had stopped or
+           when we were back: every closure read "we are not taking orders,
+           please look again later", however carefully the restaurant had
+           filled the form in. */
+        out.ordering = {
+          open: false,
+          resumesAt: data.ordering.resumesAt || null,
+          reason: data.ordering.reason || null,
+          namedEnd: data.ordering.namedEnd === true
+        };
       }
     } catch (e) { /* the defaults are a complete answer */ }
     return out;
@@ -85,19 +95,73 @@
      yesterday evening start taking orders again by itself at midnight, with
      no reload and nothing to switch back. */
   function orderingOpen() {
-    if (LIVE.ordering.open) return true;
-    var at = Date.parse(LIVE.ordering.resumesAt || '');
-    return isFinite(at) && Date.now() >= at;
+    if (!LIVE.ordering.open) {
+      var at = Date.parse(LIVE.ordering.resumesAt || '');
+      if (!isFinite(at) || Date.now() < at) return false;
+    }
+    return !holidayEnds();
   }
 
-  /* When the closure ends, as a day and a minute in Hockenheim — the same two
-     values every other time comparison in this file uses, so no instant
-     arithmetic and no timezone to get wrong. */
-  function closureEnds() {
-    if (orderingOpen()) return null;
+  /* When the /admin switch ends, as a day and a minute in Hockenheim — the
+     same two values every other time comparison in this file uses, so no
+     instant arithmetic and no timezone to get wrong. */
+  function switchEnds() {
+    if (LIVE.ordering.open) return null;
     var at = Date.parse(LIVE.ordering.resumesAt || '');
-    if (!isFinite(at)) return null;
-    return { iso: berlinDayOf(at), minutes: hhmm(berlinClock(at)), at: at };
+    if (!isFinite(at) || Date.now() >= at) return null;
+    return {
+      iso: berlinDayOf(at), minutes: hhmm(berlinClock(at)), at: at,
+      reason: LIVE.ordering.reason, namedEnd: LIVE.ordering.namedEnd
+    };
+  }
+
+  /* And when the HOLIDAY ends, which is the other thing that can stop the
+     till and was for a while the only one that could not.
+
+     The switch defaults to midnight tonight and that default is right: a shop
+     closed by accident on a Saturday must be open again on Tuesday. But a
+     kitchen away for ten days is the case it gets wrong every single night —
+     the closure lapsed at midnight, the till opened at breakfast, and orders
+     arrived for a shop with nobody in it.
+
+     Nothing before `from` is withheld. The band goes up the moment the dates
+     are saved, usually a fortnight early, and those are days the restaurant is
+     open and selling — which is exactly why announcing and closing stayed two
+     facts, and why they are joined here rather than merged at the source.
+
+     Read against the clock like everything else: a tab open across the morning
+     we are back starts taking orders again on the next tick, and one open
+     across the first night away stops. */
+  function holidayEnds() {
+    var h = CFG.holiday;
+    if (!h || !h.from || !h.until) return null;
+    var today = (berlinNow() || {}).iso;
+    if (!today || today < h.from || today >= h.until) return null;
+    return {
+      iso: h.until,
+      minutes: 0,
+      /* Midday UTC on the day we are back. Used for FORMATTING only — the
+         comparison above is day-against-day, so no offset can move it — and
+         midday is the hour no timezone can push onto the day before. */
+      at: Date.parse(h.until + 'T12:00:00Z'),
+      reason: 'holiday',
+      /* Always: the day we are back is a date somebody typed, so the guest is
+         told "back on Saturday the 19th", never "try again later". */
+      namedEnd: true
+    };
+  }
+
+  /* One verdict from the two. Whichever reaches further wins — a closure
+     through the weekend after a holiday ending on Friday is still a closure
+     through the weekend, and a holiday still shuts the days a closure set for
+     tonight cannot reach. Neither may shorten the other. */
+  function closureEnds() {
+    var off = switchEnds();
+    var away = holidayEnds();
+    if (!off) return away;
+    if (!away) return off;
+    return (away.iso > off.iso || (away.iso === off.iso && away.minutes > off.minutes))
+      ? away : off;
   }
 
   /* Is the moment the guest has actually chosen inside the closure?
@@ -1029,6 +1093,18 @@
        badge — it is the one thing on the page a guest checks before ordering. */
     var open = slotAt(now.iso, now.minutes);
     if (open && now.minutes >= hhmm(open.to)) open = null;
+
+    /* The till outranks the door, in both directions. A badge reading "open
+       now" above a send button that refuses is the contradiction the comment
+       above calls worse than no badge — and during a holiday the alternative
+       branch is worse still, because "opens again Wednesday 11:00" names a day
+       the restaurant is away. When ordering is off the badge says so and stops;
+       when we are back is the next line down, in a whole sentence. */
+    if (!orderingOpen()) {
+      host.className = 'hours-status is-closed';
+      host.innerHTML = '<span class="hours-dot"></span>' + L.ordersOffShort;
+      return;
+    }
 
     if (open) {
       host.className = 'hours-status is-open';
@@ -3352,8 +3428,11 @@
   function orderingNotice() {
     if (orderingOpen()) return '';
     var L = t();
-    var off = LIVE.ordering;
-    var at = Date.parse(off.resumesAt || '');
+    /* Closed with no end anybody can read is not a shape the server produces —
+       normaliseOrdering() turns it back into "open" — but the notice is the
+       one thing that must still say something if it ever arrives. */
+    var off = closureEnds() || { reason: LIVE.ordering.reason, namedEnd: false, at: NaN };
+    var at = off.at;
 
     var why = L[OFF_REASON[off.reason]] || L.offNone;
 

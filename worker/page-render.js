@@ -28,6 +28,8 @@
    leaves the page exactly as it was found, which is the correct failure — a
    page stating last week's hours beats a page with its markup torn open. */
 
+import { orderingNow } from './settings.js';
+
 const DAYS = [
   ['mon', 'Montag', 'Monday', 'الاثنين'],
   ['tue', 'Dienstag', 'Tuesday', 'الثلاثاء'],
@@ -219,8 +221,13 @@ export function withLiveData(html, settings) {
   }</script>\n`;
   if (out.includes('</head>')) out = out.replace('</head>', island + '</head>');
 
-  // Lets CSS dim the order buttons before a line of script has run.
-  if (!ordering.open) {
+  /* Lets CSS dim the order buttons before a line of script has run — and it
+     asks the resolved verdict, not the switch, so a page served on a holiday
+     morning arrives already dimmed rather than waiting for order.js to notice
+     the second fact. The island still carries the two facts SEPARATELY: the
+     band is drawn from the dates, the till from the verdict, and merging them
+     there would leave one of the two unable to say what it is for. */
+  if (!orderingNow(settings).open) {
     out = out.replace(/<html(\s|>)/, '<html data-ordering="off"$1');
   }
 

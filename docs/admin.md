@@ -93,12 +93,27 @@ It goes up the moment it is saved and comes down by itself on the morning you
 are back. Nothing has to run and nothing has to be undone; a band nobody
 remembers to remove is exactly the failure this shape avoids.
 
-**It announces; it does not close.** The till is the switch at the top of the
-same page, and while a holiday is announced with orders still running, the card
-says so and offers one tap to stop them until the day you are back. Two facts,
-kept apart deliberately: a kitchen away for a fortnight still wants its band up
-the evening before it reopens, and a shop closed for a burst pipe wants no band
-at all.
+**It announces, and on the days it covers it also stops the till.** One save,
+nothing else to remember: orders are refused from the first day away until the
+morning you are back, in the browser and at `/api/payments` both, and they
+start again by themselves.
+
+It did not always. The band and the till were two facts and the routes asked
+only one, so a holiday announced correctly went on selling; the switch at the
+top of the page was tapped without an end named, ran to midnight as it is
+supposed to, lapsed — and orders arrived on the third morning away for a shop
+with nobody in it. The two dates already said which days those were.
+
+**Days before the first one are untouched.** The band is meant to go up weeks
+ahead, and those weeks are open for business. The card says which of the two it
+is doing. To stop orders sooner, use the switch at the top of the page.
+
+**And a guest can still order ahead for the day you are back.** A holiday
+withholds a moment, not the order — that booking is the most valuable one the
+site takes all fortnight.
+
+The switch stays a separate control, because it is still the only one that fits
+a burst pipe: a shop closed for two hours wants no band at all.
 
 The same two dates are also published in the page's structured data as
 `specialOpeningHoursSpecification`, so a crawler that never renders the band

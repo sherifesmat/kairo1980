@@ -17,7 +17,7 @@ import * as store from './payments/store.js';
 import { providerFor, providerForMethod, availableMethods, publicKeys } from './payments/providers.js';
 import { ProviderError } from './payments/errors.js';
 import * as admin from './admin/index.js';
-import { readSettings } from './settings.js';
+import { readSettings, orderingNow } from './settings.js';
 import { withLiveData, liveETag } from './page-render.js';
 import { dayOf, timeOf, instantOf } from './berlin.js';
 import { sendOrderNotification, sendCashOrderNotification } from './notify.js';
@@ -132,7 +132,10 @@ async function route(request, env, ctx, url) {
 async function status(env) {
   const settings = await readSettings(env);
   return json({
-    ordering: settings.ordering,
+    /* The resolved verdict, not the switch on its own: a page that asked this
+       during a holiday was told the till was open, because the holiday was a
+       second fact nobody joined to the first. */
+    ordering: orderingNow(settings),
     hours: settings.hours
   });
 }
@@ -218,7 +221,7 @@ async function createPayment(request, env, url) {
      the body may name the moment it is for. That is a wish, not a price: the
      worst a false one buys is a prepaid order for a time the restaurant can
      read in the message and answer. */
-  const { ordering } = await readSettings(env);
+  const ordering = orderingNow(await readSettings(env));
   if (!ordering.open && !wantedAfterClosure(ordering.resumesAt, body.when)) {
     return fail(503, 'ordering_closed', 'The restaurant is not taking orders right now.');
   }
@@ -381,7 +384,7 @@ async function announceOrder(request, env, ctx) {
      ignoring it by design. The restaurant reads it and says no, as it would
      to a telephone call. What changes is that a closed kitchen is no longer
      told an order is real, and no longer has one in its books. */
-  const { ordering } = await readSettings(env);
+  const ordering = orderingNow(await readSettings(env));
   if (!ordering.open && !wantedAfterClosure(ordering.resumesAt, body.when)) {
     return fail(503, 'ordering_closed', 'The restaurant is not taking orders right now.');
   }

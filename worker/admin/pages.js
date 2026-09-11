@@ -303,7 +303,7 @@ function untilClock(iso) {
   }
 }
 
-export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extension, deliveryShift, holiday, holidayError, alert, alertError }) {
+export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extension, deliveryShift, holiday, away, holidayError, alert, alertError }) {
   const closed = !ordering.open;
   const resumesAt = closed ? Date.parse(ordering.resumesAt) : null;
   const today = todayLine(hours);
@@ -447,10 +447,16 @@ export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extensio
      above, but the same shape underneath: two dates, its own end, and no edit
      to the week — so it sits with them rather than under a tile of its own.
 
-     It ANNOUNCES; it does not close. The till is the switch at the top of this
-     page, and the line below says so in as many words, because a band that
-     silently stopped orders would be the one thing on this page nobody could
-     undo without understanding it. -->
+     It announces AND, on the days it covers, it stops the till. It did not,
+     once: the band went up, the switch at the top of this page was tapped
+     without an end named, it lapsed at midnight, and orders arrived on the
+     third morning of a holiday for a shop with nobody in it. The two dates
+     already say which days those are, and nothing else on this page had to be
+     remembered for them to mean it.
+
+     Days BEFORE the first one are untouched, which is why the card says which
+     of the two it is doing. A holiday saved a fortnight early must not stop
+     tonight's orders — that would be the same bug with the sign flipped. -->
 <div class="holiday ${holiday ? 'on' : ''}">
   ${holidayError ? `<p class="msg bad"><b>Not saved.</b> ${esc(holidayError)}</p>` : ''}
   ${holiday ? `<p class="lead">On the website now: closed
@@ -458,14 +464,13 @@ export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extensio
       back <b>${esc(dateWords(holiday.until))}</b>.</p>
     <p class="hint">The band comes down on its own that morning — nothing to come
     back and undo. The opening hours on the website are unchanged.</p>
-    ${ordering.open ? `<p class="hint"><b>Orders are still being taken</b> for those
-      days. The band tells guests; it does not stop the till.</p>
-      <form method="post" action="/admin/ordering">
-        <input type="hidden" name="open" value="0">
-        <input type="hidden" name="reason" value="holiday">
-        <input type="hidden" name="untilDate" value="${esc(holiday.until)}">
-        <button class="stop wide" type="submit">Also stop taking orders until then</button>
-      </form>` : ''}
+    ${away
+      ? `<p class="hint"><b>Orders are stopped</b> for those days, and start again
+        on the morning you are back. Nothing else to tap.</p>`
+      : `<p class="hint"><b>Orders carry on as normal</b> until
+        ${esc(dateWords(holiday.from))}, then stop by themselves for as long as
+        the band is up. To stop them sooner, use the switch at the top of this
+        page.</p>`}
     <form method="post" action="/admin/holiday">
       <button class="go2" name="mode" value="clear" type="submit">Take the holiday band down</button>
     </form>`
@@ -483,8 +488,11 @@ export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extensio
       </div>
       <button class="stop wide" name="mode" value="set" type="submit">Put the holiday band up</button>
       <p class="hint">A band appears on the website straight away, in all three
-      languages, and disappears by itself on the morning you are back. It does
-      not stop orders — use the switch at the top of this page for that.</p>
+      languages, and disappears by itself on the morning you are back. Orders
+      stop for the days you are away and start again by themselves — but they
+      carry on as normal until the first one, so you can put this up weeks
+      ahead. To stop orders before then, use the switch at the top of this
+      page.</p>
     </form>`}
 </div>
 

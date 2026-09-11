@@ -228,15 +228,31 @@ are only the no-JavaScript fallback — update both or neither.
   the browser and at `/api/payments`, which applies the same comparison rather
   than trusting the browser's verdict. Blocking the basket outright was the
   first version and it was wrong — it broke the rule directly above it.
-- **A holiday is announced from `/admin`, and it announces nothing else.** Two
-  dates put the band on `/` and `/firmencatering` in three languages; `until`
-  is EXCLUSIVE and is the day we are back, so the last day closed is derived
-  and cannot be a day out. It is up from the moment it is saved — a warning
-  that arrives on the first morning of an absence has missed everyone it was
-  for — and comes down by being read against the clock, like the closure and
-  the extension. It does NOT stop the till: that is the ordering switch, which
-  the same card offers as its own tap. There is no holiday in `config.js` on
-  purpose; a date that needs a deploy reaches the site a week late.
+- **A holiday is announced from `/admin`, and on the days it covers it also
+  closes the till.** Two dates put the band on `/` and `/firmencatering` in
+  three languages; `until` is EXCLUSIVE and is the day we are back, so the last
+  day closed is derived and cannot be a day out. It is up from the moment it is
+  saved — a warning that arrives on the first morning of an absence has missed
+  everyone it was for — and comes down by being read against the clock, like
+  the closure and the extension. There is no holiday in `config.js` on purpose;
+  a date that needs a deploy reaches the site a week late.
+  **It closes the till on its own days and on NO others**, which is why the
+  band and the switch are still two controls. Days before `from` are open for
+  business — the band is meant to go up weeks ahead — and a burst pipe wants a
+  closure with no band at all. The two are resolved into ONE verdict by
+  `orderingNow()` in `worker/settings.js` and `closureEnds()` in `order.js`, and
+  the later end always wins: neither may shorten the other. Everything that
+  asks whether an order may be taken asks that verdict — never
+  `settings.ordering`, which is one half of the answer.
+  It withholds a MOMENT, not the order, exactly as the closure does: a guest
+  ordering ahead for the evening we reopen goes through untouched, and that is
+  the most valuable order the site takes all fortnight.
+  It used to announce and nothing more. The band went up, the till kept
+  selling, and the switch — tapped with no end named, so it ran to midnight as
+  it is supposed to — lapsed every night and reopened the shop every morning of
+  the absence. An order arrived on the third morning, for a kitchen with nobody
+  in it, on 11 September 2026. The dates already said which days those were;
+  nothing asked them.
   The same two dates are published as `specialOpeningHoursSpecification` —
   `opens` and `closes` both `00:00`, `validThrough` the last day closed — which
   is the ONE place a date may touch the structured data. `openingHoursSpecification`

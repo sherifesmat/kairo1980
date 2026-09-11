@@ -570,6 +570,48 @@ test('a closed shop refuses a payment, however the request is made', async (t) =
   assert.equal(after.status, 201, 'and taking orders again the moment it is released');
 });
 
+test('a holiday refuses a payment too — COSTS MONEY', async (t) => {
+  const env = workerEnv(MENU, CREDS);
+  const paypal = fakePayPal({ '/v2/checkout/orders': () => orderResponse({}) });
+  t.after(() => paypal.restore());
+
+  const { cookie } = await signIn(env);
+
+  /* Announced for today, back in five days, and the ordering switch left
+     alone — which is what the /admin holiday card does on its own, and what
+     the restaurant did. The till went on taking orders for a shop with nobody
+     in it, because these were two facts and the routes only asked one. */
+  const from = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
+  const until = new Date(Date.now() + 5 * 86400000)
+    .toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
+  await worker.fetch(form('/admin/holiday',
+    { mode: 'set', from, until }, { cookie }), env, ctx());
+
+  const { ordering } = await (await worker.fetch(get('/api/status'), env, ctx())).json();
+  assert.equal(ordering.open, false, 'the page is told the truth');
+  assert.equal(ordering.reason, 'holiday');
+
+  const res = await worker.fetch(post('/api/payments', BASKET), env, ctx());
+  assert.equal(res.status, 503);
+  assert.equal((await res.json()).error.code, 'ordering_closed');
+
+  const announced = await worker.fetch(post('/api/orders/announce', {
+    ...BASKET, reference: 'ABC123'
+  }), env, ctx());
+  assert.equal(announced.status, 503, 'and a cash order is not recorded either');
+
+  /* But the day we are back is an ordinary order, and the most valuable one on
+     the site that fortnight. A holiday withholds a MOMENT, not the order. */
+  const back = await worker.fetch(post('/api/payments', {
+    ...BASKET, when: { date: until, time: '19:00' }
+  }), env, ctx());
+  assert.equal(back.status, 201, 'ordering ahead for the evening we reopen');
+
+  await worker.fetch(form('/admin/holiday', { mode: 'clear' }, { cookie }), env, ctx());
+  const after = await worker.fetch(post('/api/payments', BASKET), env, ctx());
+  assert.equal(after.status, 201, 'and the band coming down puts the till back');
+});
+
 test('closing always carries its own end, and the default is today', async (t) => {
   const env = workerEnv(MENU, CREDS);
   const paypal = fakePayPal({});

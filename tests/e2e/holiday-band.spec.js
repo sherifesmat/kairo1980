@@ -11,8 +11,10 @@
        repaired pair publishes a closure nobody typed;
      - the last day closed is derived from the day we are back, so the
        dashboard and the website cannot name different days;
-     - and it must NOT quietly stop the till, because a switch that does two
-       things is a switch nobody can undo without understanding it.
+     - it must stop the till on the days it covers and on NO others, because
+       the band goes up weeks early and those weeks are open for business;
+     - and stopping the till must not refuse the order that is still worth
+       having: the one placed now for the evening we are back.
 
    These write a settings row shared by the whole run, which is why this file
    lives in the `switch` project and runs serially. */
@@ -234,25 +236,37 @@ test('a holiday already over is refused, so a band can never go up expired', asy
   await expect(band(page)).toBeHidden();
 });
 
-test('the band announces, and the till is stopped separately', async ({ page }) => {
+test('a running holiday stops the till, with nothing else to tap', async ({ page }) => {
   await announce(page, berlinToday(), plusDays(6));
 
-  /* A band that quietly stopped orders would be the one control on this page
-     nobody could undo without understanding it — so the shop is still taking
-     orders, and the card says so and offers the switch as its own tap. */
-  await page.goto('/');
-  await expect(page.locator('html')).not.toHaveAttribute('data-ordering', 'off');
-
-  await goAdmin(page);
-  await expect(page.locator('.holiday.on')).toContainText('Orders are still being taken');
-  await page.locator('.holiday button.stop.wide').click();
-
-  // One tap later the till is shut until the day we are back, and the band is
-  // still up: two facts, both true, neither inferred from the other.
-  await expect(page.locator('.switch.off')).toBeVisible();
-  await expect(page.locator('.holiday.on')).toBeVisible();
-
+  /* The bug this replaced: the band went up, the till kept selling, and an
+     order arrived on the third morning away. The two dates already say which
+     days the kitchen is empty; nothing else had to be remembered. */
   await page.goto('/');
   await expect(page.locator('html')).toHaveAttribute('data-ordering', 'off');
   await expect(band(page)).toBeVisible();
+
+  // And the guest is told why and until when, not "please look again later".
+  const notice = page.locator('.order-off').first();
+  await expect(notice).toContainText('Betriebsferien');
+  await expect(notice).toContainText('wieder für Sie da');
+
+  /* The switch at the top of /admin is untouched — two facts, neither inferred
+     from the other, so releasing one does not release the other. */
+  await goAdmin(page);
+  await expect(page.locator('.switch.off')).toHaveCount(0);
+  await expect(page.locator('.holiday.on')).toContainText('Orders are stopped');
+});
+
+test('a holiday announced for later leaves tonight alone', async ({ page }) => {
+  /* The same bug with the sign flipped, and the more expensive of the two: a
+     band put up a fortnight early must not stop a fortnight of orders. */
+  await announce(page, plusDays(10), plusDays(17));
+
+  await page.goto('/');
+  await expect(band(page)).toBeVisible();
+  await expect(page.locator('html')).not.toHaveAttribute('data-ordering', 'off');
+
+  await goAdmin(page);
+  await expect(page.locator('.holiday.on')).toContainText('Orders carry on as normal');
 });

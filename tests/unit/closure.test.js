@@ -640,3 +640,163 @@ test('a holiday is published as special hours, and never as the week', async () 
   const back = schemaOf(withLiveData(markup, await readSettings(env)));
   assert.equal(back.specialOpeningHoursSpecification, undefined);
 });
+
+
+/* --- the two facts, joined -------------------------------------------------
+   A holiday announces and the switch closes, and for a while nothing asked
+   both. The switch's default is midnight tonight — right for a closure, and
+   wrong every single night of a fortnight away: it lapsed at midnight and the
+   till opened at breakfast, on a morning with nobody in the building.
+
+   These are the cases that cost the order. ------------------------------- */
+
+test('a holiday stops the till, even with the switch left open — COSTS MONEY', async () => {
+  const { orderingNow, normaliseHoliday } = await import('../../worker/settings.js');
+
+  const now = Date.parse('2026-09-11T09:00:00Z');       // third morning away
+  const settings = {
+    ordering: { open: true, reason: null, resumesAt: null },
+    holiday: normaliseHoliday({ from: '2026-09-09', until: '2026-09-19' }, '2026-09-11')
+  };
+
+  const verdict = orderingNow(settings, now);
+  assert.equal(verdict.open, false, 'the shop is empty; the till must not take an order');
+  assert.equal(verdict.reason, 'holiday');
+  assert.equal(verdict.namedEnd, true, 'the guest is told the day we are back');
+  assert.equal(berlin(Date.parse(verdict.resumesAt)), '2026-09-19 00:00:00');
+});
+
+test('a closure that lapses at midnight cannot shorten the holiday — COSTS MONEY', async () => {
+  const { orderingNow, normaliseHoliday } = await import('../../worker/settings.js');
+  const holiday = normaliseHoliday({ from: '2026-09-09', until: '2026-09-19' }, '2026-09-11');
+
+  /* Exactly what was live on the morning this was found: somebody tapped the
+     plain stop switch, which names no end, so it ran to midnight tonight —
+     with eight days of the holiday still to go. */
+  const tonight = Date.parse('2026-09-11T09:00:00Z');
+  assert.equal(orderingNow({
+    ordering: {
+      open: false, reason: null, namedEnd: false,
+      resumesAt: '2026-09-11T22:00:00.000Z'
+    },
+    holiday
+  }, tonight).open, false, 'closed either way, while both are on');
+
+  /* And tomorrow morning, after the switch has let go by itself. readSettings
+     reports it as open again from that moment — which is right for a closure
+     and was, on its own, a shop taking orders with nobody in the building. */
+  const tomorrow = Date.parse('2026-09-12T09:00:00Z');
+  const after = orderingNow({
+    ordering: { open: true, reason: null, resumesAt: null },
+    holiday: normaliseHoliday({ from: '2026-09-09', until: '2026-09-19' }, '2026-09-12')
+  }, tomorrow);
+
+  assert.equal(after.open, false, 'the holiday still has a week to run');
+  assert.equal(after.reason, 'holiday');
+  assert.equal(berlin(Date.parse(after.resumesAt)), '2026-09-19 00:00:00');
+});
+
+test('neither may shorten the other: the later end wins', async () => {
+  const { orderingNow, normaliseHoliday } = await import('../../worker/settings.js');
+
+  const now = Date.parse('2026-09-11T09:00:00Z');
+  const holiday = normaliseHoliday({ from: '2026-09-09', until: '2026-09-19' }, '2026-09-11');
+
+  /* A closure set to run past the holiday — the boiler is out and the kitchen
+     will not be back with the rest of us. The holiday must not release it. */
+  const beyond = orderingNow({
+    ordering: {
+      open: false, reason: 'emergency', namedEnd: true,
+      resumesAt: '2026-09-25T00:00:00.000Z'
+    },
+    holiday
+  }, now);
+  assert.equal(beyond.resumesAt, '2026-09-25T00:00:00.000Z');
+  assert.equal(beyond.reason, 'emergency', 'and it keeps its own reason');
+
+  // And the other way round: a closure ending inside the holiday defers to it.
+  const inside = orderingNow({
+    ordering: {
+      open: false, reason: 'demand', namedEnd: true,
+      resumesAt: '2026-09-14T00:00:00.000Z'
+    },
+    holiday
+  }, now);
+  assert.equal(berlin(Date.parse(inside.resumesAt)), '2026-09-19 00:00:00');
+  assert.equal(inside.reason, 'holiday');
+});
+
+test('an announced holiday that has not started yet withholds nothing', async () => {
+  const { orderingNow, normaliseHoliday } = await import('../../worker/settings.js');
+
+  /* The band goes up the moment the dates are saved, usually a fortnight
+     early. Those are days the restaurant is open and selling, and stopping the
+     till on them would cost more than the bug this fixes. */
+  const now = Date.parse('2026-09-01T12:00:00Z');
+  const verdict = orderingNow({
+    ordering: { open: true, reason: null, resumesAt: null },
+    holiday: normaliseHoliday({ from: '2026-09-09', until: '2026-09-19' }, '2026-09-01')
+  }, now);
+  assert.equal(verdict.open, true, 'announced is not away');
+});
+
+test('the till opens by itself on the morning we are back', async () => {
+  const { orderingNow, normaliseHoliday } = await import('../../worker/settings.js');
+
+  const back = Date.parse('2026-09-19T06:00:00Z');       // 08:00 in Hockenheim
+  const held = { from: '2026-09-09', until: '2026-09-19' };
+
+  // Already lapsed as a setting, and lapsed again as a verdict: neither needs
+  // anybody to come back and release it.
+  assert.equal(normaliseHoliday(held, '2026-09-19'), null);
+  assert.equal(orderingNow({
+    ordering: { open: true, reason: null, resumesAt: null }, holiday: held
+  }, back).open, true);
+});
+
+test('a guest may still order ahead for the day we reopen', async () => {
+  const { orderingNow, normaliseHoliday } = await import('../../worker/settings.js');
+
+  const now = Date.parse('2026-09-11T09:00:00Z');
+  const { resumesAt } = orderingNow({
+    ordering: { open: true, reason: null, resumesAt: null },
+    holiday: normaliseHoliday({ from: '2026-09-09', until: '2026-09-19' }, '2026-09-11')
+  }, now);
+
+  /* A holiday withholds a MOMENT, not the order — the same rule the closure
+     applies. Someone booking the evening we are back is the most valuable
+     order on the site that fortnight, and refusing it would be the second bug
+     written while fixing the first. */
+  assert.equal(wantedAfterClosure(resumesAt, { date: '2026-09-19', time: '18:30' }), true);
+  assert.equal(wantedAfterClosure(resumesAt, { date: '2026-09-18', time: '18:30' }), false);
+  assert.equal(wantedAfterClosure(resumesAt, null), false, 'and "as soon as possible" is not');
+});
+
+test('the page arrives already dimmed, before a line of script has run', async () => {
+  const { setHoliday, readSettings, forgetCache } = await import('../../worker/settings.js');
+  const { withLiveData } = await import('../../worker/page-render.js');
+  const env = { DB: freshDatabase() };
+
+  const markup = '<html><head></head><body>' +
+    '<script id="restaurantSchema" type="application/ld+json">{"@type":"Restaurant"}</script>' +
+    '<!--hours:start--><!--hours:end--></body></html>';
+
+  assert.ok(!withLiveData(markup, await readSettings(env)).includes('data-ordering="off"'),
+    'nothing announced, nothing dimmed');
+
+  // Away from today. The switch is untouched and still says open.
+  await setHoliday(env, dayOf(), dayOf(Date.now() + 5 * 86400000));
+  forgetCache(env);
+  const settings = await readSettings(env);
+  assert.equal(settings.ordering.open, true, 'the switch itself is not moved by a band');
+
+  const page = withLiveData(markup, settings);
+  assert.ok(page.includes('data-ordering="off"'),
+    'the buttons must not be live for the moment it takes order.js to notice');
+
+  /* And the island still carries the two facts SEPARATELY. The band is drawn
+     from the dates and the till from the verdict; merging them at the source
+     would leave the band unable to say what it is for. */
+  assert.ok(page.includes(`"holiday":${JSON.stringify(settings.holiday)}`));
+  assert.ok(page.includes('"ordering":{"open":true'));
+});

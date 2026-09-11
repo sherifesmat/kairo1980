@@ -592,3 +592,64 @@ export async function clearHoliday(env) {
   await env.DB.prepare('DELETE FROM settings WHERE key = ?1').bind(HOLIDAY).run();
   forgetCache(env);
 }
+
+
+/* --- the one verdict -------------------------------------------------------
+   Two things can stop the till, they are set for different reasons, and until
+   now only one of them was ever asked: the switch. The holiday announced, and
+   the shop kept selling.
+
+   The switch's own safety rule is what made that expensive. It is the right
+   rule — a closure with no end named runs to midnight tonight, because the
+   failure worth guarding against is a Tuesday lunchtime spent wondering why
+   nobody is ordering. But a kitchen away for ten days is the one case where
+   "back tomorrow" is wrong every single night: the closure lapsed at midnight,
+   the till opened at breakfast, and an order arrived for a shop with nobody in
+   it. That happened, on 11 September 2026, on the third morning of a holiday
+   that had been announced correctly and stopped nothing.
+
+   So the holiday now answers for its own days too, and the two are resolved
+   into ONE verdict here rather than at each of the places that ask. Whichever
+   reaches further wins: a closure through the weekend after a holiday ending
+   on Friday is still a closure through the weekend, and a holiday still shuts
+   the days a closure set for tonight cannot reach.
+
+   The holiday still ANNOUNCES more than it closes, which is the point of it
+   being two dates rather than a switch. The band goes up the moment it is
+   saved — usually a fortnight early — and every day before `from` is a day the
+   restaurant is open and selling. Only `from` up to the day we are back
+   withholds anything, and what it withholds is a MOMENT, not the order: a
+   guest ordering ahead for the day we reopen goes through untouched, which is
+   the whole reason that order is still worth having. */
+
+export function holidayClosure(holiday, now = Date.now()) {
+  const h = normaliseHoliday(holiday, dayOf(now));
+  // Announced but not yet begun. The band is up; the till is not affected.
+  if (!h || dayOf(now) < h.from) return null;
+
+  const resumesAt = instantOf(h.until, '00:00');
+  if (!Number.isFinite(resumesAt) || resumesAt <= now) return null;
+
+  return {
+    open: false,
+    /* The reason is not a choice here — the restaurant already said why by
+       putting two dates in. `offHoliday` exists in all three dictionaries. */
+    reason: 'holiday',
+    resumesAt: new Date(resumesAt).toISOString(),
+    /* Always named: the day we are back is a date somebody typed, so the guest
+       is told "back on Saturday the 19th" rather than "try again later". */
+    namedEnd: true
+  };
+}
+
+/** What the till is actually doing, from both facts. Everything that asks
+ *  whether an order may be taken asks THIS — never `settings.ordering`, which
+ *  is one half of the answer and was mistaken for the whole of it. */
+export function orderingNow(settings, now = Date.now()) {
+  const held = (settings && settings.ordering) || normaliseOrdering(null, now);
+  const away = holidayClosure(settings && settings.holiday, now);
+  if (!away) return held;
+  if (held.open) return away;
+  // Both are on. The later end wins; neither may shorten the other.
+  return Date.parse(held.resumesAt) >= Date.parse(away.resumesAt) ? held : away;
+}

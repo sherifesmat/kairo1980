@@ -19,7 +19,7 @@ import * as dishesView from './dishes.js';
 import * as hoursView from './hours.js';
 import {
   readSettings, closeOrdering, openOrdering, extendHours, clearExtension,
-  setDeliveryShift, clearDeliveryShift, setHoliday, clearHoliday
+  setDeliveryShift, clearDeliveryShift, setHoliday, clearHoliday, holidayClosure
 } from '../settings.js';
 import { timeOf } from '../berlin.js';
 
@@ -46,6 +46,11 @@ export async function handle(request, env, url) {
       await readSettings(env);
     return html(dashboardPage({
       nonce, ordering, hours, hoursAreCustom, extension, deliveryShift, holiday,
+      /* Whether the holiday is standing over TODAY, which is not the same
+         question as whether one is announced. The card has to say which: a
+         holiday saved for next month changes nothing about tonight's till,
+         and saying it did would be the old bug with the sign flipped. */
+      away: !!holidayClosure(holiday),
       /* Why a holiday was refused, carried in the URL rather than rendered
          into the redirect: a reload must not resend the form. The dates are
          refused as a pair and reported as a pair — the alternative is a page
