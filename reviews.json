@@ -1,7 +1,7 @@
 {
-  "lastUpdated": "2026-09-07T14:56:35.084Z",
+  "lastUpdated": "2026-09-14T14:39:49.686Z",
   "rating": 5,
-  "totalRatings": 21,
+  "totalRatings": 22,
   "reviews": [
     {
       "author": "Yasemin",
@@ -11,6 +11,15 @@
       "lang": "de",
       "publishTime": "2026-06-27T14:54:52.859608400Z",
       "time": "vor 2 Monaten"
+    },
+    {
+      "author": "Dominik Knapp",
+      "avatar": "https://lh3.googleusercontent.com/a/ACg8ocJdCLIMXrLSfO3yeRgbKatyErpJzIbm3kUtiqbDvCXY5lRShg=s128-c0x00000000-cc-rp-mo",
+      "rating": 5,
+      "text": "Ich habe heute zum ersten Mal bei Kairo 1980 über Lieferando bestellt. Als dort eine Lieferzeit von ca. 2 Stunden angezeigt wurde, war ich kurz geschockt und habe direkt dort angerufen. Ich hatte den Besitzer persönlich am Telefon. Er beruhigte mich sofort und erklärte mir, dass alles frisch zubereitet wird. Meine Hähnchenschlegel mit Reis bräuchten etwa 40 Minuten plus Fahrzeit, also deutlich weniger als angezeigt.\n\nAls leidenschaftlicher Hobbykoch konnte ich das total nachvollziehen, und wir sind noch ins Plaudern übers Kochen gekommen. Ein richtig angenehmes Gespräch mit einem sympathischen Mann, der spürbar Wert auf Qualität legt. Genau 50 Minuten später stand er dann tatsächlich persönlich vor der Tür und hat mir sogar noch ein Getränk dazu geschenkt.\n\nDas Essen war einfach phänomenal, ehrlich das beste gelieferte Essen, das ich je hatte. Zartes, saftiges, wunderbar gewürztes Hähnchen, dazu perfekt zubereiteter, aromatischer Reis. Insgesamt einfach toll. Ich freue mich schon darauf, bald auch persönlich dort essen zu gehen.“",
+      "lang": "de",
+      "publishTime": "2026-07-23T21:13:19.423143460Z",
+      "time": "vor einem Monat"
     },
     {
       "author": "Wiener Schnitzel",
@@ -34,19 +43,10 @@
       "author": "MC Falke",
       "avatar": "https://lh3.googleusercontent.com/a-/ALV-UjWhbnR8UpzetiY44tIpsBIACIqwNBpzOduBNLoTYC6SgtRSofUyPQ=s128-c0x00000000-cc-rp-mo-ba4",
       "rating": 5,
-      "text": "Meine halbarabische Ehefrau war den Freudentränen nahe… ich auch ����🏻👏🏻👏🏻",
+      "text": "Meine halbarabische Ehefrau war den Freudentränen nahe… ich auch 👏🏻👏🏻👏🏻",
       "lang": "de",
       "publishTime": "2026-06-19T19:22:58.551527545Z",
       "time": "vor 2 Monaten"
-    },
-    {
-      "author": "An Hi",
-      "avatar": "https://lh3.googleusercontent.com/a/ACg8ocJfVJK88MZOoOBItF1cJnyl8wU52POhCEXQLueWonZs3ucp9w=s128-c0x00000000-cc-rp-mo-ba2",
-      "rating": 5,
-      "text": "Tolles Essen, sehr lecker 👍🏼",
-      "lang": "de",
-      "publishTime": "2026-08-23T19:07:22.195217166Z",
-      "time": "vor 2 Wochen"
     }
   ]
 }
