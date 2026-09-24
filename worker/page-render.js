@@ -316,9 +316,11 @@ export function liveETag(assetETag, settings) {
     ? `h${settings.holiday.from}@${settings.holiday.until}`
     : 'h-';
 
-  // Prices are written into the markup like the sold-out marks, and move the
-  // tag for the same reason.
-  const prices = `p${settings.pricesVersion || '0'}`;
+  /* Prices are written into the markup like the sold-out marks, and move the
+     tag for the same reason — but by WHAT they are, not when they were saved.
+     updated_at has one-second precision, and two saves inside one second would
+     share a tag while stating different money. */
+  const prices = `p${pricesDigest(settings.prices)}`;
 
   return `W/"${base}~${settings.hoursVersion}~${settings.soldOutVersion || '0'}~${state}~${extension}~${shift}~${holiday}~${prices}"`;
 }
@@ -329,6 +331,19 @@ export function liveETag(assetETag, settings) {
    JavaScript sees. Resolved through the same priceOf() the till charges by,
    against the same markup, so the three cannot disagree — and an override
    for anything the current menu does not price changes nothing here either. */
+
+/** A short fingerprint of the overrides in effect: FNV-1a over the sorted
+ *  pairs. Same prices, same tag; any other prices, another tag. */
+export function pricesDigest(prices) {
+  const text = Object.keys(prices || {}).sort().map((id) => id + '=' + prices[id]).join(';');
+  if (!text) return '0';
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(36);
+}
 
 const euro = (cents) => (cents / 100).toFixed(2).replace('.', ',') + ' €';
 const PRICE_TEXT = /\d+,\d{2} €/;

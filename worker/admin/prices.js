@@ -55,8 +55,23 @@ export function parseEuro(text) {
   return Number(m[1]) * 100 + Number((m[2] || '0').padEnd(2, '0'));
 }
 
+/* When the saved prices cannot be read, this page cannot say what is live —
+   and a save from it would replace overrides nobody was shown. So it says so
+   and changes nothing, the same way the till refuses to charge. */
+function unavailable() {
+  const nonce = newNonce();
+  const body = `<h1>Prices</h1>
+<p class="err"><b>The saved prices cannot be read right now.</b> Nothing can be
+changed until they can — try again in a minute. Online payment is paused
+meanwhile; orders still arrive in the chat to be paid on arrival.</p>`;
+  return new Response(layout({ title: 'Prices', nonce, body, logout: true, back: '/admin', extraCss: CSS }), {
+    status: 503, headers: adminHeaders(nonce)
+  });
+}
+
 export async function page(request, env, url) {
-  const [{ prices }, { dishes, groups }] = await Promise.all([readSettings(env), priceable(env)]);
+  const [{ prices, unreadable }, { dishes, groups }] = await Promise.all([readSettings(env), priceable(env)]);
+  if (unreadable) return unavailable();
   const nonce = newNonce();
   const values = {};
   for (const g of groups) {
@@ -70,7 +85,8 @@ export async function page(request, env, url) {
 
 export async function save(request, env) {
   const form = await request.formData();
-  const { prices } = await readSettings(env);
+  const { prices, unreadable } = await readSettings(env);
+  if (unreadable) return unavailable();
   const { groups } = await priceable(env);
 
   const next = {};
@@ -108,6 +124,7 @@ export async function save(request, env) {
 /* Every price back to the menu's, in one tap and on purpose: its own form and
    its own POST, so it can never be the side effect of saving the page. */
 export async function reset(request, env) {
+  if ((await readSettings(env)).unreadable) return unavailable();
   await resetPrices(env);
   return new Response(null, {
     status: 303, headers: { Location: '/admin/prices?saved=reset', 'Cache-Control': 'no-store' }

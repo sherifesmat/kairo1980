@@ -100,10 +100,29 @@ test('no overrides, no change to the page', () => {
   assert.equal(withPrices(INDEX, { kebda: 999 }), INDEX);
 });
 
-test('a price change makes every cached page stale', () => {
-  const base = { hoursVersion: '1', soldOutVersion: '1', ordering: { open: true } };
-  assert.notEqual(liveETag('"a"', { ...base, pricesVersion: '1' }), liveETag('"a"', { ...base, pricesVersion: '2' }));
-  assert.ok(!liveETag('"a"', { ...base, pricesVersion: '2026-09-24 21:00:00' }).includes(','));
+test('a price change makes every cached page stale, however quickly it follows the last', () => {
+  // Same second, same updated_at — the tag must still differ, because it is
+  // taken from the prices themselves.
+  const base = { hoursVersion: '1', soldOutVersion: '1', ordering: { open: true }, pricesVersion: '2026-09-24 21:00:00' };
+  const tag = (prices) => liveETag('"a"', { ...base, prices });
+  assert.notEqual(tag({ hummus: 1050 }), tag({ hummus: 1100 }));
+  assert.notEqual(tag({ hummus: 1050 }), tag({}));
+  assert.notEqual(tag({ hummus: 1050 }), tag({ koshary: 1050 }));
+  assert.equal(tag({ hummus: 1050, koshary: 1500 }), tag({ koshary: 1500, hummus: 1050 }));
+  assert.ok(!tag({ hummus: 1050 }).includes(','));
+});
+
+test('the price page will not show or save prices it could not read', async () => {
+  const { page, save, reset } = await import('../../worker/admin/prices.js');
+  const env = envWith({ broken: true });
+  const url = new URL('https://kairo1980.de/admin/prices');
+  const shown = await page(new Request(url), env, url);
+  assert.equal(shown.status, 503);
+  assert.match(await shown.text(), /cannot be read/);
+  const body = new FormData();
+  body.set('price:hummus', '10,50');
+  assert.equal((await save(new Request(url, { method: 'POST', body }), env)).status, 503);
+  assert.equal((await reset(new Request(url, { method: 'POST' }), env)).status, 503);
 });
 
 test('a price is typed the way a German writes one', () => {
