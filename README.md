@@ -113,6 +113,30 @@ the menu without being orderable — useful for market-price or seasonal items.
 
 The **PDF menu is the reference** for every name, description and price.
 
+### Dishes with choices
+
+Three attributes let a dish ask the guest something before it goes in the
+basket. The page, the basket and the Worker all read them from the same markup,
+so none of them needs editing when a choice is added.
+
+- **Its own choices** — the KAIRO Bowl's base and topping — are written inside
+  the row: a `<ul class="mchoices" data-group="…">` of
+  `<li class="mchoice" data-option="…" data-price="…">`. The guest picks exactly
+  one per group; an option without `data-price` costs nothing. A dish priced
+  entirely by its options has no `data-price` of its own.
+- **`data-addons="getraenk beilagen-bowl"`** offers shared extras, defined once
+  in the hidden `.addon-groups` block at the top of the menu. A group lists
+  dishes by id (`<span data-ref="salata-baladi">`) and carries no prices: an
+  extra costs what its own row on the menu says. `data-max` caps the count.
+- **`data-includes="menue-getraenk"`** asks for exactly one from a group,
+  already in the dish's price — the Menü drink.
+- **`data-contains="hawawshy steakhouse-pommes"`** says what a dish is made of.
+  Its allergens are read from those rows, and it is sold out with any of them.
+
+Each option can be marked sold out at `/admin/dishes` on its own, as
+`dish:option`. `tests/unit/menu.test.js` fails if any reference points at a
+dish that is not on the menu.
+
 ## Deployment
 
 `.github/workflows/deploy.yml` deploys on every push to `main`, using the

@@ -717,3 +717,39 @@ test('a dish marked sold out cannot be ordered, and says so', async ({ page }) =
     await expect(page.locator('.mitem[data-item="hummus"] [data-act="inc"]')).toHaveCount(1);
   }).toPass({ timeout: 20000 });
 });
+
+/* Running out of Kebda takes the Kebda bowl off and leaves the other three.
+   The topping is switched off by its own id, says so in words on its own row
+   and in the chooser, and the rest of the bowl is still an ordinary order. */
+test('a topping marked sold out is off the bowl, and only that topping', async ({ page }) => {
+  await signIn(page);
+  await goAdmin(page, '/admin/dishes');
+
+  const box = page.locator('input[name="soldout"][value="kairo-bowl:kebda"]');
+  await expect(box, 'each topping has its own box, read from the menu').toHaveCount(1);
+
+  try {
+    await box.check();
+    await page.click('button.save-btn');
+    await expect(page.locator('.msg')).toContainText('Saved');
+
+    const kebda = page.locator('.mitem[data-item="kairo-bowl"] .mchoice[data-option="kebda"]');
+    await expect(async () => {
+      await page.goto('/?lang=de&t=' + Date.now());
+      await expect(kebda).toHaveAttribute('data-soldout', '1');
+    }).toPass({ timeout: 20000 });
+    await expect(kebda).toContainText('Ausverkauft');
+
+    const bowl = page.locator('.mitem[data-item="kairo-bowl"]');
+    await bowl.scrollIntoViewIfNeeded();
+    await bowl.locator('[data-act="choose"]').click();
+    const dialog = page.locator('.chooser');
+    await expect(dialog.locator('.chooser-opt.is-soldout')).toContainText('Kebda');
+    await expect(dialog.locator('input[value="kebda"]')).toHaveCount(0);
+    await expect(dialog.locator('input[value="haehnchen"]')).toHaveCount(1);
+  } finally {
+    await goAdmin(page, '/admin/dishes');
+    await page.locator('input[name="soldout"][value="kairo-bowl:kebda"]').uncheck();
+    await page.click('button.save-btn');
+  }
+});

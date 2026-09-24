@@ -56,6 +56,9 @@
        order, while selling a dish that does not exist costs a phone call and
        the guest's evening. */
     var el = items[id] && items[id].el;
+    // A topping is "dish:option" and carries the attribute on its own row.
+    var colon = id.indexOf(':');
+    if (colon > 0) el = (optionOf(id.slice(0, colon), id.slice(colon + 1)) || {}).el;
     return !!(el && el.getAttribute('data-soldout') === '1');
   }
 
@@ -210,6 +213,14 @@
       cartPickupOnlyToday: 'Heute bieten wir ausschließlich Abholung an. Für eine Lieferung wählen Sie unter „Wunschtermin“ bitte einen anderen Tag.',
       soldOut: 'Ausverkauft',
       soldOutRemoved: '{dish} ist heute leider ausverkauft und wurde aus dem Warenkorb entfernt.',
+      offMenuRemoved: 'Ein Gericht aus deinem Warenkorb steht nicht mehr auf der Karte und wurde entfernt.',
+      chooserAdd: 'In den Warenkorb',
+      chooserClose: 'Schließen',
+      chooserPick: 'Bitte wähle: {group}',
+      chooserRequired: 'bitte eins wählen',
+      chooserIncluded: 'im Preis enthalten',
+      chooserUpTo: 'bis zu {n}',
+      inBasket: '{n} im Warenkorb',
       pickupLabel: 'Abholung', deliveryLabel: 'Lieferung',
       deliveryNotice: 'Abholung während der gesamten Öffnungszeit, Lieferung ab {from} Uhr.',
       deliveryClause: 'Bitte beachten: Lieferungen ab {from} Uhr, davor ausschließlich Abholung.',
@@ -367,6 +378,14 @@
       cartPickupOnlyToday: 'Today we offer collection only. For a delivery, please pick another day under “Preferred time”.',
       soldOut: 'Sold out',
       soldOutRemoved: '{dish} is sold out today and has been removed from your basket.',
+      offMenuRemoved: 'A dish in your basket is no longer on the menu and has been removed.',
+      chooserAdd: 'Add to basket',
+      chooserClose: 'Close',
+      chooserPick: 'Please choose: {group}',
+      chooserRequired: 'choose one',
+      chooserIncluded: 'included in the price',
+      chooserUpTo: 'up to {n}',
+      inBasket: '{n} in basket',
       pickupLabel: 'Pickup', deliveryLabel: 'Delivery',
       deliveryNotice: 'Collection throughout our opening hours, delivery from {from}.',
       deliveryClause: 'Please note: deliveries from {from} — before that, collection only.',
@@ -510,6 +529,14 @@
       cartPickupOnlyToday: 'النهارده الاستلام من المطعم بس. لو عايز توصيل، اختار يوم تاني من «الميعاد المطلوب».',
       soldOut: 'خلص',
       soldOutRemoved: '{dish} خلص النهارده للأسف واتشال من السلة.',
+      offMenuRemoved: 'فيه طبق في سلتك مابقاش في المنيو واتشال.',
+      chooserAdd: 'ضيف للسلة',
+      chooserClose: 'اقفل',
+      chooserPick: 'من فضلك اختار: {group}',
+      chooserRequired: 'اختار واحد',
+      chooserIncluded: 'داخل في السعر',
+      chooserUpTo: 'لحد {n}',
+      inBasket: '{n} في السلة',
       pickupLabel: 'الاستلام', deliveryLabel: 'التوصيل',
       deliveryNotice: 'الاستلام من المطعم طول مواعيد الفتح، والتوصيل من الساعة {from}.',
       deliveryClause: 'للعلم: التوصيل من الساعة {from}، وقبل كده الاستلام من المطعم بس.',
@@ -1226,6 +1253,16 @@
             if (desc) dish.description = desc.textContent.trim();
             if (price) {
               dish.offers = { '@type': 'Offer', price: price, priceCurrency: 'EUR' };
+            } else {
+              /* The KAIRO Bowl has no price of its own; each topping is one
+                 offer, named as printed. Only what the row states — never a
+                 "from" figure invented for the dish as a whole. */
+              var offers = [].map.call(node.querySelectorAll('.mchoice[data-price]'), function (o) {
+                var label = o.querySelector('.mchoice-name');
+                return { '@type': 'Offer', name: label ? label.textContent.trim() : o.getAttribute('data-option'),
+                         price: o.getAttribute('data-price'), priceCurrency: 'EUR' };
+              });
+              if (offers.length) dish.offers = offers;
             }
             var tag = node.querySelector('.tag');
             if (tag) dish.suitableForDiet = /vegan/i.test(tag.textContent)
@@ -1313,8 +1350,142 @@
      Basket
      ========================================================================= */
 
-  var items = {};   // id -> { el, price, node }
-  var cart = {};    // id -> qty
+  var items = {};   // id -> { el, price, node, groups, addons, includes, contains }
+  var cart = {};    // line key -> qty (see lineOf)
+  var addonGroups = {};   // id -> { id, el, max, refs }
+
+  /* --- dishes with choices -------------------------------------------------
+     A basket line is named by what is in it, never by what it costs:
+
+       hawawshy
+       kairo-bowl|basis=nudeln|topping=kebda|getraenk=fritz-kola-0-33-l
+
+     A plain dish is its own id, exactly as before. worker/pricing.js reads
+     the same key against the same markup and prices it itself; this side only
+     draws what the guest is about to be charged. The names are read from the
+     page in the language it is showing, so the guest's WhatsApp message is in
+     the guest's language.
+  ------------------------------------------------------------------------- */
+
+  function hasChoices(id) {
+    var item = items[id];
+    return !!(item && (item.groups.length || item.addons.length || item.includes.length));
+  }
+
+  function optionOf(dishId, optionId) {
+    var item = items[dishId];
+    if (!item) return null;
+    for (var g = 0; g < item.groups.length; g++) {
+      for (var o = 0; o < item.groups[g].options.length; o++) {
+        if (item.groups[g].options[o].id === optionId) return item.groups[g].options[o];
+      }
+    }
+    return null;
+  }
+
+  function parseKey(key) {
+    if (typeof key !== 'string' || !key || key.length > 400) return null;
+    var parts = key.split('|');
+    if (!/^[a-z0-9-]+$/.test(parts[0])) return null;
+    var picks = {};
+    for (var i = 1; i < parts.length; i++) {
+      var m = parts[i].match(/^([a-z0-9-]+)=([a-z0-9-]+(?:,[a-z0-9-]+)*)$/);
+      if (!m || picks[m[1]]) return null;
+      picks[m[1]] = m[2].split(',');
+    }
+    return { dish: parts[0], picks: picks };
+  }
+
+  function textOf(node) {
+    return node ? node.textContent.trim() : '';
+  }
+
+  /* What a key means today: its price, its name in the page's language, and
+     every id whose running out takes it off the table. Null for a key that
+     no longer describes anything on this menu — a dish taken off it, an
+     option renamed — which the basket then drops rather than guesses at. */
+  function lineOf(key) {
+    var p = parseKey(key);
+    var item = p && items[p.dish];
+    if (!item) return null;
+    var unit = item.price || 0;
+    var own = [], extras = [], parts = [p.dish].concat(item.contains);
+    var used = {};
+    var i, j, chosen;
+
+    for (i = 0; i < item.groups.length; i++) {
+      var group = item.groups[i];
+      chosen = p.picks[group.id] || [];
+      used[group.id] = true;
+      if (chosen.length !== 1) return null;
+      var opt = optionOf(p.dish, chosen[0]);
+      if (!opt || group.options.indexOf(opt) < 0) return null;
+      unit += opt.price;
+      own.push(textOf(opt.node));
+      parts.push(p.dish + ':' + opt.id);
+    }
+
+    var refs = function (ids, included) {
+      for (i = 0; i < ids.length; i++) {
+        var addon = addonGroups[ids[i]];
+        chosen = p.picks[ids[i]] || [];
+        used[ids[i]] = true;
+        if (!addon) return false;
+        if (included ? chosen.length !== 1 : chosen.length > addon.max) return false;
+        for (j = 0; j < chosen.length; j++) {
+          var ref = chosen[j];
+          if (addon.refs.indexOf(ref) < 0 || !items[ref] || chosen.indexOf(ref) !== j) return false;
+          if (!included) unit += items[ref].price;
+          (included ? own : extras).push(itemName(ref));
+          parts.push(ref);
+        }
+      }
+      return true;
+    };
+    if (!refs(item.includes, true) || !refs(item.addons, false)) return null;
+    for (var g in p.picks) if (!used[g]) return null;
+    if (!(unit > 0)) return null;
+
+    return {
+      dish: p.dish,
+      unit: unit,
+      parts: parts,
+      name: itemName(p.dish) +
+        (own.length ? ' (' + own.join(', ') + ')' : '') +
+        extras.map(function (n) { return ' + ' + n; }).join('')
+    };
+  }
+
+  // A line is gone when anything in it is: the dish, a topping, a drink.
+  function lineSoldOut(key) {
+    var line = lineOf(key);
+    return !!line && line.parts.some(soldOut);
+  }
+
+  /* Whether a dish can be ordered at all right now, in any form. A Menü goes
+     with its sandwich or its fries; a bowl goes when every topping has; a
+     dish whose included drink has nothing left to choose goes too. */
+  function dishUnavailable(id) {
+    var item = items[id];
+    if (!item) return true;
+    if (soldOut(id) || item.contains.some(soldOut)) return true;
+    if (item.groups.some(function (g) {
+      return g.options.every(function (o) { return soldOut(id + ':' + o.id); });
+    })) return true;
+    return item.includes.some(function (gid) {
+      var addon = addonGroups[gid];
+      return !addon || addon.refs.every(function (r) { return !items[r] || soldOut(r); });
+    });
+  }
+
+  // How many of a dish are in the basket, however each one was made up.
+  function countOf(id) {
+    var n = 0;
+    Object.keys(cart).forEach(function (key) {
+      if (key === id || key.indexOf(id + '|') === 0) n += cart[key];
+    });
+    return n;
+  }
 
   /* --- basket persistence -------------------------------------------------
      A basket is a short-lived intention, not a saved document. Remembering it
@@ -1336,6 +1507,8 @@
     try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* private mode */ }
   }
 
+  var offMenuDropped = false;
+
   function loadCart() {
     LEGACY_STORAGE_KEYS.forEach(function (key) {
       try { localStorage.removeItem(key); } catch (e) { /* private mode */ }
@@ -1353,9 +1526,15 @@
       var age = Date.now() - raw.savedAt;
       if (!(raw.savedAt > 0) || age < 0 || age > lifetime) { clearStoredCart(); return; }
 
-      Object.keys(raw.items).forEach(function (id) {
-        var qty = parseInt(raw.items[id], 10);
-        if (items[id] && qty > 0) cart[id] = Math.min(qty, 99);
+      Object.keys(raw.items).forEach(function (key) {
+        var qty = parseInt(raw.items[key], 10);
+        if (!(qty > 0)) return;
+        /* A line that no longer describes anything on the menu — Kebda from
+           the plate section that is gone, a Menü whose drink list changed —
+           is dropped and the guest told so once, not carried to a checkout
+           that would refuse the whole basket over it. */
+        if (lineOf(key)) cart[key] = Math.min(qty, 99);
+        else offMenuDropped = true;
       });
     } catch (e) { clearStoredCart(); }
   }
@@ -1421,8 +1600,9 @@
 
   function totals() {
     var subtotal = 0;
-    Object.keys(cart).forEach(function (id) {
-      if (items[id]) subtotal += items[id].price * cart[id];
+    Object.keys(cart).forEach(function (key) {
+      var line = lineOf(key);
+      if (line) subtotal += line.unit * cart[key];
     });
     // Company + collected in person earns the better rate; everything else
     // gets the standard direct-order discount.
@@ -1476,16 +1656,17 @@
     if (!host) return;
     host.textContent = names
       .map(function (n) { return fill(t().soldOutRemoved, { dish: n }); })
+      .concat(offMenuDropped ? [t().offMenuRemoved] : [])
       .join(' ');
     host.hidden = false;
   }
 
   function dropSoldOut() {
     var dropped = [];
-    Object.keys(cart).forEach(function (id) {
-      if (soldOut(id)) {
-        dropped.push(itemName(id));
-        delete cart[id];
+    Object.keys(cart).forEach(function (key) {
+      if (lineSoldOut(key)) {
+        dropped.push(lineOf(key).name);
+        delete cart[key];
       }
     });
     if (dropped.length) saveCart();
@@ -1497,7 +1678,7 @@
        menu "+", the basket "+", a restored basket — so a dish that has run out
        cannot be added by any of them, including a button left on screen from
        before the kitchen flipped it. */
-    if (qty > 0 && soldOut(id)) return;
+    if (qty > 0 && (!lineOf(id) || lineSoldOut(id))) return;
     if (qty <= 0) delete cart[id];
     else cart[id] = Math.min(qty, 99);
     saveCart();
@@ -1522,13 +1703,46 @@
 
   /* --- menu wiring ------------------------------------------------------- */
 
+  function words(el, attr) {
+    return (el.getAttribute(attr) || '').split(/\s+/).filter(Boolean);
+  }
+
   function collectItems() {
+    [].forEach.call(document.querySelectorAll('[data-addon-group]'), function (el) {
+      var refs = [].map.call(el.querySelectorAll('[data-ref]'), function (r) {
+        return r.getAttribute('data-ref');
+      });
+      var max = parseInt(el.getAttribute('data-max'), 10);
+      var id = el.getAttribute('data-addon-group');
+      addonGroups[id] = { id: id, el: el, max: max > 0 ? max : refs.length, refs: refs };
+    });
+
     [].forEach.call(document.querySelectorAll('.mitem[data-item]'), function (el) {
       var id = el.getAttribute('data-item');
       var price = parseFloat(el.getAttribute('data-price'));
       var name = el.querySelector('.mname');
-      if (!id || isNaN(price) || !name) return;
-      items[id] = { el: el, price: price, node: name };
+      // The dish's own choices — the bowl's base and topping — written in its row.
+      var groups = [].map.call(el.querySelectorAll('.mchoices[data-group]'), function (g) {
+        return {
+          id: g.getAttribute('data-group'),
+          el: g,
+          options: [].map.call(g.querySelectorAll('.mchoice[data-option]'), function (o) {
+            var p = parseFloat(o.getAttribute('data-price'));
+            return { id: o.getAttribute('data-option'), el: o, price: isNaN(p) ? 0 : p,
+                     node: o.querySelector('.mchoice-name') };
+          })
+        };
+      });
+      var optionPriced = groups.some(function (g) {
+        return g.options.some(function (o) { return o.price > 0; });
+      });
+      if (!id || !name || (isNaN(price) && !optionPriced)) return;
+      items[id] = {
+        el: el, price: isNaN(price) ? null : price, node: name, groups: groups,
+        addons: words(el, 'data-addons'),
+        includes: words(el, 'data-includes'),
+        contains: words(el, 'data-contains')
+      };
 
       // The buy control is injected rather than written into the markup, so a
       // new dish only needs its data attributes to become orderable.
@@ -1543,6 +1757,25 @@
       stepper.className = 'qty';
       stepper.setAttribute('data-for', id);
       buy.appendChild(stepper);
+    });
+
+    /* A Menü declares no allergens of its own: it is its sandwich and its
+       fries, and those rows already say what is in them. Retyping the list
+       onto the Menü is how the two would one day disagree. Anything still
+       pending in a part leaves the Menü pending too. */
+    Object.keys(items).forEach(function (id) {
+      var el = items[id].el;
+      if (!items[id].contains.length || el.hasAttribute('data-allergens')) return;
+      var found = [];
+      var pending = false;
+      items[id].contains.forEach(function (part) {
+        var declared = items[part] ? (items[part].el.getAttribute('data-allergens') || '').trim() : 'pending';
+        if (declared === 'pending') pending = true;
+        else words(items[part].el, 'data-allergens').forEach(function (a) {
+          if (found.indexOf(a) < 0) found.push(a);
+        });
+      });
+      el.setAttribute('data-allergens', pending ? 'pending' : found.join(' '));
     });
   }
 
@@ -1669,9 +1902,46 @@
   function paintMenu() {
     var L = t();
     Object.keys(items).forEach(function (id) {
-      items[id].el.classList.toggle('is-soldout', soldOut(id));
+      var gone = dishUnavailable(id);
+      items[id].el.classList.toggle('is-soldout', gone);
+      // A topping the kitchen is out of says so on its own row, in words.
+      items[id].groups.forEach(function (g) {
+        g.options.forEach(function (o) {
+          var off = soldOut(id + ':' + o.id);
+          o.el.classList.toggle('is-soldout', off);
+          var tag = o.el.querySelector('.soldout-tag');
+          if (off && !tag) {
+            tag = document.createElement('span');
+            tag.className = 'soldout-tag';
+            o.el.appendChild(tag);
+          }
+          if (tag) {
+            tag.hidden = !off;
+            tag.textContent = L.soldOut;
+          }
+        });
+      });
       var box = items[id].el.querySelector('.qty[data-for="' + id + '"]');
       if (!box) return;
+
+      /* A dish with choices has no "−" here: which of three differently made
+         bowls would it take away? The count says how many are in, the basket
+         is where one comes out, and "+" asks how the next one is wanted. */
+      if (hasChoices(id)) {
+        var n = countOf(id);
+        if (gone && !n) {
+          box.className = 'qty is-soldout';
+          box.innerHTML = '<span class="soldout-tag">' + escapeHtml(L.soldOut) + '</span>';
+          return;
+        }
+        box.className = 'qty has-choices';
+        box.innerHTML =
+          (n ? '<span class="qty-in">' + escapeHtml(fill(L.inBasket, { n: n })) + '</span>' : '') +
+          (gone ? '' : '<button type="button" class="qty-add" data-act="choose" data-id="' + id + '" ' +
+            'aria-haspopup="dialog" aria-label="' + escapeHtml(L.add + ': ' + itemName(id)) + '">+</button>');
+        return;
+      }
+
       var qty = cart[id] || 0;
       if (qty > 0) {
         box.className = 'qty has-qty';
@@ -1679,7 +1949,7 @@
           '<button type="button" class="qty-btn" data-act="dec" data-id="' + id + '" aria-label="−">−</button>' +
           '<span class="qty-num">' + qty + '</span>' +
           '<button type="button" class="qty-btn" data-act="inc" data-id="' + id + '" aria-label="+">+</button>';
-      } else if (soldOut(id)) {
+      } else if (gone) {
         /* No disabled "+" here. A button that is present and refuses reads as a
            broken page; the words say what is true and there is nothing to
            press. This is the one place the site withholds an order outright —
@@ -1692,6 +1962,200 @@
           'aria-label="' + L.add + ': ' + itemName(id) + '">+</button>';
       }
     });
+  }
+
+  /* --- the chooser -------------------------------------------------------
+     How a dish with choices is put in the basket: base and topping, the drink
+     a Menü includes, the extras that go with it. Built from the same markup
+     the price is read from, so a topping added to the row appears here with
+     no second list to edit. What is required is asked for by name when it is
+     missing — the add button is never a control that silently refuses.
+  ------------------------------------------------------------------------- */
+
+  var chooser = { id: null, wrap: null, back: null, returnTo: null };
+
+  function labelOf(el) {
+    return el.getAttribute('data-' + lang()) || el.getAttribute('data-de') || '';
+  }
+
+  // In the order the key is written: own choices, what is included, extras.
+  function chooserSections(id) {
+    var item = items[id];
+    var out = item.groups.map(function (g) {
+      return {
+        id: g.id, kind: 'own', label: labelOf(g.el), max: 1,
+        options: g.options.map(function (o) {
+          return { id: o.id, name: textOf(o.node), price: o.price, off: soldOut(id + ':' + o.id) };
+        })
+      };
+    });
+    function shared(gid, kind) {
+      var addon = addonGroups[gid];
+      if (!addon) return;
+      out.push({
+        id: gid, kind: kind, label: labelOf(addon.el), max: kind === 'included' ? 1 : addon.max,
+        // A sold-out drink or side is simply not offered; the dish still is.
+        options: addon.refs.filter(function (r) { return items[r] && !soldOut(r); }).map(function (r) {
+          return { id: r, name: itemName(r), price: kind === 'included' ? 0 : items[r].price, off: false };
+        })
+      });
+    }
+    item.includes.forEach(function (g) { shared(g, 'included'); });
+    item.addons.forEach(function (g) { shared(g, 'extra'); });
+    return out;
+  }
+
+  function chosenIn(sectionId) {
+    return [].map.call(
+      chooser.wrap.querySelectorAll('input[name="ch-' + sectionId + '"]:checked'),
+      function (input) { return input.value; });
+  }
+
+  // One set of choices always makes one key, so a second identical bowl
+  // becomes "2×" rather than a second line.
+  function chooserKey() {
+    var parts = [chooser.id];
+    chooserSections(chooser.id).forEach(function (s) {
+      var chosen = chosenIn(s.id);
+      var ordered = s.options.map(function (o) { return o.id; })
+        .filter(function (o) { return chosen.indexOf(o) >= 0; });
+      if (ordered.length) parts.push(s.id + '=' + ordered.join(','));
+    });
+    return parts.join('|');
+  }
+
+  function missingChoice() {
+    var sections = chooserSections(chooser.id);
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i].kind !== 'extra' && !chosenIn(sections[i].id).length) return sections[i];
+    }
+    return null;
+  }
+
+  function paintChooser() {
+    if (!chooser.wrap || !chooser.id) return;
+    var L = t();
+    var keep = {};
+    [].forEach.call(chooser.wrap.querySelectorAll('input:checked'), function (input) {
+      keep[input.name + '=' + input.value] = true;
+    });
+
+    var html =
+      '<div class="chooser-head">' +
+        '<h3 class="chooser-title" id="chooserTitle">' + escapeHtml(itemName(chooser.id)) + '</h3>' +
+        '<button type="button" class="cart-close" data-act="chooser-close" aria-label="' +
+          escapeHtml(L.chooserClose) + '">×</button>' +
+      '</div><div class="chooser-body">';
+
+    chooserSections(chooser.id).forEach(function (s) {
+      var rule = s.kind === 'own' ? L.chooserRequired
+        : s.kind === 'included' ? L.chooserIncluded
+        : fill(L.chooserUpTo, { n: s.max });
+      var name = 'ch-' + s.id;
+      var type = s.kind === 'extra' ? 'checkbox' : 'radio';
+      html += '<fieldset class="chooser-group" data-section="' + escapeHtml(s.id) + '"><legend>' +
+        '<span class="chooser-legend">' + escapeHtml(s.label) + '</span> ' +
+        '<span class="chooser-rule">' + escapeHtml(rule) + '</span></legend>';
+      s.options.forEach(function (o) {
+        if (o.off) {
+          // Words, not a disabled radio: the reason is the whole message.
+          html += '<div class="chooser-opt is-soldout"><span class="chooser-name">' + escapeHtml(o.name) +
+            '</span><span class="soldout-tag">' + escapeHtml(L.soldOut) + '</span></div>';
+          return;
+        }
+        var price = s.kind === 'extra' ? '+ ' + money(o.price) : (o.price > 0 ? money(o.price) : '');
+        html += '<label class="chooser-opt"><input type="' + type + '" name="' + escapeHtml(name) +
+          '" value="' + escapeHtml(o.id) + '"' + (keep[name + '=' + o.id] ? ' checked' : '') + '>' +
+          '<span class="chooser-name">' + escapeHtml(o.name) + '</span>' +
+          (price ? '<span class="chooser-price">' + price + '</span>' : '') + '</label>';
+      });
+      html += '</fieldset>';
+    });
+
+    html += '</div><div class="chooser-foot">' +
+      '<p class="chooser-hint" id="chooserHint" role="alert" hidden></p>' +
+      '<button type="button" class="cart-send chooser-add" data-act="chooser-add"></button></div>';
+    chooser.wrap.innerHTML = html;
+    updateChooser();
+  }
+
+  function updateChooser() {
+    if (!chooser.id) return;
+    var item = items[chooser.id];
+    var total = item.price || 0;
+    chooserSections(chooser.id).forEach(function (s) {
+      var chosen = chosenIn(s.id);
+      s.options.forEach(function (o) { if (chosen.indexOf(o.id) >= 0) total += o.price; });
+      if (s.kind !== 'extra') return;
+      // "bis zu 3" is printed on the group, so the fourth box is visibly why.
+      [].forEach.call(chooser.wrap.querySelectorAll('input[name="ch-' + s.id + '"]'), function (input) {
+        input.disabled = !input.checked && chosen.length >= s.max;
+      });
+    });
+    var hint = chooser.wrap.querySelector('#chooserHint');
+    if (hint) hint.hidden = true;
+    var add = chooser.wrap.querySelector('.chooser-add');
+    if (add) add.textContent = t().chooserAdd + ' · ' + money(total);
+  }
+
+  function openChooser(id) {
+    if (!items[id] || dishUnavailable(id)) return;
+    if (!chooser.wrap) {
+      chooser.back = document.createElement('div');
+      chooser.back.className = 'chooser-backdrop';
+      chooser.back.setAttribute('data-act', 'chooser-close');
+      chooser.wrap = document.createElement('div');
+      chooser.wrap.className = 'chooser';
+      chooser.wrap.setAttribute('role', 'dialog');
+      chooser.wrap.setAttribute('aria-modal', 'true');
+      chooser.wrap.setAttribute('aria-labelledby', 'chooserTitle');
+      chooser.wrap.hidden = chooser.back.hidden = true;
+      document.body.appendChild(chooser.back);
+      document.body.appendChild(chooser.wrap);
+      chooser.wrap.addEventListener('change', updateChooser);
+      document.addEventListener('keydown', function (e) {
+        if (!chooser.id) return;
+        if (e.key === 'Escape') { closeChooser(); return; }
+        if (e.key !== 'Tab') return;
+        var stops = chooser.wrap.querySelectorAll('button, input:not([disabled])');
+        if (!stops.length) return;
+        var first = stops[0], last = stops[stops.length - 1];
+        if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
+        else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+      });
+    }
+    chooser.id = id;
+    chooser.returnTo = document.activeElement;
+    chooser.wrap.innerHTML = '';          // a new dish starts with nothing chosen
+    paintChooser();
+    chooser.wrap.hidden = chooser.back.hidden = false;
+    document.body.classList.add('chooser-open');
+    var first = chooser.wrap.querySelector('input');
+    (first || chooser.wrap.querySelector('button')).focus();
+  }
+
+  function closeChooser() {
+    if (!chooser.id) return;
+    chooser.id = null;
+    chooser.wrap.hidden = chooser.back.hidden = true;
+    document.body.classList.remove('chooser-open');
+    if (chooser.returnTo && chooser.returnTo.focus) chooser.returnTo.focus();
+  }
+
+  function addFromChooser() {
+    var missing = missingChoice();
+    if (missing) {
+      var hint = chooser.wrap.querySelector('#chooserHint');
+      hint.textContent = fill(t().chooserPick, { group: missing.label });
+      hint.hidden = false;
+      var input = chooser.wrap.querySelector('input[name="ch-' + missing.id + '"]');
+      if (input) input.focus();
+      return;
+    }
+    var key = chooserKey();
+    if (!lineOf(key)) return;
+    closeChooser();
+    setQty(key, (cart[key] || 0) + 1);
   }
 
   /* --- panel ------------------------------------------------------------- */
@@ -2225,15 +2689,18 @@
 
     syncType();
     var sums = totals();
-    var lines = ids.map(function (id) {
+    var lines = ids.map(function (key) {
+      var line = lineOf(key);
+      if (!line) return '';
+      var id = escapeHtml(key);
       return '<li class="cart-line">' +
-        '<span class="cart-line-name">' + escapeHtml(itemName(id)) + '</span>' +
+        '<span class="cart-line-name">' + escapeHtml(line.name) + '</span>' +
         '<span class="qty has-qty cart-line-qty">' +
           '<button type="button" class="qty-btn" data-act="dec" data-id="' + id + '" aria-label="−">−</button>' +
-          '<span class="qty-num">' + cart[id] + '</span>' +
+          '<span class="qty-num">' + cart[key] + '</span>' +
           '<button type="button" class="qty-btn" data-act="inc" data-id="' + id + '" aria-label="+">+</button>' +
         '</span>' +
-        '<span class="cart-line-price">' + money(items[id].price * cart[id]) + '</span>' +
+        '<span class="cart-line-price">' + money(line.unit * cart[key]) + '</span>' +
         '</li>';
     }).join('');
 
@@ -2485,9 +2952,11 @@
       out.push(fill(L.mItemCount, { n: count() }));
       out.push(L.mListFollows);
     } else {
-      Object.keys(cart).forEach(function (id) {
-        out.push(cart[id] + '× ' + itemName(id) +
-          (mode === 'compact' ? '' : ' — ' + money(items[id].price * cart[id])));
+      Object.keys(cart).forEach(function (key) {
+        var line = lineOf(key);
+        if (!line) return;
+        out.push(cart[key] + '× ' + line.name +
+          (mode === 'compact' ? '' : ' — ' + money(line.unit * cart[key])));
       });
     }
 
@@ -3035,8 +3504,12 @@
       var btn = e.target.closest('[data-act]');
       if (btn) {
         var id = btn.getAttribute('data-id');
-        if (!items[id]) return;
-        var adding = btn.getAttribute('data-act') === 'inc';
+        var act = btn.getAttribute('data-act');
+        if (act === 'choose') { openChooser(id); return; }
+        if (act === 'chooser-close') { closeChooser(); return; }
+        if (act === 'chooser-add') { addFromChooser(); return; }
+        if (!lineOf(id)) return;
+        var adding = act === 'inc';
         /* Building a basket is never withheld, even while the till is closed.
            The guest may be putting together an order for tomorrow, and the
            basket is where they find out that they can. */
@@ -3630,7 +4103,8 @@
       buildPanel();
       wireEvents();
       paint();
-      if (gone.length) {
+      if (gone.length || offMenuDropped) {
+        if (offMenuDropped) saveCart();
         notifySoldOut(gone);
       }
       // A payment that was taken but never handed over must not be lost
@@ -3643,7 +4117,10 @@
       renderHours();
       renderOrdering();
       applyConfig();
-      if (CFG.order.cartEnabled && hasMenu) paint();
+      if (CFG.order.cartEnabled && hasMenu) {
+        paint();
+        paintChooser();
+      }
     });
 
     // Keep "open now" honest on a tab left open across closing time — and the

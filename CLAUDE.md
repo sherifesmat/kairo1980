@@ -79,6 +79,7 @@ into a second file, stop — that is the bug this architecture exists to prevent
 | Discounts, thresholds, lead time, basket lifetime | `config.js` → `order`, `business` |
 | Who the minimum order value is asked of | `config.js` → `order.minimumOrder` |
 | Dishes, prices, diet tags | `index.html` `.mitem[data-item][data-price]` |
+| Bowl toppings, add-ons, what a Menü includes | `index.html` `.mchoice[data-option]`, `[data-addon-group]` — refs, never prices |
 | Ratings and reviews | `reviews.json` (fetched weekly) |
 | Every visible string | `data-de` / `data-en` / `data-ar` on the element itself |
 
@@ -151,6 +152,13 @@ are only the no-JavaScript fallback — update both or neither.
   row shows words, never a disabled `+` — a control that is present and refuses
   reads as a broken page. A basket lives two hours and the kitchen can run out
   inside that, so `dropSoldOut()` clears such items at boot and says which.
+- **A basket line names what is in it, never what it costs.** `hawawshy` for a
+  plain dish, `kairo-bowl|basis=nudeln|topping=kebda|getraenk=…` for one with
+  choices. `worker/pricing.js` decodes the key against the markup and refuses
+  anything the menu does not offer — a missing base, a fourth extra, a drink
+  from the wrong group — as it refuses a sold-out dish. An add-on is a
+  reference to a dish on the menu and costs that dish's price: Salata Baladi
+  has one price wherever it is offered. See the README, "Dishes with choices".
 - **Validation is advisory, never blocking.** An unknown postcode, a closed
   slot or a sub-minimum order warns the guest and flags the WhatsApp message —
   it never refuses the order. Losing one €300 corporate order to an automatic

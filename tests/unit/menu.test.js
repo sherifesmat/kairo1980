@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { menu } from '../../worker/site-data.js';
+import { menu, menuData } from '../../worker/site-data.js';
 
 const INDEX = fileURLToPath(new URL('../../index.html', import.meta.url));
 
@@ -25,7 +25,10 @@ test('every dish on the published menu is priced and named', async () => {
 
   for (const [id, dish] of dishes) {
     assert.match(id, /^[a-z0-9-]+$/, `dish id "${id}" is not a slug`);
-    assert.ok(dish.price > 0, `${id} has no price`);
+    // The KAIRO Bowl is priced by its topping; everything else by its own row.
+    const priced = dish.price > 0 ||
+      dish.groups.some((g) => g.options.length && g.options.every((o) => o.price > 0));
+    assert.ok(priced, `${id} has no price`);
     assert.ok(dish.name && dish.name !== id, `${id} has no readable name`);
     // An unresolved entity in a name reaches the WhatsApp message and the
     // Telegram alert as "Fritz&nbsp;Kola".
@@ -57,5 +60,35 @@ test('a known dish lands in the right group', async () => {
   assert.ok(hummus, 'hummus is no longer on the menu — update this test with it');
   assert.match(hummus.category, /Vorspeisen/,
     `hummus is filed under "${hummus.category}"`);
+});
+
+/* Every add-on and every Menü names dishes by id. A dish renamed or removed
+   from the menu would leave a reference to nothing — offered in the chooser,
+   refused at the till. */
+test('every reference on the published menu points at a priced dish', async () => {
+  const { dishes, addonGroups } = await menuData(realEnv());
+  for (const group of addonGroups.values()) {
+    assert.ok(group.refs.length, `add-on group ${group.id} is empty`);
+    for (const ref of group.refs) {
+      assert.ok(dishes.get(ref) && dishes.get(ref).price > 0, `${group.id} names "${ref}", which is not a priced dish`);
+    }
+  }
+  for (const [id, dish] of dishes) {
+    for (const g of [...dish.addons, ...dish.includes]) {
+      assert.ok(addonGroups.has(g), `${id} uses add-on group "${g}", which is not defined`);
+    }
+    for (const part of dish.contains) {
+      assert.ok(dishes.has(part), `${id} contains "${part}", which is not on the menu`);
+    }
+  }
+});
+
+test('the KAIRO Bowl is one dish, priced by its topping', async () => {
+  const bowl = (await menu(realEnv())).get('kairo-bowl');
+  assert.ok(bowl, 'kairo-bowl is not on the menu');
+  assert.equal(bowl.price, null);
+  assert.deepEqual(bowl.groups.map((g) => g.id), ['basis', 'topping']);
+  assert.ok(bowl.groups[0].options.every((o) => o.price == null), 'the base costs nothing');
+  assert.deepEqual(bowl.groups[1].options.map((o) => o.id), ['aubergine', 'haehnchen', 'soguk', 'kebda']);
 });
 

@@ -193,6 +193,17 @@ export function withLiveData(html, settings) {
   const off = Object.keys(soldOut || {});
   if (off.length) {
     for (const id of off) {
+      /* A topping is "dish:option" and is marked on its own row inside the
+         dish's, which is the first data-option of that name after the dish. */
+      const colon = id.indexOf(':');
+      if (colon > 0) {
+        const at = out.indexOf(`data-item="${id.slice(0, colon)}"`);
+        const opt = `data-option="${id.slice(colon + 1)}"`;
+        const where = at < 0 ? -1 : out.indexOf(opt, at);
+        if (where < 0) continue;
+        out = out.slice(0, where + opt.length) + ' data-soldout="1"' + out.slice(where + opt.length);
+        continue;
+      }
       const attr = `data-item="${id}"`;
       if (!out.includes(attr)) continue;   // a dish since removed from the menu
       out = out.split(attr).join(`${attr} data-soldout="1"`);
