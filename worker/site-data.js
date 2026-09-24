@@ -9,7 +9,11 @@
    `.mitem[data-item][data-price]` elements. So it is read out of the published
    index.html through the ASSETS binding and cached for the life of the
    isolate. A price edit is a deploy, and a deploy is a new isolate, so the
-   cache cannot serve a stale price. */
+   cache cannot serve a stale price.
+
+   A dish may also carry choices: its own (the KAIRO Bowl's base and topping,
+   written inside its row) and shared add-on groups defined once on the page
+   and referenced by id. See menuData() for the shape. */
 
 // The order of these three is load-bearing, exactly as it is in index.html:
 // config.js reads `window.KAIRO_ZONES` while it is being evaluated, so zones.js
@@ -22,28 +26,29 @@ import '../config.js';
 export const CONFIG = globalThis.KAIRO_CONFIG;
 export const ZONES = globalThis.KAIRO_ZONES;
 
-// data-item="baba-ghanough" ... data-price="11.00", in either attribute order.
-const ITEM_RE = /<div\b[^>]*\bclass="[^"]*\bmitem\b[^"]*"[^>]*>/g;
-const ATTR_ITEM = /\bdata-item="([^"]+)"/;
-const ATTR_PRICE = /\bdata-price="([^"]+)"/;
-// The dish name inside that block. German is read rather than English because
-// the two are identical by house rule — the printed menu, the signage and the
-// delivery platforms all use one spelling — and German is the one that is
-// always present.
-const NAME_RE = /class="mname[^"]*"[^>]*\bdata-de="([^"]+)"/;
-/* Configurable choices that own a price use a stable option id. Their canonical
-   pricing key is `dish-id:option-id`; the price lives here in index.html and
-   nowhere else. References to ordinary dishes deliberately carry no price and
-   are resolved from the referenced dish's data-price instead. */
-const ATTR_OPTION = /\\bdata-option="([^"]+)"/;
-const ATTR_REF = /\\bdata-ref="([^"]+)"/;
-const ATTR_GROUP = /\\bdata-group="([^"]+)"/;
-const ATTR_MIN = /\\bdata-min="([^"]+)"/;
-const ATTR_MAX = /\\bdata-max="([^"]+)"/;
-const ATTR_DE = /\\bdata-de="([^"]+)"/;
-/* Any element carrying data-option or data-ref is a selectable choice. Attribute
-   order is intentionally irrelevant; each attribute is read independently. */
-const CHOICE_RE = /<[^>]+\\b(?:data-option|data-ref)="[^"]+"[^>]*>/g;
+
+/* --- reading the menu out of the markup -------------------------------------
+   Every tag is matched once and its attributes are read one at a time, so the
+   order they are written in never matters. */
+const TAG_RE = /<[a-z][^>]*>/gi;
+const attr = (tag, name) => {
+  const m = tag.match(new RegExp('\\s' + name + '="([^"]*)"'));
+  return m ? m[1] : null;
+};
+const hasClass = (tag, cls) =>
+  new RegExp('\\sclass="(?:[^"]*\\s)?' + cls + '(?:\\s[^"]*)?"').test(tag);
+
+/* Where one dish's markup stops: at the next dish, the next category heading
+   or the end of the menu section, whichever comes first. Never a character
+   count — a bowl with four trilingual toppings is long, and a window that cuts
+   it short silently loses the toppings at the end. */
+const BLOCK_END_RE = /<div\b[^>]*\bclass="[^"]*\b(?:mitem|cat-head)\b|<\/section>/g;
+
+/* One cache per ASSETS binding. The binding is the same object for the life
+   of an isolate, so production reads index.html once per deploy; a test that
+   hands in its own markup gets its own parse instead of the first one made. */
+const cache = new WeakMap();
+
 /* The heading each dish sits under. Read the same way and for the same reason
    as the name: German, because the three spellings are one house rule apart and
    German is the one always present. Used by /admin/dishes so the sold-out list
@@ -51,18 +56,44 @@ const CHOICE_RE = /<[^>]+\\b(?:data-option|data-ref)="[^"]+"[^>]*>/g;
    hunting for a dish mid-service looks where the menu puts it. */
 const CAT_RE = /<h3\b[^>]*\bclass="cat-name[^"]*"[^>]*\bdata-de="([^"]+)"/g;
 
-let menuCache = null;
-
-/** id -> { price (cents|null), name, category, options, choices }. `options` maps\n *  price-owning configurable choices by option id; `choices` contains every\n *  selectable choice (including zero-price bases and references), with group\n *  and min/max constraints. Throws if the menu cannot be read: charging
- *  a guest an amount we could not derive from the published menu is never
- *  acceptable. */
-export async function menu(env) {
-  if (menuCache) return menuCache;
+/**
+ * The published menu.
+ *
+ * dishes: id -> {
+ *   price     cents, or null for a dish priced entirely by its options
+ *   name      German, as printed
+ *   category  the heading it sits under
+ *   groups    [{ id, name, options: [{ id, name, price|null }] }]
+ *             the dish's OWN choices — pick exactly one per group
+ *   addons    [groupId]  optional extras, charged at the referenced dish price
+ *   includes  [groupId]  pick exactly one, already in the dish's price
+ *   contains  [dishId]   what the dish is made of — sold out with any of them
+ * }
+ * addonGroups: id -> { id, name, max, refs: [dishId] }
+ *
+ * An add-on is a REFERENCE to a dish on the menu and carries no price of its
+ * own: Salata Baladi costs what its own row says, wherever it is offered.
+ * Throws if the menu cannot be read — charging an amount we could not derive
+ * from the published menu is never acceptable.
+ */
+export async function menuData(env) {
+  const hit = cache.get(env.ASSETS);
+  if (hit) return hit;
 
   const res = await env.ASSETS.fetch(new Request('https://kairo1980.de/index.html'));
   if (!res.ok) throw new Error('menu unavailable: index.html returned ' + res.status);
-  const html = await res.text();
+  const data = parseMenu(await res.text());
+  if (!data.dishes.size) throw new Error('menu unavailable: no priced items found in index.html');
+  cache.set(env.ASSETS, data);
+  return data;
+}
 
+/** id -> dish, in menu order. See menuData() for the shape. */
+export async function menu(env) {
+  return (await menuData(env)).dishes;
+}
+
+export function parseMenu(html) {
   /* Where each category heading starts, so a dish can be told which one it
      falls under by position — the markup nests nothing, the heading simply
      precedes its dishes. */
@@ -81,75 +112,97 @@ export async function menu(env) {
     return name;
   };
 
-  const found = new Map();
-  ITEM_RE.lastIndex = 0;
+  const addonGroups = new Map();
+  const dishes = new Map();
+  TAG_RE.lastIndex = 0;
   let match;
-  while ((match = ITEM_RE.exec(html)) !== null) {
+  while ((match = TAG_RE.exec(html)) !== null) {
     const tag = match[0];
-    const id = (tag.match(ATTR_ITEM) || [])[1];
-    if (!id) continue;
 
-    /* A dish block ends at the next .mitem opening tag, never at an arbitrary
-       character count. This prevents choices leaking between adjacent dishes
-       and permits arbitrarily long translated configurable-product markup. */
-    const bodyStart = ITEM_RE.lastIndex;
-    const next = html.slice(bodyStart).search(/<div\\b[^>]*\\bclass="[^"]*\\bmitem\\b[^"]*"[^>]*>/);
-    const blockEnd = next < 0 ? html.length : bodyStart + next;
-    const block = html.slice(match.index, blockEnd);
-
-    const priceText = (tag.match(ATTR_PRICE) || [])[1];
-    const parsedPrice = priceText == null ? NaN : parseFloat(priceText);
-    const cents = Number.isFinite(parsedPrice) && parsedPrice > 0
-      ? Math.round(parsedPrice * 100) : null;
-    const name = (block.match(NAME_RE) || [])[1];
-
-    const options = new Map();
-    const choices = [];
-    CHOICE_RE.lastIndex = 0;
-    let choice;
-    while ((choice = CHOICE_RE.exec(block)) !== null) {
-      const choiceTag = choice[0];
-      const optionId = (choiceTag.match(ATTR_OPTION) || [])[1] || null;
-      const ref = (choiceTag.match(ATTR_REF) || [])[1] || null;
-      const group = (choiceTag.match(ATTR_GROUP) || [])[1] || '';
-      const minText = (choiceTag.match(ATTR_MIN) || [])[1];
-      const maxText = (choiceTag.match(ATTR_MAX) || [])[1];
-      const choicePriceText = (choiceTag.match(ATTR_PRICE) || [])[1];
-      const label = decodeEntities((choiceTag.match(ATTR_DE) || [])[1] || optionId || ref || '');
-      const choicePrice = choicePriceText == null ? null : Math.round(parseFloat(choicePriceText) * 100);
-      const entry = {
-        option: optionId, ref, group,
-        min: minText == null ? null : Number(minText),
-        max: maxText == null ? null : Number(maxText),
-        name: label,
-        price: Number.isFinite(choicePrice) ? choicePrice : null
-      };
-      choices.push(entry);
-      if (optionId && entry.price != null && entry.price > 0) {
-        options.set(optionId, {
-          id: id + ':' + optionId,
-          price: entry.price,
-          name: label
-        });
-      }
+    const groupId = attr(tag, 'data-addon-group');
+    if (groupId) {
+      // Refs are empty spans inside the group's div; the group ends at its </div>.
+      const end = html.indexOf('</div>', TAG_RE.lastIndex);
+      const body = html.slice(TAG_RE.lastIndex, end < 0 ? html.length : end);
+      const refs = [...body.matchAll(/\sdata-ref="([^"]+)"/g)].map((m) => m[1]);
+      const max = parseInt(attr(tag, 'data-max'), 10);
+      addonGroups.set(groupId, {
+        id: groupId,
+        name: decodeEntities(attr(tag, 'data-de') || groupId),
+        max: Number.isFinite(max) && max > 0 ? max : refs.length,
+        refs
+      });
+      continue;
     }
 
-    /* Ordinary dishes require their own positive price. A configurable product
-       may omit it when at least one of its choices owns the price; the selected
-       option then supplies the unit price. */
-    if (cents == null && !options.size) continue;
-    found.set(id, {
-      price: cents,
-      name: decodeEntities(name || id),
-      category: categoryAt(match.index),
-      options,
-      choices
-    });
+    if (!/^<div\b/i.test(tag) || !hasClass(tag, 'mitem')) continue;
+    const id = attr(tag, 'data-item');
+    if (!id) continue;
+
+    BLOCK_END_RE.lastIndex = TAG_RE.lastIndex;
+    const next = BLOCK_END_RE.exec(html);
+    const block = html.slice(TAG_RE.lastIndex, next ? next.index : html.length);
+    const dish = parseDish(tag, block);
+    dish.category = categoryAt(match.index);
+    if (!dish.name) dish.name = id;
+
+    /* A dish needs a price of its own, or options that carry one. Anything
+       else could only ever be priced at nothing. */
+    if (dish.price == null && !dish.groups.some((g) => g.options.some((o) => o.price != null))) continue;
+    dishes.set(id, dish);
   }
 
-  if (!found.size) throw new Error('menu unavailable: no priced items found in index.html');
-  menuCache = found;
-  return menuCache;
+  return { dishes, addonGroups };
+}
+
+const words = (text) => (text || '').split(/\s+/).filter(Boolean);
+
+function parseDish(tag, block) {
+  const price = cents(attr(tag, 'data-price'));
+  const dish = {
+    price,
+    name: '',
+    category: '',
+    groups: [],
+    addons: words(attr(tag, 'data-addons')),
+    includes: words(attr(tag, 'data-includes')),
+    contains: words(attr(tag, 'data-contains'))
+  };
+
+  let group = null;
+  let option = null;
+  const inner = new RegExp(TAG_RE.source, 'gi');
+  let m;
+  while ((m = inner.exec(block)) !== null) {
+    const t = m[0];
+    const de = attr(t, 'data-de');
+    if (!dish.name && hasClass(t, 'mname') && de) { dish.name = decodeEntities(de); continue; }
+
+    const g = attr(t, 'data-group');
+    if (g) {
+      group = { id: g, name: decodeEntities(de || g), options: [] };
+      dish.groups.push(group);
+      option = null;
+      continue;
+    }
+    const o = attr(t, 'data-option');
+    if (o && group) {
+      option = { id: o, name: o, price: cents(attr(t, 'data-price')) };
+      group.options.push(option);
+      continue;
+    }
+    // The option's printed name, in German for the same reason the dish's is.
+    if (option && option.name === option.id && hasClass(t, 'mchoice-name') && de) {
+      option.name = decodeEntities(de);
+    }
+  }
+  return dish;
+}
+
+function cents(text) {
+  if (text == null) return null;
+  const value = parseFloat(text);
+  return Number.isFinite(value) && value > 0 ? Math.round(value * 100) : null;
 }
 
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" };
