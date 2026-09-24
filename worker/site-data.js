@@ -35,18 +35,25 @@ const NAME_RE = /class="mname[^"]*"[^>]*\bdata-de="([^"]+)"/;
    pricing key is `dish-id:option-id`; the price lives here in index.html and
    nowhere else. References to ordinary dishes deliberately carry no price and
    are resolved from the referenced dish's data-price instead. */
-const OPTION_RE = /<[^>]+\bdata-option="([^"]+)"[^>]*\bdata-price="([^"]+)"[^>]*\bdata-de="([^"]+)"[^>]*>/g;
+const ATTR_OPTION = /\\bdata-option="([^"]+)"/;
+const ATTR_REF = /\\bdata-ref="([^"]+)"/;
+const ATTR_GROUP = /\\bdata-group="([^"]+)"/;
+const ATTR_MIN = /\\bdata-min="([^"]+)"/;
+const ATTR_MAX = /\\bdata-max="([^"]+)"/;
+const ATTR_DE = /\\bdata-de="([^"]+)"/;
+/* Any element carrying data-option or data-ref is a selectable choice. Attribute
+   order is intentionally irrelevant; each attribute is read independently. */
+const CHOICE_RE = /<[^>]+\\b(?:data-option|data-ref)="[^"]+"[^>]*>/g;
 /* The heading each dish sits under. Read the same way and for the same reason
    as the name: German, because the three spellings are one house rule apart and
    German is the one always present. Used by /admin/dishes so the sold-out list
    reads in the same groups and the same order as the printed menu — a cook
    hunting for a dish mid-service looks where the menu puts it. */
 const CAT_RE = /<h3\b[^>]*\bclass="cat-name[^"]*"[^>]*\bdata-de="([^"]+)"/g;
-const BLOCK = 2400;
 
 let menuCache = null;
 
-/** id -> { price (cents), name }. Throws if the menu cannot be read: charging
+/** id -> { price (cents|null), name, category, options, choices }. `options` maps\n *  price-owning configurable choices by option id; `choices` contains every\n *  selectable choice (including zero-price bases and references), with group\n *  and min/max constraints. Throws if the menu cannot be read: charging
  *  a guest an amount we could not derive from the published menu is never
  *  acceptable. */
 export async function menu(env) {
@@ -80,29 +87,63 @@ export async function menu(env) {
   while ((match = ITEM_RE.exec(html)) !== null) {
     const tag = match[0];
     const id = (tag.match(ATTR_ITEM) || [])[1];
-    const price = (tag.match(ATTR_PRICE) || [])[1];
-    if (!id || !price) continue;
-    const cents = Math.round(parseFloat(price) * 100);
-    if (!Number.isFinite(cents) || cents <= 0) continue;
-    const name = (html.slice(match.index, match.index + BLOCK).match(NAME_RE) || [])[1];
-    const block = html.slice(match.index, match.index + BLOCK);
+    if (!id) continue;
+
+    /* A dish block ends at the next .mitem opening tag, never at an arbitrary
+       character count. This prevents choices leaking between adjacent dishes
+       and permits arbitrarily long translated configurable-product markup. */
+    const bodyStart = ITEM_RE.lastIndex;
+    const next = html.slice(bodyStart).search(/<div\\b[^>]*\\bclass="[^"]*\\bmitem\\b[^"]*"[^>]*>/);
+    const blockEnd = next < 0 ? html.length : bodyStart + next;
+    const block = html.slice(match.index, blockEnd);
+
+    const priceText = (tag.match(ATTR_PRICE) || [])[1];
+    const parsedPrice = priceText == null ? NaN : parseFloat(priceText);
+    const cents = Number.isFinite(parsedPrice) && parsedPrice > 0
+      ? Math.round(parsedPrice * 100) : null;
+    const name = (block.match(NAME_RE) || [])[1];
+
     const options = new Map();
-    OPTION_RE.lastIndex = 0;
-    let option;
-    while ((option = OPTION_RE.exec(block)) !== null) {
-      const optionCents = Math.round(parseFloat(option[2]) * 100);
-      if (!Number.isFinite(optionCents) || optionCents <= 0) continue;
-      options.set(option[1], {
-        id: id + ':' + option[1],
-        price: optionCents,
-        name: decodeEntities(option[3])
-      });
+    const choices = [];
+    CHOICE_RE.lastIndex = 0;
+    let choice;
+    while ((choice = CHOICE_RE.exec(block)) !== null) {
+      const choiceTag = choice[0];
+      const optionId = (choiceTag.match(ATTR_OPTION) || [])[1] || null;
+      const ref = (choiceTag.match(ATTR_REF) || [])[1] || null;
+      const group = (choiceTag.match(ATTR_GROUP) || [])[1] || '';
+      const minText = (choiceTag.match(ATTR_MIN) || [])[1];
+      const maxText = (choiceTag.match(ATTR_MAX) || [])[1];
+      const choicePriceText = (choiceTag.match(ATTR_PRICE) || [])[1];
+      const label = decodeEntities((choiceTag.match(ATTR_DE) || [])[1] || optionId || ref || '');
+      const choicePrice = choicePriceText == null ? null : Math.round(parseFloat(choicePriceText) * 100);
+      const entry = {
+        option: optionId, ref, group,
+        min: minText == null ? null : Number(minText),
+        max: maxText == null ? null : Number(maxText),
+        name: label,
+        price: Number.isFinite(choicePrice) ? choicePrice : null
+      };
+      choices.push(entry);
+      if (optionId && entry.price != null && entry.price > 0) {
+        options.set(optionId, {
+          id: id + ':' + optionId,
+          price: entry.price,
+          name: label
+        });
+      }
     }
+
+    /* Ordinary dishes require their own positive price. A configurable product
+       may omit it when at least one of its choices owns the price; the selected
+       option then supplies the unit price. */
+    if (cents == null && !options.size) continue;
     found.set(id, {
       price: cents,
       name: decodeEntities(name || id),
       category: categoryAt(match.index),
-      options
+      options,
+      choices
     });
   }
 
