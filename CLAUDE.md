@@ -78,7 +78,7 @@ into a second file, stop — that is the bug this architecture exists to prevent
 | Postcodes, fees, minimums | `data/delivery_zones.xlsx` → `zones.js` |
 | Discounts, thresholds, lead time, basket lifetime | `config.js` → `order`, `business` |
 | Who the minimum order value is asked of | `config.js` → `order.minimumOrder` |
-| Dishes, prices, diet tags | `index.html` `.mitem[data-item][data-price]` |
+| Dishes, prices, diet tags | `index.html` `.mitem[data-item][data-price]` (prices overridden by `/admin/prices`) |
 | Bowl toppings, add-ons, what a Menü includes | `index.html` `.mchoice[data-option]`, `[data-addon-group]` — refs, never prices |
 | Ratings and reviews | `reviews.json` (fetched weekly) |
 | Every visible string | `data-de` / `data-en` / `data-ar` on the element itself |
@@ -152,6 +152,18 @@ are only the no-JavaScript fallback — update both or neither.
   row shows words, never a disabled `+` — a control that is present and refuses
   reads as a broken page. A basket lives two hours and the kitchen can run out
   inside that, so `dropSoldOut()` clears such items at boot and says which.
+- **Prices live in the database now too, and index.html is the default.**
+  Exactly like the hours: `data-price` is what the menu was published with and
+  what "Menu price" restores; a `prices` row in `settings` overrides single
+  prices by the id the till uses (`hummus`, `kairo-bowl:kebda`). The Worker
+  writes the price in effect into the page (`withPrices()` in
+  `worker/page-render.js`) and charges by the same `priceOf()`, so page, basket
+  and charge read one figure. An override counts only for an id the current
+  menu prices. An extra is never priced on its own — it is its dish. If the
+  settings cannot be READ, `quote()` refuses with `prices_unavailable` rather
+  than charge a default the page may not have shown; the guest sends the order
+  and pays on arrival, as with any failed payment. A value that is not a price
+  refuses the whole save.
 - **A basket line names what is in it, never what it costs.** `hawawshy` for a
   plain dish, `kairo-bowl|basis=nudeln|topping=kebda|getraenk=…` for one with
   choices. `worker/pricing.js` decodes the key against the markup and refuses

@@ -53,7 +53,15 @@ export async function quote(env, req) {
      of is not that: the ingredient is not in the building, and taking the money
      would mean ringing the guest back to say so. The browser dims it too, but
      the browser is not to be trusted with the answer. */
-  const { soldOut } = await readSettings(env);
+  const { soldOut, prices: overrides, unreadable } = await readSettings(env);
+  /* Money is the one thing a settings outage may not paper over. The page may
+     have shown a price the restaurant set at /admin; the defaults are not the
+     same claim. The guest is offered the way this site always offers when a
+     payment cannot be taken: send the order and pay on arrival. */
+  if (unreadable) {
+    throw new PricingError('prices_unavailable', 'Prices cannot be confirmed right now.');
+  }
+  const price = (id) => priceOf(dishes, overrides, id);
   const type = req.type === 'pickup' ? 'pickup' : 'delivery';
   const business = !!req.business;
 
@@ -64,7 +72,7 @@ export async function quote(env, req) {
   for (const [key, rawQty] of Object.entries(req.items || {})) {
     const qty = Math.floor(Number(rawQty));
     if (!Number.isFinite(qty) || qty <= 0) continue;
-    const line = resolveLine(key, dishes, addonGroups, soldOut || {});
+    const line = resolveLine(key, dishes, addonGroups, soldOut || {}, price);
     units += qty;
     if (units > MAX_ITEMS) throw new PricingError('too_many_items', 'Order exceeds ' + MAX_ITEMS + ' items');
     const amount = line.unit * qty;
@@ -132,7 +140,30 @@ export function parseLineKey(key) {
   return { dish, picks };
 }
 
-function resolveLine(key, dishes, addonGroups, soldOut) {
+/**
+ * The price in effect for a dish or a "dish:option", in cents.
+ *
+ * The menu's own figure, unless the restaurant has set another at
+ * /admin/prices. An override counts only for an id the CURRENT menu prices:
+ * a dish since removed, a base that costs nothing, a mistyped id — all inert,
+ * however long the row has sat in the database.
+ */
+export function priceOf(dishes, overrides, id) {
+  const colon = id.indexOf(':');
+  const dish = dishes.get(colon < 0 ? id : id.slice(0, colon));
+  if (!dish) return null;
+  let base = dish.price;
+  if (colon >= 0) {
+    const optionId = id.slice(colon + 1);
+    const option = dish.groups.flatMap((g) => g.options).find((o) => o.id === optionId);
+    base = option ? option.price : null;
+  }
+  if (!(base > 0)) return base;
+  const override = overrides && overrides[id];
+  return Number.isInteger(override) && override > 0 ? override : base;
+}
+
+function resolveLine(key, dishes, addonGroups, soldOut, price = (id) => priceOf(dishes, {}, id)) {
   const parsed = parseLineKey(key);
   if (!parsed) throw new PricingError('unknown_item', 'Unknown menu item: ' + String(key).slice(0, 80));
   const dish = dishes.get(parsed.dish);
@@ -148,7 +179,7 @@ function resolveLine(key, dishes, addonGroups, soldOut) {
   }
 
   const picks = new Map(parsed.picks);
-  let unit = dish.price || 0;
+  let unit = price(parsed.dish) || 0;
   const own = [];       // printed in brackets: the topping, the base, the drink of a Menü
   const extras = [];    // printed after a "+"
   const choices = [];
@@ -160,9 +191,10 @@ function resolveLine(key, dishes, addonGroups, soldOut) {
     const option = group.options.find((o) => o.id === chosen[0]);
     if (!option) refuse('no such ' + group.name + ' ' + chosen[0]);
     if (soldOut[parsed.dish + ':' + option.id]) gone(dish.name + ' ' + option.name);
-    unit += option.price || 0;
+    const optionPrice = price(parsed.dish + ':' + option.id) || 0;
+    unit += optionPrice;
     own.push(option.name);
-    choices.push({ group: group.id, id: option.id, name: option.name, price: option.price || 0 });
+    choices.push({ group: group.id, id: option.id, name: option.name, price: optionPrice });
   }
 
   const referenced = (groupId, included) => {
@@ -176,12 +208,14 @@ function resolveLine(key, dishes, addonGroups, soldOut) {
     if (new Set(chosen).size !== chosen.length) refuse('duplicate ' + group.name);
     for (const ref of chosen) {
       const target = group.refs.includes(ref) && dishes.get(ref);
-      if (!target || target.price == null) refuse('no such ' + group.name + ' ' + ref);
+      // An extra costs what its own row costs today, override and all.
+      const refPrice = target ? price(ref) : null;
+      if (!target || !(refPrice > 0)) refuse('no such ' + group.name + ' ' + ref);
       if (soldOut[ref]) gone(target.name);
-      const price = included ? 0 : target.price;
-      unit += price;
+      const charged = included ? 0 : refPrice;
+      unit += charged;
       (included ? own : extras).push(target.name);
-      choices.push({ group: groupId, id: ref, name: target.name, price });
+      choices.push({ group: groupId, id: ref, name: target.name, price: charged });
     }
   };
   for (const groupId of dish.includes) referenced(groupId, true);

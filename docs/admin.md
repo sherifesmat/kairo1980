@@ -80,6 +80,8 @@ otherwise fall through to the 404 asset; `worker/index.js` claims it explicitly.
 | --- | --- |
 | `/admin` | The list. |
 | `/admin/orders` | Settled payments for a day, and — highlighted — every paid order that never reached the chat. Never a name, phone number or address: those never reach this server. |
+| `/admin/dishes` | Sold out: a dish, or a single bowl topping or base, off the menu until unticked. |
+| `/admin/prices` | What a dish or a bowl topping costs. Live on the page, in the basket and at the till on save; "Menu price" per row, or one button for all, puts back the figure in `index.html`. Extras cost what their own dish costs, so there is nothing separate to set. Lieferando and Uber Eats are priced in their own portals. |
 
 ## The holiday band
 

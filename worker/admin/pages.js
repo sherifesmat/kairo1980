@@ -519,6 +519,10 @@ export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extensio
     <b>Sold out</b>
     <span>Take a dish off the menu when the kitchen runs out of it.</span>
   </a>
+  <a class="tile" href="/admin/prices">
+    <b>Prices</b>
+    <span>Change what a dish costs — on the website, in the basket and at the till at once.</span>
+  </a>
 </div>
 
 <!-- The alert channel, and proof that it works.

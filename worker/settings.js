@@ -23,7 +23,13 @@
 
    Exactly one of the two is in effect at any moment and the admin page says
    which. What must never happen is a third copy: nothing anywhere may retype
-   a closing time it could have asked for. */
+   a closing time it could have asked for.
+
+   PRICES follow the hours exactly. `data-price` in index.html is the DEFAULT;
+   a row here OVERRIDES single prices by the id the till already uses (a dish,
+   or "dish:option" for a bowl topping). The Worker writes the price in effect
+   into the page before it is sent and prices the order from the same answer,
+   so the guest, the basket and the charge read one number. */
 
 import { CONFIG } from './site-data.js';
 import { dayOf, nextMidnight, nextTimeOfDay, instantOf } from './berlin.js';
@@ -34,6 +40,7 @@ const SOLDOUT = 'soldout';
 const EXTENSION = 'extension';
 const SHIFT = 'shift';
 const HOLIDAY = 'holiday';
+const PRICES = 'prices';
 
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -71,8 +78,12 @@ export async function readSettings(env) {
       extension: null,
       deliveryShift: null,
       holiday: null,
+      // No binding, no overrides: the menu's own prices are the whole truth.
+      prices: {},
+      unreadable: false,
       hoursVersion: '0',
-      soldOutVersion: '0'
+      soldOutVersion: '0',
+      pricesVersion: '0'
     };
   }
 
@@ -80,6 +91,7 @@ export async function readSettings(env) {
   if (held && held.until > Date.now()) return held.value;
 
   let rows = [];
+  let unreadable = false;
   try {
     const result = await env.DB.prepare('SELECT key, value, updated_at FROM settings').all();
     rows = result.results || [];
@@ -87,6 +99,11 @@ export async function readSettings(env) {
     // A settings table that cannot be read must never take the site down: the
     // published defaults are a complete, correct answer.
     console.error('settings unreadable', err && err.message);
+    /* ...for everything except money. A price override may exist that this
+       read could not see, and charging the menu default for a dish the page
+       showed at another figure is a charge nobody agreed to. So it is said,
+       and worker/pricing.js refuses to price rather than guess. */
+    unreadable = true;
   }
 
   const raw = {};
@@ -125,7 +142,14 @@ export async function readSettings(env) {
     hoursVersion: (rows.find((r) => r.key === HOURS) || {}).updated_at || '0',
     // Pages state which dishes are sold out, so the ETag has to move when the
     // answer does — exactly as it does for the hours.
-    soldOutVersion: (rows.find((r) => r.key === SOLDOUT) || {}).updated_at || '0'
+    soldOutVersion: (rows.find((r) => r.key === SOLDOUT) || {}).updated_at || '0',
+    /* Prices the restaurant has changed since the menu was published, in
+       cents, by the id the till uses. Only ever consulted for an id that has a
+       price on the current menu — see priceOf() in worker/pricing.js — so a
+       row outliving the dish it named is inert. */
+    prices: normalisePrices(raw[PRICES]),
+    unreadable,
+    pricesVersion: (rows.find((r) => r.key === PRICES) || {}).updated_at || '0'
   };
 
   cache.set(env.DB, { value, until: Date.now() + CACHE_MS });
@@ -353,6 +377,41 @@ async function put(env, key, value) {
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
   ).bind(key, JSON.stringify(value)).run();
   forgetCache(env);
+}
+
+
+/* --- prices the restaurant has changed ------------------------------------
+   Whole cents, from 0,50 € to 500,00 €. Anything else is dropped on read as
+   well as refused on save: the row may have been written by an older version
+   of this file, and a value that is not a price must not become one. */
+export const PRICE_MIN = 50;
+export const PRICE_MAX = 50000;
+const PRICE_ID = /^[a-z0-9-]+(?::[a-z0-9-]+)?$/;
+
+export function normalisePrices(value) {
+  const out = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return out;
+  for (const [id, cents] of Object.entries(value)) {
+    if (!PRICE_ID.test(id) || id.length > 80) continue;
+    if (!Number.isInteger(cents) || cents < PRICE_MIN || cents > PRICE_MAX) continue;
+    out[id] = cents;
+  }
+  return out;
+}
+
+/** Replace the whole set of overrides. Called with only the prices that
+ *  differ from the menu, so an empty object means "the menu's prices". */
+export async function writePrices(env, prices) {
+  const value = normalisePrices(prices);
+  if (!Object.keys(value).length) return resetPrices(env);
+  await put(env, PRICES, value);
+  return value;
+}
+
+export async function resetPrices(env) {
+  await env.DB.prepare('DELETE FROM settings WHERE key = ?1').bind(PRICES).run();
+  forgetCache(env);
+  return {};
 }
 
 

@@ -769,3 +769,56 @@ test('a topping marked sold out is off the bowl, and only that topping', async (
     await page.click('button.save-btn');
   }
 });
+
+/* --- a price changed at /admin ----------------------------------------------
+   One figure, everywhere at once: the menu row, the basket, the message the
+   restaurant reads. A typo refuses the whole save. Reset in a finally, for
+   the same reason the sold-out tests clean up. */
+test('a price changed at /admin is the price on the menu, in the basket and in the chat', async ({ page }) => {
+  const whatsapp = await captureWhatsApp(page);
+  await signIn(page);
+  await goAdmin(page, '/admin/prices');
+
+  const hummus = page.locator('input[name="price:hummus"]');
+  await expect(hummus, 'the list is read from the menu').toHaveValue('9,50');
+  await expect(page.locator('input[name="price:kairo-bowl:kebda"]')).toHaveValue('17,50');
+
+  try {
+    // A price that is not a price saves nothing at all.
+    await hummus.fill('95,0,0');
+    await page.locator('input[name="price:koshary"]').fill('15,00');
+    await page.click('button.save-btn');
+    await expect(page.locator('.err')).toContainText('Nothing was saved');
+    await goAdmin(page, '/admin/prices');
+    await expect(page.locator('input[name="price:koshary"]')).toHaveValue('14,50');
+
+    await page.locator('input[name="price:hummus"]').fill('10,50');
+    await page.click('button.save-btn');
+    await expect(page.locator('.msg')).toContainText('Saved');
+    await expect(page.locator('li.price.changed')).toContainText('Menu price: 9,50 €');
+
+    const row = page.locator('.mitem[data-item="hummus"]');
+    await expect(async () => {
+      await page.goto('/?lang=de&t=' + Date.now());
+      await expect(row).toHaveAttribute('data-price', '10.50');
+    }).toPass({ timeout: 20000 });
+    await expect(row.locator('.mprice')).toHaveText('10,50 €');
+
+    await addItem(page, 'hummus', 2);
+    await openBasket(page);
+    await expect(page.locator('.cart-line-price')).toContainText('21,00');
+    await choosePickup(page);
+    await fillContact(page, {});
+    await page.locator('#cartSend').click();
+    const message = decodeURIComponent((await whatsapp()).split('?text=')[1]);
+    expect(message).toContain('2× Hummus — 21,00');
+  } finally {
+    await goAdmin(page, '/admin/prices');
+    const all = page.locator('form.reset-all button');
+    if (await all.count()) await all.click();
+  }
+
+  await goAdmin(page, '/admin/prices');
+  await expect(page.locator('input[name="price:hummus"]')).toHaveValue('9,50');
+  await expect(page.locator('form.reset-all')).toHaveCount(0);
+});
