@@ -31,6 +31,11 @@ const ATTR_PRICE = /\bdata-price="([^"]+)"/;
 // delivery platforms all use one spelling — and German is the one that is
 // always present.
 const NAME_RE = /class="mname[^"]*"[^>]*\bdata-de="([^"]+)"/;
+/* Configurable choices that own a price use a stable option id. Their canonical
+   pricing key is `dish-id:option-id`; the price lives here in index.html and
+   nowhere else. References to ordinary dishes deliberately carry no price and
+   are resolved from the referenced dish's data-price instead. */
+const OPTION_RE = /<[^>]+\bdata-option="([^"]+)"[^>]*\bdata-price="([^"]+)"[^>]*\bdata-de="([^"]+)"[^>]*>/g;
 /* The heading each dish sits under. Read the same way and for the same reason
    as the name: German, because the three spellings are one house rule apart and
    German is the one always present. Used by /admin/dishes so the sold-out list
@@ -80,10 +85,24 @@ export async function menu(env) {
     const cents = Math.round(parseFloat(price) * 100);
     if (!Number.isFinite(cents) || cents <= 0) continue;
     const name = (html.slice(match.index, match.index + BLOCK).match(NAME_RE) || [])[1];
+    const block = html.slice(match.index, match.index + BLOCK);
+    const options = new Map();
+    OPTION_RE.lastIndex = 0;
+    let option;
+    while ((option = OPTION_RE.exec(block)) !== null) {
+      const optionCents = Math.round(parseFloat(option[2]) * 100);
+      if (!Number.isFinite(optionCents) || optionCents <= 0) continue;
+      options.set(option[1], {
+        id: id + ':' + option[1],
+        price: optionCents,
+        name: decodeEntities(option[3])
+      });
+    }
     found.set(id, {
       price: cents,
       name: decodeEntities(name || id),
-      category: categoryAt(match.index)
+      category: categoryAt(match.index),
+      options
     });
   }
 
