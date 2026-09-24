@@ -1469,8 +1469,11 @@
     var item = items[id];
     if (!item) return true;
     if (soldOut(id) || item.contains.some(soldOut)) return true;
+    // A required choice with nothing left to choose — every option sold out,
+    // or none written at all — leaves nothing that could be ordered.
     if (item.groups.some(function (g) {
-      return g.options.every(function (o) { return soldOut(id + ':' + o.id); });
+      return !g.options.length ||
+        g.options.every(function (o) { return soldOut(id + ':' + o.id); });
     })) return true;
     return item.includes.some(function (gid) {
       var addon = addonGroups[gid];

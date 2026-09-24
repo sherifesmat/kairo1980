@@ -747,6 +747,22 @@ test('a topping marked sold out is off the bowl, and only that topping', async (
     await expect(dialog.locator('.chooser-opt.is-soldout')).toContainText('Kebda');
     await expect(dialog.locator('input[value="kebda"]')).toHaveCount(0);
     await expect(dialog.locator('input[value="haehnchen"]')).toHaveCount(1);
+
+    /* A Kebda bowl put in the basket BEFORE the kitchen ran out is dropped at
+       the next load, by name, and the chicken bowl beside it stays. */
+    await page.evaluate(() => localStorage.setItem('kairo.cart.v2', JSON.stringify({
+      savedAt: Date.now(),
+      items: {
+        'kairo-bowl|basis=reis|topping=kebda': 1,
+        'kairo-bowl|basis=reis|topping=haehnchen': 1
+      }
+    })));
+    await page.goto('/?lang=de&t=' + Date.now());
+    await page.locator('#cartFab').click();
+    await expect(page.locator('.cart-line')).toHaveCount(1);
+    await expect(page.locator('.cart-line')).toContainText('Hähnchen');
+    await expect(page.locator('#cartSoldOutNote')).toContainText('KAIRO Bowl (Ägyptischer Reis, Kebda)');
+    await expect(page.locator('#cartSoldOutNote')).toContainText('ausverkauft');
   } finally {
     await goAdmin(page, '/admin/dishes');
     await page.locator('input[name="soldout"][value="kairo-bowl:kebda"]').uncheck();
