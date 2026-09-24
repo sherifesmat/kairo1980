@@ -43,6 +43,14 @@ const hasClass = (tag, cls) =>
    count — a bowl with four trilingual toppings is long, and a window that cuts
    it short silently loses the toppings at the end. */
 const BLOCK_END_RE = /<div\b[^>]*\bclass="[^"]*\b(?:mitem|cat-head)\b|<\/section>/g;
+const GROUP_END_RE = /<[a-z][^>]*\sdata-addon-group="|<div\b[^>]*\bclass="[^"]*\b(?:mitem|cat-head)\b|<\/section>/gi;
+
+/* A menu that names the same thing twice cannot be priced without guessing
+   which one was meant, so it is not priced at all. The test that reads the
+   real index.html fails first, which keeps it from being deployed. */
+function malformed(what) {
+  throw new Error('menu malformed: ' + what);
+}
 
 /* One cache per ASSETS binding. The binding is the same object for the life
    of an isolate, so production reads index.html once per deploy; a test that
@@ -121,11 +129,17 @@ export function parseMenu(html) {
 
     const groupId = attr(tag, 'data-addon-group');
     if (groupId) {
-      // Refs are empty spans inside the group's div; the group ends at its </div>.
-      const end = html.indexOf('</div>', TAG_RE.lastIndex);
-      const body = html.slice(TAG_RE.lastIndex, end < 0 ? html.length : end);
+      /* A group runs until the next group, the next dish or heading, or the
+         end of the menu — never to "the first </div>", which a harmless
+         wrapper around one ref would move. data-ref means nothing anywhere
+         else on the page. */
+      GROUP_END_RE.lastIndex = TAG_RE.lastIndex;
+      const end = GROUP_END_RE.exec(html);
+      const body = html.slice(TAG_RE.lastIndex, end ? end.index : html.length);
       const refs = [...body.matchAll(/\sdata-ref="([^"]+)"/g)].map((m) => m[1]);
       const max = parseInt(attr(tag, 'data-max'), 10);
+      if (addonGroups.has(groupId)) malformed('add-on group "' + groupId + '" is defined twice');
+      if (new Set(refs).size !== refs.length) malformed('add-on group "' + groupId + '" names a dish twice');
       addonGroups.set(groupId, {
         id: groupId,
         name: decodeEntities(attr(tag, 'data-de') || groupId),
@@ -180,6 +194,7 @@ function parseDish(tag, block) {
 
     const g = attr(t, 'data-group');
     if (g) {
+      if (dish.groups.some((x) => x.id === g)) malformed('choice "' + g + '" appears twice in one dish');
       group = { id: g, name: decodeEntities(de || g), options: [] };
       dish.groups.push(group);
       option = null;
@@ -187,6 +202,7 @@ function parseDish(tag, block) {
     }
     const o = attr(t, 'data-option');
     if (o && group) {
+      if (group.options.some((x) => x.id === o)) malformed('option "' + o + '" appears twice in "' + group.id + '"');
       option = { id: o, name: o, price: cents(attr(t, 'data-price')) };
       group.options.push(option);
       continue;

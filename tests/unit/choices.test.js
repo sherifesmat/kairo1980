@@ -167,3 +167,30 @@ test('line keys are read strictly', () => {
   assert.equal(parseLineKey('a|b'), null);
   assert.equal(parseLineKey('x'.repeat(401)), null);
 });
+
+test('an add-on group keeps every ref, whatever wraps them', () => {
+  const html = `<div class="addon-groups" hidden>
+    <div data-addon-group="beilagen" data-max="3">
+      <div class="wrap"><span data-ref="salata"></span></div>
+      <span data-ref="tahini"></span>
+    </div>
+    <div data-addon-group="getraenk"><span data-ref="kola"></span></div>
+  </div>
+  <div class="mitem" data-item="salata" data-price="6.00"><div class="mname" data-de="S">S</div></div>`;
+  const { addonGroups } = parseMenu(html);
+  assert.deepEqual(addonGroups.get('beilagen').refs, ['salata', 'tahini']);
+  assert.deepEqual(addonGroups.get('getraenk').refs, ['kola']);
+});
+
+test('a menu that names the same thing twice is not priced at all', () => {
+  const dish = (inner) => `<div class="mitem" data-item="b"><div class="mname" data-de="B">B</div>${inner}</div>`;
+  const opt = (id) => `<li data-option="${id}" data-price="9.00"></li>`;
+  assert.throws(() => parseMenu(dish(`<ul data-group="t">${opt('a')}</ul><ul data-group="t">${opt('b')}</ul>`)),
+    /choice "t" appears twice/);
+  assert.throws(() => parseMenu(dish(`<ul data-group="t">${opt('a')}${opt('a')}</ul>`)),
+    /option "a" appears twice/);
+  assert.throws(() => parseMenu('<div data-addon-group="g"><span data-ref="x"></span><span data-ref="x"></span></div>'),
+    /names a dish twice/);
+  assert.throws(() => parseMenu('<div data-addon-group="g"></div><div data-addon-group="g"></div>'),
+    /defined twice/);
+});
