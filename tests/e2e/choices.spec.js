@@ -20,7 +20,9 @@ test('a bowl is one dish on the menu, with its toppings priced in its row', asyn
   await page.goto('/?lang=de');
   const bowl = page.locator('.mitem[data-item="kairo-bowl"]');
   await expect(bowl.locator('.mchoice[data-option]')).toHaveCount(6);   // 2 bases, 4 toppings
-  await expect(bowl.locator('.mchoice[data-option="kebda"]')).toContainText('17,50');
+  // A base has its price; a topping adds to it.
+  await expect(bowl.locator('.mchoice[data-option="nudeln"] .mchoice-price')).toHaveText('9,00 €');
+  await expect(bowl.locator('.mchoice[data-option="kebda"] .mchoice-price')).toHaveText('+8,50 €');
   // The old plate section is gone, and nothing on the page still points at it.
   await expect(page.locator('.mitem[data-item="kebda"]')).toHaveCount(0);
   await expect(page.locator('.mitem[data-item="haehnchenschlegel"]')).toHaveCount(0);

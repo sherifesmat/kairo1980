@@ -38,10 +38,13 @@ test('an override is what the till charges', async () => {
   assert.equal(q.subtotal, 2100);
 });
 
-test('a topping override moves that topping only', async () => {
-  const prices = { 'kairo-bowl:kebda': 1850 };
-  assert.equal((await pickup({ 'kairo-bowl|basis=reis|topping=kebda': 1 }, { prices })).subtotal, 1850);
-  assert.equal((await pickup({ 'kairo-bowl|basis=reis|topping=soguk': 1 }, { prices })).subtotal, 1750);
+test('a bowl is its base plus its topping, each set on its own', async () => {
+  // Defaults: 9,00 base + 8,50 Kebda.
+  assert.equal((await pickup({ 'kairo-bowl|basis=reis|topping=kebda': 1 })).subtotal, 1750);
+  const prices = { 'kairo-bowl:nudeln': 1000, 'kairo-bowl:kebda': 950 };
+  assert.equal((await pickup({ 'kairo-bowl|basis=nudeln|topping=kebda': 1 }, { prices })).subtotal, 1000 + 950);
+  assert.equal((await pickup({ 'kairo-bowl|basis=reis|topping=kebda': 1 }, { prices })).subtotal, 900 + 950);
+  assert.equal((await pickup({ 'kairo-bowl|basis=nudeln|topping=soguk': 1 }, { prices })).subtotal, 1000 + 850);
 });
 
 test('an extra follows its own dish: change Salata Baladi, every "+ Salata" moves', async () => {
@@ -57,10 +60,10 @@ test('a Menü drink stays included whatever the drink now costs', async () => {
 
 test('an override for something the menu does not price is inert', () => {
   const { dishes } = parseMenu(INDEX);
-  const overrides = { kebda: 999, 'kairo-bowl:reis': 300, 'kairo-bowl': 1200, 'no-such': 100 };
+  const overrides = { kebda: 999, 'kairo-bowl:hummer': 300, 'kairo-bowl': 1200, 'no-such': 100 };
   assert.equal(priceOf(dishes, overrides, 'kebda'), null);             // the dish left the menu
-  assert.equal(priceOf(dishes, overrides, 'kairo-bowl:reis'), null);   // a base costs nothing
-  assert.equal(priceOf(dishes, overrides, 'kairo-bowl'), null);        // priced by its topping
+  assert.equal(priceOf(dishes, overrides, 'kairo-bowl:hummer'), null); // no such option
+  assert.equal(priceOf(dishes, overrides, 'kairo-bowl'), null);        // priced by its parts
   assert.equal(priceOf(dishes, overrides, 'hummus'), 950);
 });
 
@@ -81,16 +84,22 @@ test('stored overrides are cleaned on read', () => {
 });
 
 test('the page is sent with the price in effect, in the attribute and the figure', () => {
-  const html = withPrices(INDEX, { hummus: 1050, 'kairo-bowl:aubergine': 1350, 'salata-baladi': 650 });
+  const html = withPrices(INDEX, {
+    hummus: 1050, 'kairo-bowl:reis': 800, 'kairo-bowl:nudeln': 1000,
+    'kairo-bowl:aubergine': 450, 'salata-baladi': 650
+  });
   const { dishes } = parseMenu(html);
   assert.equal(dishes.get('hummus').price, 1050);
   assert.equal(dishes.get('salata-baladi').price, 650);
-  assert.equal(dishes.get('kairo-bowl').groups[1].options[0].price, 1350);
-  // What a reader without JavaScript sees.
+  assert.deepEqual(dishes.get('kairo-bowl').groups[0].options.map((o) => o.price), [800, 1000]);
+  assert.equal(dishes.get('kairo-bowl').groups[1].options[0].price, 450);
+  // What a reader without JavaScript sees — a topping keeps its "+".
   assert.match(html, /data-item="hummus"[\s\S]*?class="mprice">10,50 €</);
-  assert.match(html, /data-option="aubergine"[\s\S]*?class="mchoice-price">13,50 €</);
-  // The bowl's "ab" figure follows its cheapest topping.
-  assert.match(html, /data-item="kairo-bowl"[\s\S]*?class="mprice"><span[^>]*>ab<\/span> 13,50 €/);
+  assert.match(html, /data-option="reis"[\s\S]*?class="mchoice-price">8,00 €</);
+  assert.match(html, /data-option="nudeln"[\s\S]*?class="mchoice-price">10,00 €</);
+  assert.match(html, /data-option="aubergine"[\s\S]*?class="mchoice-price">\+4,50 €</);
+  // The bowl's "ab" is its cheapest make-up: cheapest base + cheapest topping.
+  assert.match(html, /data-item="kairo-bowl"[\s\S]*?class="mprice"><span[^>]*>ab<\/span> 12,50 €/);
   // Nothing else moved.
   assert.equal(parseMenu(html).dishes.get('koshary').price, 1450);
 });

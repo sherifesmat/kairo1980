@@ -484,31 +484,34 @@
     <div class="mitem mconfig" data-item="kairo-bowl" data-allergens="pending" data-addons="getraenk beilagen-bowl">
       <div>
         <div class="mname t" data-de="KAIRO Bowl" data-en="KAIRO Bowl" data-ar="طبق KAIRO">KAIRO Bowl</div>
-        <p class="mdesc t" data-de="Deine Bowl, wie du sie magst: Wähle zuerst die Basis – ägyptischer Reis oder Nudeln, ohne Aufpreis – und dann dein Topping." data-en="Your bowl, the way you like it: first choose the base – Egyptian rice or noodles, at no extra cost – then your topping." data-ar="طبقك زي ما تحبه: اختار الأول القاعدة – رز مصري أو مكرونة، من غير فرق في السعر – وبعدين اختار اللي فوقه.">Deine Bowl, wie du sie magst: Wähle zuerst die Basis – ägyptischer Reis oder Nudeln, ohne Aufpreis – und dann dein Topping.</p>
+        <p class="mdesc t" data-de="Deine Bowl, wie du sie magst: Wähle zuerst die Basis – ägyptischer Reis oder Nudeln – und dann dein Topping." data-en="Your bowl, the way you like it: first choose the base – Egyptian rice or noodles – then your topping." data-ar="طبقك زي ما تحبه: اختار الأول القاعدة – رز مصري أو مكرونة – وبعدين اختار اللي فوقه.">Deine Bowl, wie du sie magst: Wähle zuerst die Basis – ägyptischer Reis oder Nudeln – und dann dein Topping.</p>
+        <!-- Priced in two parts: the base has a price, each topping ADDS to
+             it (data-surcharge). Both are set per id at /admin/prices; the
+             figures here are the defaults. -->
         <ul class="mchoices" data-group="basis" data-de="Basis" data-en="Base" data-ar="القاعدة">
-          <li class="mchoice" data-option="reis"><span class="mchoice-name t" data-de="Ägyptischer Reis" data-en="Ägyptischer Reis" data-ar="رز مصري">Ägyptischer Reis</span></li>
-          <li class="mchoice" data-option="nudeln"><span class="mchoice-name t" data-de="Nudeln" data-en="Nudeln" data-ar="مكرونة">Nudeln</span></li>
+          <li class="mchoice" data-option="reis" data-price="9.00"><span class="mchoice-name t" data-de="Ägyptischer Reis" data-en="Ägyptischer Reis" data-ar="رز مصري">Ägyptischer Reis</span> <span class="mchoice-price">9,00 €</span></li>
+          <li class="mchoice" data-option="nudeln" data-price="9.00"><span class="mchoice-name t" data-de="Nudeln" data-en="Nudeln" data-ar="مكرونة">Nudeln</span> <span class="mchoice-price">9,00 €</span></li>
         </ul>
-        <ul class="mchoices" data-group="topping" data-de="Topping" data-en="Topping" data-ar="اللي فوقه">
-          <li class="mchoice" data-option="aubergine" data-price="14.50">
+        <ul class="mchoices" data-group="topping" data-surcharge="1" data-de="Topping" data-en="Topping" data-ar="اللي فوقه">
+          <li class="mchoice" data-option="aubergine" data-price="5.50">
             <span class="mchoice-name t" data-de="Aubergine" data-en="Aubergine" data-ar="باذنجان">Aubergine</span>
             <span class="mchoice-desc t" data-de="Aromatische Aubergine mit Knoblauch, Peperoni und orientalischen Gewürzen." data-en="Aromatic aubergine with garlic, peppers and oriental spices." data-ar="باذنجان بريحة حلوة بالتوم والشطة والبهارات الشرقية.">Aromatische Aubergine mit Knoblauch, Peperoni und orientalischen Gewürzen.</span>
-            <span class="mchoice-price">14,50 €</span>
+            <span class="mchoice-price">+5,50 €</span>
           </li>
-          <li class="mchoice" data-option="haehnchen" data-price="16.50">
+          <li class="mchoice" data-option="haehnchen" data-price="7.50">
             <span class="mchoice-name t" data-de="Hähnchen" data-en="Hähnchen" data-ar="فراخ">Hähnchen</span>
             <span class="mchoice-desc t" data-de="Saftiges, orientalisch gewürztes Hähnchen." data-en="Juicy chicken with oriental spices." data-ar="فراخ طرية متبّلة ببهارات شرقية.">Saftiges, orientalisch gewürztes Hähnchen.</span>
-            <span class="mchoice-price">16,50 €</span>
+            <span class="mchoice-price">+7,50 €</span>
           </li>
-          <li class="mchoice" data-option="soguk" data-price="17.50">
+          <li class="mchoice" data-option="soguk" data-price="8.50">
             <span class="mchoice-name t" data-de="Soguk Baladi" data-en="Soguk Baladi" data-ar="سجق بلدي">Soguk Baladi</span>
             <span class="mchoice-desc t" data-de="Würzige Soguk-Wurst nach ägyptischer Art mit Tomaten und Peperoni." data-en="Spicy Egyptian-style Soguk sausage with tomatoes and peppers." data-ar="سجق متبّل على الطريقة المصرية بالطماطم والشطة.">Würzige Soguk-Wurst nach ägyptischer Art mit Tomaten und Peperoni.</span>
-            <span class="mchoice-price">17,50 €</span>
+            <span class="mchoice-price">+8,50 €</span>
           </li>
-          <li class="mchoice" data-option="kebda" data-price="17.50">
+          <li class="mchoice" data-option="kebda" data-price="8.50">
             <span class="mchoice-name t" data-de="Kebda" data-en="Kebda" data-ar="كبدة">Kebda</span>
             <span class="mchoice-desc t" data-de="Fein geschnittene Kalbsleber nach ägyptischer Art mit Peperoni, Knoblauch und orientalischen Gewürzen." data-en="Finely sliced veal liver, Egyptian-style, with peppers, garlic and oriental spices." data-ar="كبدة بتلو مقطعة رفيّع على الطريقة المصرية بالشطة والتوم والبهارات الشرقية.">Fein geschnittene Kalbsleber nach ägyptischer Art mit Peperoni, Knoblauch und orientalischen Gewürzen.</span>
-            <span class="mchoice-price">17,50 €</span>
+            <span class="mchoice-price">+8,50 €</span>
           </li>
         </ul>
       </div>

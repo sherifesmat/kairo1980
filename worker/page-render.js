@@ -401,15 +401,17 @@ export function withPrices(html, overrides) {
     touchedBowls.add(dishId);
   }
 
-  /* A dish priced by its options prints "ab" the cheapest of them. Only
+  /* A dish priced by its options prints "ab" its cheapest make-up. Only
      rewritten when one of its options moved; otherwise the markup is right. */
   for (const dishId of touchedBowls) {
     const dish = dishes.get(dishId);
     if (dish.price != null) continue;
-    const lowest = Math.min(...dish.groups.flatMap((g) => g.options)
+    /* One pick per group, and the picks add up — base plus topping — so the
+       cheapest bowl is the cheapest of each group, summed. */
+    const lowest = dish.groups.reduce((sum, g) => sum + Math.min(...g.options
       .map((o) => priceOf(dishes, overrides, dishId + ':' + o.id))
-      .filter((c) => c > 0));
-    if (!Number.isFinite(lowest)) continue;
+      .filter((c) => c > 0)), 0);
+    if (!Number.isFinite(lowest) || !(lowest > 0)) continue;
     const start = dishTag(dishId);
     // The dish's own figure is the LAST .mprice in its block, after the toppings.
     const end = dishEnd(start);

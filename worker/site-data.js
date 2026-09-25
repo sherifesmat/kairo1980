@@ -162,7 +162,7 @@ export function parseMenu(html) {
 
     /* A dish needs a price of its own, or options that carry one. Anything
        else could only ever be priced at nothing. */
-    if (dish.price == null && !dish.groups.some((g) => g.options.some((o) => o.price != null))) continue;
+    if (dish.price == null && !dish.groups.some((g) => g.options.some((o) => o.price > 0))) continue;
     dishes.set(id, dish);
   }
 
@@ -195,7 +195,10 @@ function parseDish(tag, block) {
     const g = attr(t, 'data-group');
     if (g) {
       if (dish.groups.some((x) => x.id === g)) malformed('choice "' + g + '" appears twice in one dish');
-      group = { id: g, name: decodeEntities(de || g), options: [] };
+      // data-surcharge: this group ADDS to the rest of the dish (the bowl's
+      // toppings on top of its base) — which changes how its prices are shown,
+      // never how they are summed.
+      group = { id: g, name: decodeEntities(de || g), surcharge: attr(t, 'data-surcharge') != null, options: [] };
       dish.groups.push(group);
       option = null;
       continue;

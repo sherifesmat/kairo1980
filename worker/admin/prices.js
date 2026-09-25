@@ -15,7 +15,9 @@
      - an extra's price. "Salata Baladi +6,00 €" on a bowl IS Salata Baladi's
        price; change the dish and every extra follows.
      - a Menü's included drink. The Menü has one price and the drink is in it.
-     - a base that costs nothing (rice, noodles). Nothing to change.
+
+   The KAIRO Bowl is priced in two parts: its base (rice, noodles) has a
+   price, and each topping adds to it. Both are set here, each by its own id.
 
    A value that is not a price REFUSES THE WHOLE SAVE, and the page comes back
    with every figure as it was typed and the bad ones marked. The alternative
@@ -40,7 +42,12 @@ async function priceable(env) {
     for (const g of dish.groups) {
       for (const o of g.options) {
         if (o.price > 0) {
-          group.rows.push({ id: id + ':' + o.id, name: dish.name + ' – ' + o.name, base: o.price, sub: true });
+          // A group that adds to the rest of the dish (the bowl's toppings,
+          // on top of its base) is labelled so, so "+8,50" is not read as
+          // the price of a whole bowl.
+          const plus = g.surcharge ? ' (+ on top of the base)' : ' (base price)';
+          group.rows.push({ id: id + ':' + o.id, name: dish.name + ' – ' + o.name + (dish.groups.length > 1 ? plus : ''),
+                            base: o.price, sub: true });
         }
       }
     }

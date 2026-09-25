@@ -1254,14 +1254,28 @@
             if (price) {
               dish.offers = { '@type': 'Offer', price: price, priceCurrency: 'EUR' };
             } else {
-              /* The KAIRO Bowl has no price of its own; each topping is one
-                 offer, named as printed. Only what the row states — never a
-                 "from" figure invented for the dish as a whole. */
-              var offers = [].map.call(node.querySelectorAll('.mchoice[data-price]'), function (o) {
-                var label = o.querySelector('.mchoice-name');
-                return { '@type': 'Offer', name: label ? label.textContent.trim() : o.getAttribute('data-option'),
-                         price: o.getAttribute('data-price'), priceCurrency: 'EUR' };
+              /* The KAIRO Bowl has no price of its own: one pick per group,
+                 added up — a base, plus a topping. Every make-up the guest can
+                 order is one offer at exactly what it costs, named as printed.
+                 Never a "from" figure invented for the dish as a whole. */
+              var combos = [{ names: [], cents: 0 }];
+              [].forEach.call(node.querySelectorAll('.mchoices[data-group]'), function (g) {
+                var next = [];
+                [].forEach.call(g.querySelectorAll('.mchoice[data-price]'), function (o) {
+                  var label = o.querySelector('.mchoice-name');
+                  var cents = Math.round(parseFloat(o.getAttribute('data-price')) * 100);
+                  combos.forEach(function (c) {
+                    next.push({ names: c.names.concat(label ? label.textContent.trim() : o.getAttribute('data-option')),
+                                cents: c.cents + cents });
+                  });
+                });
+                if (next.length) combos = next;
               });
+              var offers = combos.filter(function (c) { return c.names.length && c.cents > 0; })
+                .map(function (c) {
+                  return { '@type': 'Offer', name: c.names.join(', '),
+                           price: (c.cents / 100).toFixed(2), priceCurrency: 'EUR' };
+                });
               if (offers.length) dish.offers = offers;
             }
             var tag = node.querySelector('.tag');
@@ -1729,6 +1743,8 @@
         return {
           id: g.getAttribute('data-group'),
           el: g,
+          // Adds to the rest of the dish (the bowl's toppings, on its base).
+          surcharge: g.hasAttribute('data-surcharge'),
           options: [].map.call(g.querySelectorAll('.mchoice[data-option]'), function (o) {
             var p = parseFloat(o.getAttribute('data-price'));
             return { id: o.getAttribute('data-option'), el: o, price: isNaN(p) ? 0 : p,
@@ -1986,7 +2002,7 @@
     var item = items[id];
     var out = item.groups.map(function (g) {
       return {
-        id: g.id, kind: 'own', label: labelOf(g.el), max: 1,
+        id: g.id, kind: 'own', label: labelOf(g.el), max: 1, surcharge: g.surcharge,
         options: g.options.map(function (o) {
           return { id: o.id, name: textOf(o.node), price: o.price, off: soldOut(id + ':' + o.id) };
         })
@@ -2066,7 +2082,9 @@
             '</span><span class="soldout-tag">' + escapeHtml(L.soldOut) + '</span></div>';
           return;
         }
-        var price = s.kind === 'extra' ? '+ ' + money(o.price) : (o.price > 0 ? money(o.price) : '');
+        var price = !(o.price > 0) ? ''
+          : (s.kind === 'extra' || s.surcharge) ? '+ ' + money(o.price)
+          : money(o.price);
         html += '<label class="chooser-opt"><input type="' + type + '" name="' + escapeHtml(name) +
           '" value="' + escapeHtml(o.id) + '"' + (keep[name + '=' + o.id] ? ' checked' : '') + '>' +
           '<span class="chooser-name">' + escapeHtml(o.name) + '</span>' +

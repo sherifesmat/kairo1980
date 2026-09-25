@@ -83,12 +83,14 @@ test('every reference on the published menu points at a priced dish', async () =
   }
 });
 
-test('the KAIRO Bowl is one dish, priced by its topping', async () => {
+test('the KAIRO Bowl is one dish: a priced base, and a topping that adds to it', async () => {
   const bowl = (await menu(realEnv())).get('kairo-bowl');
   assert.ok(bowl, 'kairo-bowl is not on the menu');
   assert.equal(bowl.price, null);
-  assert.deepEqual(bowl.groups.map((g) => g.id), ['basis', 'topping']);
-  assert.ok(bowl.groups[0].options.every((o) => o.price == null), 'the base costs nothing');
+  assert.deepEqual(bowl.groups.map((g) => [g.id, g.surcharge]), [['basis', false], ['topping', true]]);
+  assert.deepEqual(bowl.groups[0].options.map((o) => o.id), ['reis', 'nudeln']);
+  assert.ok(bowl.groups[0].options.every((o) => o.price > 0), 'each base has its own price');
   assert.deepEqual(bowl.groups[1].options.map((o) => o.id), ['aubergine', 'haehnchen', 'soguk', 'kebda']);
+  assert.ok(bowl.groups[1].options.every((o) => o.price > 0), 'each topping adds something');
 });
 
