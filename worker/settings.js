@@ -429,7 +429,8 @@ export async function resetPrices(env) {
    two is in effect, never a blend. Only the shape is checked here; whether a
    dish still exists is a question for the menu (effectiveMenu()). */
 const SLUG = /^[a-z0-9-]{1,40}$/;
-const label = (v) => (typeof v === 'string' ? v.trim().slice(0, 60) : '');
+// A label that is too long is not a label cut short: the group is dropped.
+const label = (v) => (typeof v === 'string' && v.trim().length <= 60 ? v.trim() : '');
 
 export function normaliseAddons(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -439,7 +440,8 @@ export function normaliseAddons(value) {
     const de = label(g.de), en = label(g.en), ar = label(g.ar);
     if (!de || !en || !ar) continue;               // trilingual, or not at all
     const refs = [...new Set((Array.isArray(g.refs) ? g.refs : []).filter((r) => typeof r === 'string' && SLUG.test(r)))];
-    if (!refs.length || !Number.isInteger(g.max) || g.max < 1) continue;
+    // "How many" outside 1..dishes is not a limit anybody saved — drop, never clamp.
+    if (!refs.length || !Number.isInteger(g.max) || g.max < 1 || g.max > refs.length) continue;
     groups[id] = { de, en, ar, max: g.max, refs };
   }
   const dishes = {};

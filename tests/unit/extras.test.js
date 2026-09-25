@@ -68,12 +68,17 @@ test('what a Menü includes is not the admin setup’s to change', async () => {
 test('nothing but a plain dish on the current menu can be an extra', () => {
   const data = parseMenu(INDEX);
   const { addonGroups } = effectiveMenu(data, normaliseAddons({
-    groups: { g: { de: 'G', en: 'G', ar: 'G', max: 5, refs: ['kebda', 'kairo-bowl', 'hawawshy-menue', 'tahini-dip'] } },
+    groups: {
+      g: { de: 'G', en: 'G', ar: 'G', max: 1, refs: ['kebda', 'kairo-bowl', 'hawawshy-menue', 'tahini-dip'] },
+      // "pick up to 3" with one dish left is not re-read as "pick 1": dropped.
+      h: { de: 'H', en: 'H', ar: 'H', max: 3, refs: ['kebda', 'kairo-bowl', 'tahini-dip'] }
+    },
     dishes: {}
   }));
-  // A removed dish, a dish with choices and a Menü drop out; the max follows.
+  // A removed dish, a dish with choices and a Menü drop out.
   assert.deepEqual(addonGroups.get('g').refs, ['tahini-dip']);
   assert.equal(addonGroups.get('g').max, 1);
+  assert.equal(addonGroups.has('h'), false);
 });
 
 test('a dish is never an extra of itself', async () => {
@@ -93,6 +98,8 @@ test('a stored setup is cleaned on read', () => {
       nolang: { de: 'A', en: '', ar: 'أ', max: 1, refs: ['x'] },
       norefs: { de: 'A', en: 'A', ar: 'أ', max: 1, refs: [] },
       badmax: { de: 'A', en: 'A', ar: 'أ', max: 0, refs: ['x'] },
+      overmax: { de: 'A', en: 'A', ar: 'أ', max: 3, refs: ['x', 'y'] },
+      longname: { de: 'A'.repeat(61), en: 'A', ar: 'أ', max: 1, refs: ['x'] },
       'Bad Id': { de: 'A', en: 'A', ar: 'أ', max: 1, refs: ['x'] }
     },
     dishes: { hummus: ['ok', 'nolang', 'ok'], 'Bad Id': ['ok'] }

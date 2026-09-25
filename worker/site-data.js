@@ -202,10 +202,14 @@ export function effectiveMenu(data, override) {
   for (const [id, g] of Object.entries(override.groups || {})) {
     if (included.has(id)) continue;
     const refs = g.refs.filter(offerable);
-    if (!refs.length) continue;
+    /* A dish that has left the menu leaves its groups by itself. But if what
+       is left can no longer honour the limit that was saved ("pick 3" with
+       two dishes left), that group is dropped rather than given a limit
+       nobody chose — and /admin/extras shows it gone, to be set up again. */
+    if (!refs.length || g.max > refs.length) continue;
     groups.set(id, {
       id, name: g.de, labels: { de: g.de, en: g.en, ar: g.ar },
-      max: Math.min(g.max, refs.length), refs
+      max: g.max, refs
     });
   }
 
