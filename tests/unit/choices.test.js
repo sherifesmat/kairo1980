@@ -83,8 +83,11 @@ test('a dish owns only the choices written inside its own row', () => {
 
 test('add-on groups are references to dishes, with a limit and no prices', () => {
   const { addonGroups } = parseMenu(HTML);
-  assert.deepEqual(addonGroups.get('beilagen'),
-    { id: 'beilagen', name: 'Passt gut dazu', max: 2, refs: ['salata', 'tahini', 'habanero'] });
+  assert.deepEqual(addonGroups.get('beilagen'), {
+    id: 'beilagen', name: 'Passt gut dazu', max: 2, refs: ['salata', 'tahini', 'habanero'],
+    // With no data-en / data-ar written, the German stands in rather than a blank.
+    labels: { de: 'Passt gut dazu', en: 'Passt gut dazu', ar: 'Passt gut dazu' }
+  });
 });
 
 test('the topping sets the bowl price; rice or noodles cost the same', async () => {

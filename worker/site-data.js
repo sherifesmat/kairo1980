@@ -143,6 +143,12 @@ export function parseMenu(html) {
       addonGroups.set(groupId, {
         id: groupId,
         name: decodeEntities(attr(tag, 'data-de') || groupId),
+        // All three, so a page rewritten from this model says what it said.
+        labels: {
+          de: decodeEntities(attr(tag, 'data-de') || groupId),
+          en: decodeEntities(attr(tag, 'data-en') || attr(tag, 'data-de') || groupId),
+          ar: decodeEntities(attr(tag, 'data-ar') || attr(tag, 'data-de') || groupId)
+        },
         max: Number.isFinite(max) && max > 0 ? max : refs.length,
         refs
       });
@@ -167,6 +173,52 @@ export function parseMenu(html) {
   }
 
   return { dishes, addonGroups };
+}
+
+/**
+ * The extras in effect: the menu's own, or the complete setup saved at
+ * /admin/extras (settings.addons). Everything that offers, draws or charges an
+ * extra asks this one function, so the till checks exactly what the page shows.
+ *
+ * What the admin setup can never touch: a group some dish INCLUDES (the Menü
+ * drink). That is what a fixed-price Menü is made of, not an optional extra,
+ * so it stays as the markup has it and an override may not reuse its id.
+ * What it can never add: a ref that is not a plain priced dish on the current
+ * menu — no dish since removed, and nothing that needs choices of its own.
+ */
+export function effectiveMenu(data, override) {
+  if (!override) return data;
+  const { dishes, addonGroups } = data;
+  const included = new Set();
+  for (const dish of dishes.values()) dish.includes.forEach((g) => included.add(g));
+
+  const groups = new Map();
+  for (const [id, g] of addonGroups) if (included.has(id)) groups.set(id, g);
+
+  const offerable = (id) => {
+    const d = dishes.get(id);
+    return !!d && d.price > 0 && !d.groups.length && !d.includes.length;
+  };
+  for (const [id, g] of Object.entries(override.groups || {})) {
+    if (included.has(id)) continue;
+    const refs = g.refs.filter(offerable);
+    /* A dish that has left the menu leaves its groups by itself. But if what
+       is left can no longer honour the limit that was saved ("pick 3" with
+       two dishes left), that group is dropped rather than given a limit
+       nobody chose — and /admin/extras shows it gone, to be set up again. */
+    if (!refs.length || g.max > refs.length) continue;
+    groups.set(id, {
+      id, name: g.de, labels: { de: g.de, en: g.en, ar: g.ar },
+      max: g.max, refs
+    });
+  }
+
+  const effective = new Map();
+  for (const [id, dish] of dishes) {
+    const addons = (override.dishes && override.dishes[id] || []).filter((g) => groups.has(g) && !included.has(g));
+    effective.set(id, { ...dish, addons });
+  }
+  return { dishes: effective, addonGroups: groups };
 }
 
 const words = (text) => (text || '').split(/\s+/).filter(Boolean);

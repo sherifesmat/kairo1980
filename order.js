@@ -217,9 +217,9 @@
       chooserAdd: 'In den Warenkorb',
       chooserClose: 'Schließen',
       chooserPick: 'Bitte wähle: {group}',
-      chooserRequired: 'bitte eins wählen',
+      chooserRequired: 'Wähle 1', chooserMandatory: 'Pflichtfeld', chooserOptional: 'Optional',
       chooserIncluded: 'im Preis enthalten',
-      chooserUpTo: 'bis zu {n}',
+      chooserUpTo: 'Bis zu {n}',
       inBasket: '{n} im Warenkorb',
       pickupLabel: 'Abholung', deliveryLabel: 'Lieferung',
       deliveryNotice: 'Abholung während der gesamten Öffnungszeit, Lieferung ab {from} Uhr.',
@@ -382,9 +382,9 @@
       chooserAdd: 'Add to basket',
       chooserClose: 'Close',
       chooserPick: 'Please choose: {group}',
-      chooserRequired: 'choose one',
+      chooserRequired: 'Choose 1', chooserMandatory: 'Required', chooserOptional: 'Optional',
       chooserIncluded: 'included in the price',
-      chooserUpTo: 'up to {n}',
+      chooserUpTo: 'Up to {n}',
       inBasket: '{n} in basket',
       pickupLabel: 'Pickup', deliveryLabel: 'Delivery',
       deliveryNotice: 'Collection throughout our opening hours, delivery from {from}.',
@@ -533,7 +533,7 @@
       chooserAdd: 'ضيف للسلة',
       chooserClose: 'اقفل',
       chooserPick: 'من فضلك اختار: {group}',
-      chooserRequired: 'اختار واحد',
+      chooserRequired: 'اختار واحد', chooserMandatory: 'إجباري', chooserOptional: 'اختياري',
       chooserIncluded: 'داخل في السعر',
       chooserUpTo: 'لحد {n}',
       inBasket: '{n} في السلة',
@@ -1448,7 +1448,7 @@
         if (included ? chosen.length !== 1 : chosen.length > addon.max) return false;
         for (j = 0; j < chosen.length; j++) {
           var ref = chosen[j];
-          if (addon.refs.indexOf(ref) < 0 || !items[ref] || chosen.indexOf(ref) !== j) return false;
+          if (addon.refs.indexOf(ref) < 0 || !items[ref] || chosen.indexOf(ref) !== j || ref === p.dish) return false;
           if (!included) unit += items[ref].price;
           (included ? own : extras).push(itemName(ref));
           parts.push(ref);
@@ -1991,7 +1991,7 @@
      missing — the add button is never a control that silently refuses.
   ------------------------------------------------------------------------- */
 
-  var chooser = { id: null, wrap: null, back: null, returnTo: null };
+  var chooser = { id: null, wrap: null, back: null, returnTo: null, qty: 1 };
 
   function labelOf(el) {
     return el.getAttribute('data-' + lang()) || el.getAttribute('data-de') || '';
@@ -2013,9 +2013,12 @@
       if (!addon) return;
       out.push({
         id: gid, kind: kind, label: labelOf(addon.el), max: kind === 'included' ? 1 : addon.max,
-        // A sold-out drink or side is simply not offered; the dish still is.
-        options: addon.refs.filter(function (r) { return items[r] && !soldOut(r); }).map(function (r) {
-          return { id: r, name: itemName(r), price: kind === 'included' ? 0 : items[r].price, off: false };
+        /* A sold-out drink or side is SHOWN, greyed and marked, and cannot be
+           ticked — as on Lieferando: a guest looking for their Karkadeh should
+           read that it is out, not wonder whether it was ever offered. Never
+           the dish itself: a shared group may hold the dish it is offered on. */
+        options: addon.refs.filter(function (r) { return items[r] && r !== id; }).map(function (r) {
+          return { id: r, name: itemName(r), price: kind === 'included' ? 0 : items[r].price, off: soldOut(r) };
         })
       });
     }
@@ -2059,43 +2062,62 @@
       keep[input.name + '=' + input.value] = true;
     });
 
+    /* Laid out the way guests already know from Lieferando: the dish and its
+       description on top; each group with its name, a "required" or
+       "optional" badge and how many may be picked; one row per option with
+       the name, the price and the control at the row's end; and at the foot
+       how many, and the total for that many. */
+    var desc = items[chooser.id].el.querySelector('.mdesc');
     var html =
       '<div class="chooser-head">' +
-        '<h3 class="chooser-title" id="chooserTitle">' + escapeHtml(itemName(chooser.id)) + '</h3>' +
+        '<div><h3 class="chooser-title" id="chooserTitle">' + escapeHtml(itemName(chooser.id)) + '</h3>' +
+        (desc ? '<p class="chooser-desc">' + escapeHtml(desc.textContent.trim()) + '</p>' : '') + '</div>' +
         '<button type="button" class="cart-close" data-act="chooser-close" aria-label="' +
           escapeHtml(L.chooserClose) + '">×</button>' +
       '</div><div class="chooser-body">';
 
     chooserSections(chooser.id).forEach(function (s) {
-      var rule = s.kind === 'own' ? L.chooserRequired
-        : s.kind === 'included' ? L.chooserIncluded
-        : fill(L.chooserUpTo, { n: s.max });
+      var required = s.kind !== 'extra';
+      var rule = s.kind === 'extra' ? fill(L.chooserUpTo, { n: s.max })
+        : s.kind === 'included' ? L.chooserRequired + ' · ' + L.chooserIncluded
+        : L.chooserRequired;
       var name = 'ch-' + s.id;
-      var type = s.kind === 'extra' ? 'checkbox' : 'radio';
+      var type = required ? 'radio' : 'checkbox';
       html += '<fieldset class="chooser-group" data-section="' + escapeHtml(s.id) + '"><legend>' +
-        '<span class="chooser-legend">' + escapeHtml(s.label) + '</span> ' +
+        '<span class="chooser-legend">' + escapeHtml(s.label) + '</span>' +
+        '<span class="chooser-badge' + (required ? ' is-required' : '') + '">' +
+          escapeHtml(required ? L.chooserMandatory : L.chooserOptional) + '</span>' +
         '<span class="chooser-rule">' + escapeHtml(rule) + '</span></legend>';
       s.options.forEach(function (o) {
-        if (o.off) {
-          // Words, not a disabled radio: the reason is the whole message.
-          html += '<div class="chooser-opt is-soldout"><span class="chooser-name">' + escapeHtml(o.name) +
-            '</span><span class="soldout-tag">' + escapeHtml(L.soldOut) + '</span></div>';
-          return;
-        }
         var price = !(o.price > 0) ? ''
           : (s.kind === 'extra' || s.surcharge) ? '+ ' + money(o.price)
           : money(o.price);
-        html += '<label class="chooser-opt"><input type="' + type + '" name="' + escapeHtml(name) +
-          '" value="' + escapeHtml(o.id) + '"' + (keep[name + '=' + o.id] ? ' checked' : '') + '>' +
+        if (o.off) {
+          // Shown, greyed, marked — and nothing to tick. The words are the reason.
+          html += '<div class="chooser-opt is-soldout"><span class="chooser-text">' +
+            '<span class="chooser-name">' + escapeHtml(o.name) + '</span>' +
+            '<span class="soldout-tag">' + escapeHtml(L.soldOut) + '</span></span></div>';
+          return;
+        }
+        html += '<label class="chooser-opt"><span class="chooser-text">' +
           '<span class="chooser-name">' + escapeHtml(o.name) + '</span>' +
-          (price ? '<span class="chooser-price">' + price + '</span>' : '') + '</label>';
+          (price ? '<span class="chooser-price">' + price + '</span>' : '') + '</span>' +
+          '<input type="' + type + '" name="' + escapeHtml(name) + '" value="' + escapeHtml(o.id) + '"' +
+          (keep[name + '=' + o.id] ? ' checked' : '') + '></label>';
       });
       html += '</fieldset>';
     });
 
     html += '</div><div class="chooser-foot">' +
       '<p class="chooser-hint" id="chooserHint" role="alert" hidden></p>' +
-      '<button type="button" class="cart-send chooser-add" data-act="chooser-add"></button></div>';
+      '<div class="chooser-actions">' +
+        '<span class="qty has-qty chooser-qty">' +
+          '<button type="button" class="qty-btn" data-act="chooser-dec" aria-label="−">−</button>' +
+          '<span class="qty-num" id="chooserQty">' + chooser.qty + '</span>' +
+          '<button type="button" class="qty-btn" data-act="chooser-inc" aria-label="+">+</button>' +
+        '</span>' +
+        '<button type="button" class="cart-send chooser-add" data-act="chooser-add"></button>' +
+      '</div></div>';
     chooser.wrap.innerHTML = html;
     updateChooser();
   }
@@ -2115,8 +2137,15 @@
     });
     var hint = chooser.wrap.querySelector('#chooserHint');
     if (hint) hint.hidden = true;
+    var count = chooser.wrap.querySelector('#chooserQty');
+    if (count) count.textContent = chooser.qty;
     var add = chooser.wrap.querySelector('.chooser-add');
-    if (add) add.textContent = t().chooserAdd + ' · ' + money(total);
+    if (add) add.textContent = t().chooserAdd + ' · ' + money(total * chooser.qty);
+  }
+
+  function chooserStep(delta) {
+    chooser.qty = Math.min(99, Math.max(1, chooser.qty + delta));
+    updateChooser();
   }
 
   function openChooser(id) {
@@ -2148,6 +2177,7 @@
     chooser.id = id;
     chooser.returnTo = document.activeElement;
     chooser.wrap.innerHTML = '';          // a new dish starts with nothing chosen
+    chooser.qty = 1;
     paintChooser();
     chooser.wrap.hidden = chooser.back.hidden = false;
     document.body.classList.add('chooser-open');
@@ -2175,8 +2205,9 @@
     }
     var key = chooserKey();
     if (!lineOf(key)) return;
+    var qty = chooser.qty;
     closeChooser();
-    setQty(key, (cart[key] || 0) + 1);
+    setQty(key, (cart[key] || 0) + qty);
   }
 
   /* --- panel ------------------------------------------------------------- */
@@ -3529,6 +3560,7 @@
         if (act === 'choose') { openChooser(id); return; }
         if (act === 'chooser-close') { closeChooser(); return; }
         if (act === 'chooser-add') { addFromChooser(); return; }
+        if (act === 'chooser-inc' || act === 'chooser-dec') { chooserStep(act === 'chooser-inc' ? 1 : -1); return; }
         if (!lineOf(id)) return;
         var adding = act === 'inc';
         /* Building a basket is never withheld, even while the till is closed.
