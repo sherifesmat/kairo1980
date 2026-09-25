@@ -781,7 +781,9 @@ test('a price changed at /admin is the price on the menu, in the basket and in t
 
   const hummus = page.locator('input[name="price:hummus"]');
   await expect(hummus, 'the list is read from the menu').toHaveValue('9,50');
-  await expect(page.locator('input[name="price:kairo-bowl:kebda"]')).toHaveValue('17,50');
+  // The bowl in two parts: each base has a price, each topping adds to it.
+  await expect(page.locator('input[name="price:kairo-bowl:reis"]')).toHaveValue('9,00');
+  await expect(page.locator('input[name="price:kairo-bowl:kebda"]')).toHaveValue('8,50');
 
   try {
     // A price that is not a price saves nothing at all.
