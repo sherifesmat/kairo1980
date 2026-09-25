@@ -145,7 +145,7 @@ export function parseLineKey(key) {
  *
  * The menu's own figure, unless the restaurant has set another at
  * /admin/prices. An override counts only for an id the CURRENT menu prices:
- * a dish since removed, a base that costs nothing, a mistyped id — all inert,
+ * a dish since removed, an option with no price written, a mistyped id — all inert,
  * however long the row has sat in the database.
  */
 export function priceOf(dishes, overrides, id) {

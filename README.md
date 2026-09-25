@@ -122,8 +122,12 @@ so none of them needs editing when a choice is added.
 - **Its own choices** — the KAIRO Bowl's base and topping — are written inside
   the row: a `<ul class="mchoices" data-group="…">` of
   `<li class="mchoice" data-option="…" data-price="…">`. The guest picks exactly
-  one per group; an option without `data-price` costs nothing. A dish priced
-  entirely by its options has no `data-price` of its own.
+  one per group, and the chosen prices add up; an option without `data-price`
+  costs nothing. A dish priced entirely by its options has no `data-price` of
+  its own. The bowl is a base (rice or noodles, each with its own price) plus a
+  topping; the topping group carries `data-surcharge`, which prints its prices
+  as "+8,50 €" — it changes what is shown, never what is summed. Every option
+  price is set at `/admin/prices` by `dish:option`.
 - **`data-addons="getraenk beilagen-bowl"`** offers shared extras, defined once
   in the hidden `.addon-groups` block at the top of the menu. A group lists
   dishes by id (`<span data-ref="salata-baladi">`) and carries no prices: an
