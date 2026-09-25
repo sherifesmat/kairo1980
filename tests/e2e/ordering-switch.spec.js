@@ -770,6 +770,45 @@ test('a topping marked sold out is off the bowl, and only that topping', async (
   }
 });
 
+/* A drink that has run out is still listed as an extra — greyed, marked, and
+   with nothing to tick — the way Lieferando shows it. The till refuses it too. */
+test('a sold-out drink is shown as sold out among the extras, and cannot be chosen', async ({ page }) => {
+  await signIn(page);
+  await goAdmin(page, '/admin/dishes');
+  const box = page.locator('input[name="soldout"][value="fritz-kola-0-33-l"]');
+  try {
+    await box.check();
+    await page.click('button.save-btn');
+    await expect(page.locator('.msg')).toContainText('Saved');
+
+    const row = page.locator('.mitem[data-item="hawawshy"]');
+    await expect(async () => {
+      await page.goto('/?lang=de&t=' + Date.now());
+      await expect(page.locator('.mitem[data-item="fritz-kola-0-33-l"]')).toHaveAttribute('data-soldout', '1');
+    }).toPass({ timeout: 20000 });
+
+    await row.scrollIntoViewIfNeeded();
+    await row.locator('[data-act="choose"]').click();
+    const dialog = page.locator('.chooser');
+    const kola = dialog.locator('.chooser-opt.is-soldout', { hasText: 'Fritz Kola' });
+    await expect(kola).toHaveCount(1);
+    await expect(kola).toContainText('Ausverkauft');
+    await expect(dialog.locator('input[value="fritz-kola-0-33-l"]')).toHaveCount(0);
+    await expect(dialog.locator('input[value="fritz-orange-0-33-l"]')).toHaveCount(1);
+
+    // And the till says no, whatever a hand-built request claims.
+    const res = await page.request.post('/api/orders/announce', {
+      data: { items: { 'hawawshy|getraenk=fritz-kola-0-33-l': 1 }, type: 'pickup' }
+    });
+    expect(res.status()).toBe(400);
+    expect((await res.json()).error.code).toBe('sold_out');
+  } finally {
+    await goAdmin(page, '/admin/dishes');
+    await page.locator('input[name="soldout"][value="fritz-kola-0-33-l"]').uncheck();
+    await page.click('button.save-btn');
+  }
+});
+
 /* --- a price changed at /admin ----------------------------------------------
    One figure, everywhere at once: the menu row, the basket, the message the
    restaurant reads. A typo refuses the whole save. Reset in a finally, for
@@ -797,7 +836,6 @@ test('a price changed at /admin is the price on the menu, in the basket and in t
     await page.locator('input[name="price:hummus"]').fill('10,50');
     await page.click('button.save-btn');
     await expect(page.locator('.msg')).toContainText('Saved');
-    await expect(page.locator('li.price.changed')).toContainText('Menu price: 9,50 €');
 
     const row = page.locator('.mitem[data-item="hummus"]');
     await expect(async () => {
@@ -815,12 +853,72 @@ test('a price changed at /admin is the price on the menu, in the basket and in t
     const message = decodeURIComponent((await whatsapp()).split('?text=')[1]);
     expect(message).toContain('2× Hummus — 21,00');
   } finally {
+    // The owner sets prices; there is no "reset". The test puts its own back.
     await goAdmin(page, '/admin/prices');
-    const all = page.locator('form.reset-all button');
-    if (await all.count()) await all.click();
+    await page.locator('input[name="price:hummus"]').fill('9,50');
+    await page.click('button.save-btn');
   }
 
   await goAdmin(page, '/admin/prices');
   await expect(page.locator('input[name="price:hummus"]')).toHaveValue('9,50');
-  await expect(page.locator('form.reset-all')).toHaveCount(0);
+});
+
+/* --- extras set up at /admin -------------------------------------------------
+   A new group made at /admin/extras, given to one dish, reaches that dish's
+   chooser, the basket and the chat — and the dish's old group is gone, because
+   a saved setup is the whole setup. Reset in a finally. */
+test('extras set up at /admin are what the chooser offers and the chat carries', async ({ page }) => {
+  const whatsapp = await captureWhatsApp(page);
+  await signIn(page);
+  await goAdmin(page, '/admin/extras');
+
+  try {
+    // A name in one language only saves nothing.
+    await page.fill('input[name="new:de"]', 'Soßen');
+    await page.fill('input[name="new:max"]', '1');
+    await page.check('input[name="new:ref"][value="tomatensauce"]');
+    await page.click('button.save-btn');
+    await expect(page.locator('.err')).toContainText('all three languages');
+
+    await page.fill('input[name="new:en"]', 'Sauces');
+    await page.fill('input[name="new:ar"]', 'صوصات');
+    await page.click('button.save-btn');
+    await expect(page.locator('.msg')).toContainText('Saved');
+
+    // Now give it to the Hawawshy, and take the Hawawshy's sides away.
+    await page.check('input[name="d:hawawshy"][value="sossen"]');
+    await page.uncheck('input[name="d:hawawshy"][value="beilagen-sandwich"]');
+    await page.click('button.save-btn');
+    await expect(page.locator('.msg')).toContainText('Saved');
+
+    const row = page.locator('.mitem[data-item="hawawshy"]');
+    await expect(async () => {
+      await page.goto('/?lang=de&t=' + Date.now());
+      await expect(row).toHaveAttribute('data-addons', /sossen/);
+    }).toPass({ timeout: 20000 });
+
+    await row.scrollIntoViewIfNeeded();
+    await row.locator('[data-act="choose"]').click();
+    const dialog = page.locator('.chooser');
+    await expect(dialog.locator('.chooser-legend', { hasText: 'Soßen' })).toHaveCount(1);
+    await expect(dialog.locator('input[value="salata-baladi"]')).toHaveCount(0);
+    await dialog.locator('input[value="tomatensauce"]').check();
+    await dialog.locator('[data-act="chooser-add"]').click();
+
+    await openBasket(page);
+    await choosePickup(page);
+    await fillContact(page, {});
+    await page.locator('#cartSend').click();
+    const message = decodeURIComponent((await whatsapp()).split('?text=')[1]);
+    expect(message).toContain('1× Hawawshy + Tomatensauce — 19,50');
+  } finally {
+    await goAdmin(page, '/admin/extras');
+    const all = page.locator('form.reset-all button');
+    if (await all.count()) await all.click();
+  }
+
+  await expect(async () => {
+    await page.goto('/?lang=de&t=' + Date.now());
+    await expect(page.locator('.mitem[data-item="hawawshy"]')).toHaveAttribute('data-addons', 'getraenk beilagen-sandwich');
+  }).toPass({ timeout: 20000 });
 });
