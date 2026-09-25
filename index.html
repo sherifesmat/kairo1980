@@ -389,6 +389,25 @@
          where to eat tomorrow. -->
     <p class="order-off" hidden></p>
 
+    <!-- What may be added to a dish, defined once. A ref names a dish on this
+         menu and carries neither a price nor a name: both are read from that
+         dish's own row, so Salata Baladi costs the same wherever it is offered.
+         Dishes use a group by id: data-addons (optional, charged) or
+         data-includes (choose exactly one, already in the price). -->
+    <div class="addon-groups" hidden>
+      <div data-addon-group="getraenk" data-max="1" data-de="Dazu genießen" data-en="Something to drink" data-ar="تشرب معاه إيه">
+        <span data-ref="fritz-kola-0-33-l"></span><span data-ref="fritz-orange-0-33-l"></span><span data-ref="fritz-zero-kola-0-33-l"></span><span data-ref="hausgemachter-karkadeh-0-5-l"></span>
+      </div>
+      <div data-addon-group="menue-getraenk" data-max="1" data-de="Getränk nach Wahl" data-en="Drink of your choice" data-ar="المشروب اللي تختاره">
+        <span data-ref="mineralwasser-still-0-25-l"></span><span data-ref="mineralwasser-sprudel-0-25-l"></span><span data-ref="fritz-kola-0-33-l"></span><span data-ref="fritz-orange-0-33-l"></span><span data-ref="fritz-zero-kola-0-33-l"></span><span data-ref="hausgemachter-karkadeh-0-5-l"></span>
+      </div>
+      <div data-addon-group="beilagen-bowl" data-max="3" data-de="Passt gut dazu" data-en="Goes well with it" data-ar="يليق معاه">
+        <span data-ref="salata-baladi"></span><span data-ref="tahini-dip"></span><span data-ref="habanero-sauce"></span>
+      </div>
+      <div data-addon-group="beilagen-sandwich" data-max="3" data-de="Passt gut dazu" data-en="Goes well with it" data-ar="يليق معاه">
+        <span data-ref="steakhouse-pommes"></span><span data-ref="salata-baladi"></span><span data-ref="habanero-sauce"></span>
+      </div>
+    </div>
     <div class="cat-head"><h3 class="cat-name t" data-de="Orientalische Vorspeisen" data-en="Oriental Starters" data-ar="مقبلات شرقية">Orientalische Vorspeisen</h3><div class="cat-line"></div></div>
 
     <div class="mitem" data-item="baba-ghanough" data-price="11.00" data-allergens="gluten milk sesame">
@@ -456,48 +475,101 @@
       <div class="mprice">12,50 €</div>
     </div>
 
-    <div class="cat-head"><h3 class="cat-name t" data-de="Aus unserer Küche" data-en="From Our Kitchen" data-ar="من مطبخنا">Aus unserer Küche</h3><div class="cat-line"></div></div>
+    <div class="cat-head"><h3 class="cat-name t" data-de="KAIRO Bowls" data-en="KAIRO Bowls" data-ar="أطباق KAIRO">KAIRO Bowls</h3><div class="cat-line"></div></div>
 
-    <div class="mitem" data-item="kebda" data-price="26.50" data-allergens="gluten milk sesame">
+    <!-- One dish with two choices, not eight dishes. A bowl costs its base
+         (rice or noodles, each with its own price) plus its topping, each set
+         on its own at /admin/prices. Allergens stay "pending" until the
+         kitchen has confirmed each topping — the rice on this menu declares
+         milk, so not even the aubergine bowl is marked vegan by guesswork. -->
+    <div class="mitem mconfig" data-item="kairo-bowl" data-allergens="pending" data-addons="getraenk beilagen-bowl">
       <div>
-        <div class="mname t" data-de="Kebda" data-en="Kebda" data-ar="كبدة">Kebda</div>
-        <p class="mdesc t" data-de="Ein Must-try für Fleischliebhaber: Fein geschnittene Kalbsleber, aromatisch angebraten mit Peperoni und orientalischen Gewürzen. Dazu Steakhouse Pommes, Rucola, unser exklusives ägyptisches Brot und ein erfrischender Tahini-Dip." data-en="A must-try for meat lovers: finely sliced veal liver, aromatically sautéed with peppers and oriental spices. Served with steakhouse fries, rocket, our exclusive Egyptian bread and a refreshing tahini dip." data-ar="لازم تجرّبها لو بتحب اللحمة: كبدة بتلو مقطعة رفيّع، متحمّرة بالشطة والبهارات الشرقية. ومعاها بطاطس ستيك هاوس وجرجير وعيشنا المصري وطحينة منعشة.">Ein Must-try für Fleischliebhaber: Fein geschnittene Kalbsleber, aromatisch angebraten mit Peperoni und orientalischen Gewürzen. Dazu Steakhouse Pommes, Rucola, unser exklusives ägyptisches Brot und ein erfrischender Tahini-Dip.</p>
+        <div class="mname t" data-de="KAIRO Bowl" data-en="KAIRO Bowl" data-ar="طبق KAIRO">KAIRO Bowl</div>
+        <p class="mdesc t" data-de="Deine Bowl, wie du sie magst: Wähle zuerst die Basis – ägyptischer Reis oder Nudeln – und dann dein Topping." data-en="Your bowl, the way you like it: first choose the base – Egyptian rice or noodles – then your topping." data-ar="طبقك زي ما تحبه: اختار الأول القاعدة – رز مصري أو مكرونة – وبعدين اختار اللي فوقه.">Deine Bowl, wie du sie magst: Wähle zuerst die Basis – ägyptischer Reis oder Nudeln – und dann dein Topping.</p>
+        <!-- Priced in two parts: the base has a price, each topping ADDS to
+             it (data-surcharge). Both are set per id at /admin/prices; the
+             figures here are the defaults. -->
+        <ul class="mchoices" data-group="basis" data-de="Basis" data-en="Base" data-ar="القاعدة">
+          <li class="mchoice" data-option="reis" data-price="9.00"><span class="mchoice-name t" data-de="Ägyptischer Reis" data-en="Ägyptischer Reis" data-ar="رز مصري">Ägyptischer Reis</span> <span class="mchoice-price">9,00 €</span></li>
+          <li class="mchoice" data-option="nudeln" data-price="9.00"><span class="mchoice-name t" data-de="Nudeln" data-en="Nudeln" data-ar="مكرونة">Nudeln</span> <span class="mchoice-price">9,00 €</span></li>
+        </ul>
+        <ul class="mchoices" data-group="topping" data-surcharge="1" data-de="Topping" data-en="Topping" data-ar="اللي فوقه">
+          <li class="mchoice" data-option="aubergine" data-price="5.50">
+            <span class="mchoice-name t" data-de="Aubergine" data-en="Aubergine" data-ar="باذنجان">Aubergine</span>
+            <span class="mchoice-desc t" data-de="Aromatische Aubergine mit Knoblauch, Peperoni und orientalischen Gewürzen." data-en="Aromatic aubergine with garlic, peppers and oriental spices." data-ar="باذنجان بريحة حلوة بالتوم والشطة والبهارات الشرقية.">Aromatische Aubergine mit Knoblauch, Peperoni und orientalischen Gewürzen.</span>
+            <span class="mchoice-price">+5,50 €</span>
+          </li>
+          <li class="mchoice" data-option="haehnchen" data-price="7.50">
+            <span class="mchoice-name t" data-de="Hähnchen" data-en="Hähnchen" data-ar="فراخ">Hähnchen</span>
+            <span class="mchoice-desc t" data-de="Saftiges, orientalisch gewürztes Hähnchen." data-en="Juicy chicken with oriental spices." data-ar="فراخ طرية متبّلة ببهارات شرقية.">Saftiges, orientalisch gewürztes Hähnchen.</span>
+            <span class="mchoice-price">+7,50 €</span>
+          </li>
+          <li class="mchoice" data-option="soguk" data-price="8.50">
+            <span class="mchoice-name t" data-de="Soguk Baladi" data-en="Soguk Baladi" data-ar="سجق بلدي">Soguk Baladi</span>
+            <span class="mchoice-desc t" data-de="Würzige Soguk-Wurst nach ägyptischer Art mit Tomaten und Peperoni." data-en="Spicy Egyptian-style Soguk sausage with tomatoes and peppers." data-ar="سجق متبّل على الطريقة المصرية بالطماطم والشطة.">Würzige Soguk-Wurst nach ägyptischer Art mit Tomaten und Peperoni.</span>
+            <span class="mchoice-price">+8,50 €</span>
+          </li>
+          <li class="mchoice" data-option="kebda" data-price="8.50">
+            <span class="mchoice-name t" data-de="Kebda" data-en="Kebda" data-ar="كبدة">Kebda</span>
+            <span class="mchoice-desc t" data-de="Fein geschnittene Kalbsleber nach ägyptischer Art mit Peperoni, Knoblauch und orientalischen Gewürzen." data-en="Finely sliced veal liver, Egyptian-style, with peppers, garlic and oriental spices." data-ar="كبدة بتلو مقطعة رفيّع على الطريقة المصرية بالشطة والتوم والبهارات الشرقية.">Fein geschnittene Kalbsleber nach ägyptischer Art mit Peperoni, Knoblauch und orientalischen Gewürzen.</span>
+            <span class="mchoice-price">+8,50 €</span>
+          </li>
+        </ul>
       </div>
-      <div class="mprice">26,50 €</div>
-    </div>
-
-    <div class="mitem" data-item="haehnchenschlegel" data-price="24.50" data-allergens="milk">
-      <div>
-        <div class="mname t" data-de="Hähnchenschlegel" data-en="Hähnchenschlegel" data-ar="أوراك فراخ">Hähnchenschlegel</div>
-        <p class="mdesc t" data-de="Drei saftige Hähnchenschlegel, kräftig gewürzt mit milden arabischen Gewürzen und einem Hauch Limette. Langsam gegart für besonders zartes und aromatisches Fleisch, serviert mit reichhaltigem Reis nach ägyptischer Art – herzhaft, intensiv und voller orientalischer Wärme." data-en="Three juicy chicken drumsticks, boldly seasoned with mild Arabic spices and a hint of lime. Slow-cooked for especially tender and aromatic meat, served with rich Egyptian-style rice – hearty, intense and full of oriental warmth." data-ar="تلات أوراك فراخ طرية، متتبّلة ببهارات عربية هادية ولمسة ليمون. متطبوخة على مهل عشان تطرى وتشرب الطعم، وبتتقدّم مع رز مصري غني — أكل دسم ودافي بروح شرقية.">Drei saftige Hähnchenschlegel, kräftig gewürzt mit milden arabischen Gewürzen und einem Hauch Limette. Langsam gegart für besonders zartes und aromatisches Fleisch, serviert mit reichhaltigem Reis nach ägyptischer Art – herzhaft, intensiv und voller orientalischer Wärme.</p>
-      </div>
-      <div class="mprice">24,50 €</div>
+      <div class="mprice"><span class="t" data-de="ab" data-en="from" data-ar="من">ab</span> 14,50 €</div>
     </div>
 
     <div class="cat-head"><h3 class="cat-name t" data-de="Ägyptische Straßenküche" data-en="Egyptian Street Food" data-ar="أكل الشارع المصري">Ägyptische Straßenküche</h3><div class="cat-line"></div></div>
 
-    <div class="mitem" data-item="hawawshy" data-price="14.50" data-allergens="gluten milk sesame">
+    <div class="mitem" data-item="hawawshy" data-price="17.00" data-allergens="gluten milk sesame" data-addons="getraenk beilagen-sandwich">
       <div>
         <div class="mname t" data-de="Hawawshy" data-en="Hawawshy" data-ar="حواوشي">Hawawshy</div>
         <p class="mdesc t" data-de="Kräftig, saftig und voller orientalischer Aromen: Unser Hawawshy wird mit würzig gewürztem, frisch gewolftem Rindfleisch gefüllt und in unserem ägyptischen Fladenbrot gebacken. Verfeinert mit Zwiebeln, Paprika, frischen Kräutern und orientalischen Gewürzen. Serviert mit eingelegten Gurken und Tahini-Dip." data-en="Bold, juicy and full of oriental aromas: our Hawawshy is filled with spiced, freshly minced beef and baked in our Egyptian flatbread. Refined with onions, peppers, fresh herbs and oriental spices. Served with pickled cucumbers and tahini dip." data-ar="قوي وطري ومليان طعم شرقي: الحواوشي بتاعنا محشي لحمة مفرومة طازة ومتبّلة، ومخبوز جوه العيش المصري بتاعنا. معاه بصل وفلفل وخضرة طازة وبهارات شرقية، وبيتقدّم مع مخلل وطحينة.">Kräftig, saftig und voller orientalischer Aromen: Unser Hawawshy wird mit würzig gewürztem, frisch gewolftem Rindfleisch gefüllt und in unserem ägyptischen Fladenbrot gebacken. Verfeinert mit Zwiebeln, Paprika, frischen Kräutern und orientalischen Gewürzen. Serviert mit eingelegten Gurken und Tahini-Dip.</p>
       </div>
-      <div class="mprice">14,50 €</div>
+      <div class="mprice">17,00 €</div>
     </div>
 
-    <div class="mitem" data-item="kebda-eskandarany" data-price="14.50" data-allergens="gluten milk sesame">
+    <div class="mitem" data-item="kebda-eskandarany" data-price="17.00" data-allergens="gluten milk sesame" data-addons="getraenk beilagen-sandwich">
       <div>
         <div class="mname t" data-de="Kebda Eskandarany" data-en="Kebda Eskandarany" data-ar="كبدة إسكندراني">Kebda Eskandarany</div>
         <p class="mdesc t" data-de="Ein Klassiker aus Alexandria: Fein geschnittene Kalbsleber, nach ägyptischer Art aromatisch angebraten mit Peperoni, Knoblauch und einer fein abgestimmten orientalischen Gewürzmischung. Serviert in unserem exklusiven ägyptischen Brot. Serviert mit eingelegten Gurken und Tahini-Dip." data-en="A classic from Alexandria: finely sliced veal liver, aromatically sautéed Egyptian-style with peppers, garlic and a finely balanced oriental spice blend. Served in our exclusive Egyptian bread, with pickled cucumbers and tahini dip." data-ar="كلاسيك من إسكندرية: كبدة بتلو مقطعة رفيّع، متحمّرة على الطريقة المصرية بالشطة والتوم وخلطة بهارات متظبطة. بتتقدّم في العيش المصري بتاعنا مع مخلل وطحينة.">Ein Klassiker aus Alexandria: Fein geschnittene Kalbsleber, nach ägyptischer Art aromatisch angebraten mit Peperoni, Knoblauch und einer fein abgestimmten orientalischen Gewürzmischung. Serviert in unserem exklusiven ägyptischen Brot. Serviert mit eingelegten Gurken und Tahini-Dip.</p>
       </div>
-      <div class="mprice">14,50 €</div>
+      <div class="mprice">17,00 €</div>
     </div>
 
-    <div class="mitem" data-item="soguk-baladi" data-price="14.50" data-allergens="gluten milk sesame">
+    <div class="mitem" data-item="soguk-baladi" data-price="17.00" data-allergens="gluten milk sesame" data-addons="getraenk beilagen-sandwich">
       <div>
         <div class="mname t" data-de="Soguk Baladi" data-en="Soguk Baladi" data-ar="سجق بلدي">Soguk Baladi</div>
         <p class="mdesc t" data-de="Würzig, aromatisch und mit orientalischem Charakter: Fein geschnittene Soguk-Wurst, nach ägyptischer Art mit Tomaten und Peperoni herzhaft angebraten und verfeinert mit einer harmonischen Gewürzmischung. Serviert in unserem exklusiven ägyptischen Brot. Serviert mit eingelegten Gurken und Tahini-Dip." data-en="Spicy, aromatic and with oriental character: finely sliced Soguk sausage, heartily sautéed Egyptian-style with tomatoes and peppers and refined with a harmonious spice blend. Served in our exclusive Egyptian bread, with pickled cucumbers and tahini dip." data-ar="سجق بطعم قوي وروح شرقية: سجق مقطّع رفيّع، متحمّر على الطريقة المصرية بالطماطم والشطة وخلطة بهارات متوازنة. بيتقدّم في العيش المصري بتاعنا مع مخلل وطحينة.">Würzig, aromatisch und mit orientalischem Charakter: Fein geschnittene Soguk-Wurst, nach ägyptischer Art mit Tomaten und Peperoni herzhaft angebraten und verfeinert mit einer harmonischen Gewürzmischung. Serviert in unserem exklusiven ägyptischen Brot. Serviert mit eingelegten Gurken und Tahini-Dip.</p>
       </div>
-      <div class="mprice">14,50 €</div>
+      <div class="mprice">17,00 €</div>
+    </div>
+
+    <!-- A Menü names what it is made of (data-contains) rather than restating
+         it: its allergens are read from those rows, and it is sold out the
+         moment any of them is. The drink is chosen, and already in the price. -->
+    <div class="mitem" data-item="hawawshy-menue" data-price="23.00" data-contains="hawawshy steakhouse-pommes" data-includes="menue-getraenk">
+      <div>
+        <div class="mname t" data-de="Hawawshy Menü" data-en="Hawawshy Menü" data-ar="وجبة حواوشي">Hawawshy Menü</div>
+        <p class="mdesc t" data-de="Hawawshy mit Steakhouse Pommes und einem Getränk nach Wahl." data-en="Hawawshy with steakhouse fries and a drink of your choice." data-ar="حواوشي مع بطاطس ستيك هاوس ومشروب من اختيارك.">Hawawshy mit Steakhouse Pommes und einem Getränk nach Wahl.</p>
+      </div>
+      <div class="mprice">23,00 €</div>
+    </div>
+
+    <div class="mitem" data-item="kebda-eskandarany-menue" data-price="23.00" data-contains="kebda-eskandarany steakhouse-pommes" data-includes="menue-getraenk">
+      <div>
+        <div class="mname t" data-de="Kebda Eskandarany Menü" data-en="Kebda Eskandarany Menü" data-ar="وجبة كبدة إسكندراني">Kebda Eskandarany Menü</div>
+        <p class="mdesc t" data-de="Kebda Eskandarany mit Steakhouse Pommes und einem Getränk nach Wahl." data-en="Kebda Eskandarany with steakhouse fries and a drink of your choice." data-ar="كبدة إسكندراني مع بطاطس ستيك هاوس ومشروب من اختيارك.">Kebda Eskandarany mit Steakhouse Pommes und einem Getränk nach Wahl.</p>
+      </div>
+      <div class="mprice">23,00 €</div>
+    </div>
+
+    <div class="mitem" data-item="soguk-baladi-menue" data-price="23.00" data-contains="soguk-baladi steakhouse-pommes" data-includes="menue-getraenk">
+      <div>
+        <div class="mname t" data-de="Soguk Baladi Menü" data-en="Soguk Baladi Menü" data-ar="وجبة سجق بلدي">Soguk Baladi Menü</div>
+        <p class="mdesc t" data-de="Soguk Baladi mit Steakhouse Pommes und einem Getränk nach Wahl." data-en="Soguk Baladi with steakhouse fries and a drink of your choice." data-ar="سجق بلدي مع بطاطس ستيك هاوس ومشروب من اختيارك.">Soguk Baladi mit Steakhouse Pommes und einem Getränk nach Wahl.</p>
+      </div>
+      <div class="mprice">23,00 €</div>
     </div>
 
     <div class="cat-head"><h3 class="cat-name t" data-de="Desserts & Süßes" data-en="Desserts & Sweets" data-ar="الحلو">Desserts & Süßes</h3><div class="cat-line"></div></div>

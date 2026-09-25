@@ -20,9 +20,21 @@ test('the menu shows a price for every dish that can be ordered', async ({ page 
     // A dish a guest can add must have a price the guest can see, and the two
     // must be the same number.
     const price = await item.getAttribute('data-price');
+    const figure = (text) => Number(text.replace(/[^\d,]/g, '').replace(',', '.'));
+    if (price == null) {
+      // Priced by its options (the KAIRO Bowl): every option that carries a
+      // price prints that same price in its own row.
+      const options = item.locator('.mchoice[data-price]');
+      expect(await options.count()).toBeGreaterThan(0);
+      for (let j = 0; j < await options.count(); j++) {
+        const option = options.nth(j);
+        expect(figure(await option.locator('.mchoice-price').innerText()))
+          .toBeCloseTo(Number(await option.getAttribute('data-price')), 2);
+      }
+      continue;
+    }
     expect(Number(price)).toBeGreaterThan(0);
-    const shown = (await item.locator('.mprice').innerText()).replace(/[^\d,]/g, '').replace(',', '.');
-    expect(Number(shown)).toBeCloseTo(Number(price), 2);
+    expect(figure(await item.locator('.mprice').innerText())).toBeCloseTo(Number(price), 2);
   }
 });
 
@@ -158,9 +170,22 @@ test('a very large order still produces a URL WhatsApp will open', async ({ page
   // a cached NodeList goes stale after the first one.
   await page.evaluate(() => {
     document.querySelectorAll('.mitem[data-item]').forEach((row) => {
-      row.querySelector('[data-act="inc"]').click();
+      const add = row.querySelector('[data-act="inc"]');
+      if (add) add.click();
     });
   });
+  // Dishes with choices go through the chooser, with everything ticked: the
+  // longest line a guest can build is the one that stretches the URL most.
+  for (const [id, picks] of [
+    ['kairo-bowl', ['nudeln', 'kebda', 'hausgemachter-karkadeh-0-5-l', 'salata-baladi', 'tahini-dip', 'habanero-sauce']],
+    ['soguk-baladi-menue', ['hausgemachter-karkadeh-0-5-l']]
+  ]) {
+    const row = page.locator(`.mitem[data-item="${id}"]`);
+    await row.scrollIntoViewIfNeeded();
+    await row.locator('[data-act="choose"]').click();
+    for (const value of picks) await page.locator(`.chooser input[value="${value}"]`).check();
+    await page.locator('.chooser [data-act="chooser-add"]').click();
+  }
   await openBasket(page);
   await choosePickup(page);
   await fillContact(page, { name: 'Grossbestellung Test', phone: '+49 176 0000000' });
@@ -258,7 +283,7 @@ test('the page never scrolls sideways on a phone', async ({ page }) => {
 
 test('free delivery is announced to everyone once the threshold is reached', async ({ page }) => {
   await page.goto('/');
-  await addItem(page, 'kebda', 4);            // 4 × 26.50 = 106.00, over 100 €
+  await addItem(page, 'etwas-von-allem', 4);  // 4 × 26.00 = 104.00, over 100 €
   await openBasket(page);
   await chooseDelivery(page);
   await page.locator('#fPlz').fill('69168');  // Wiesloch would otherwise cost 2 €

@@ -1238,6 +1238,86 @@ summary:focus-visible {
   transition: background 0.2s, color 0.2s;
 }
 .qty-btn:hover { background: #b8914a; color: #fff; }
+
+/* A dish with choices: how many are in the basket, and "+" to make another. */
+.qty.has-choices { gap: 10px; }
+.qty-in { font-size: 12px; color: #7a6030; white-space: nowrap; }
+
+/* ===========================================================================
+   DISHES WITH CHOICES — the KAIRO Bowl's base and toppings, printed in its row
+   =========================================================================== */
+/* The toppings are the bowl's price list, so they read like the menu around
+   them: a name, a line of description, a price at the end edge. Each row
+   carries its own rule and the last one clears it — one line between any two
+   things, never a container rule on top. */
+.mchoices { list-style: none; margin: 12px 0 0; padding: 0; max-width: 580px; }
+.mchoices[data-group="basis"] { display: flex; flex-wrap: wrap; gap: 6px; }
+.mchoices[data-group="basis"] .mchoice {
+  font-size: 12.5px; color: #7a6030; padding-block: 3px; padding-inline: 10px;
+  border: 1px solid rgba(184,145,74,0.35); border-radius: 999px;
+}
+.mchoices[data-group="topping"] .mchoice {
+  display: grid; grid-template-columns: 1fr auto; column-gap: 16px;
+  padding-block: 9px; border-bottom: 1px solid #f5ede0;
+}
+.mchoices[data-group="topping"] .mchoice:last-child { border-bottom: none; }
+.mchoice-name { font-family: 'Cormorant Garamond', serif; font-size: 17px; color: #1c1409; }
+.mchoice-desc { grid-column: 1; font-size: 12.5px; line-height: 1.6; color: #9a7f50; }
+.mchoice-price {
+  grid-column: 2; grid-row: 1; text-align: end;
+  font-family: 'Cormorant Garamond', serif; font-size: 16px; color: #a07838;
+  font-variant-numeric: tabular-nums;
+}
+.mchoice.is-soldout .mchoice-name,
+.mchoice.is-soldout .mchoice-price { opacity: 0.45; }
+.mchoice .soldout-tag { grid-column: 1 / -1; }
+
+/* The chooser: a sheet from the bottom on a phone, a centred card on a
+   desktop. It sits above the basket's layer, since it is opened from the menu
+   and closes back onto it. */
+.chooser-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(20,13,4,0.5); }
+body.chooser-open { overflow: hidden; }
+.chooser {
+  position: fixed; z-index: 85; inset-inline: 0; bottom: 0;
+  max-height: 88vh; display: flex; flex-direction: column;
+  background: #fcf9f4; border-top: 1px solid rgba(200,165,90,0.25);
+  box-shadow: 0 -18px 48px rgba(28,20,9,0.18);
+}
+@media (min-width: 700px) {
+  .chooser {
+    inset-inline: 0; margin-inline: auto; bottom: auto; top: 8vh;
+    width: min(480px, 92vw); max-height: 84vh;
+    border: 1px solid rgba(200,165,90,0.25);
+  }
+}
+.chooser[hidden], .chooser-backdrop[hidden] { display: none; }
+.chooser-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-block: 18px; padding-inline: 22px; border-bottom: 1px solid rgba(200,165,90,0.22);
+}
+.chooser-title {
+  font-family: 'Cormorant Garamond', serif; font-size: 24px; font-weight: 300;
+  color: #1c1409; margin: 0;
+}
+.chooser-body { overflow-y: auto; overscroll-behavior: contain; padding-block: 6px 12px; padding-inline: 22px; }
+.chooser-group { border: 0; margin: 0; padding: 14px 0 4px; }
+.chooser-group legend { padding: 0; margin-bottom: 6px; }
+.chooser-legend { font-size: 14px; font-weight: 600; color: #1c1409; }
+.chooser-rule { font-size: 12px; color: #9a8050; }
+.chooser-opt {
+  display: flex; align-items: center; gap: 12px;
+  padding-block: 10px; border-bottom: 1px solid #f5ede0; cursor: pointer;
+}
+.chooser-group .chooser-opt:last-child { border-bottom: none; }
+.chooser-opt input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: #a07838; }
+.chooser-opt input:disabled + .chooser-name { opacity: 0.5; }
+.chooser-name { flex: 1; font-size: 14.5px; color: #1c1409; }
+.chooser-price { font-size: 13.5px; color: #7a6030; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chooser-opt.is-soldout { cursor: default; }
+.chooser-opt.is-soldout .chooser-name { opacity: 0.5; }
+.chooser-foot { padding-block: 12px 18px; padding-inline: 22px; border-top: 1px solid rgba(200,165,90,0.22); }
+.chooser-hint { margin: 0 0 10px; font-size: 13px; color: #a04a00; }
+.chooser-add { width: 100%; }
 .qty-num {
   min-width: 26px; text-align: center;
   font-family: 'Cormorant Garamond', serif; font-size: 16px; color: #1c1409;
@@ -1685,6 +1765,8 @@ a.cart-send-wa {
 :root[lang="ar"] .reviews-title,
 :root[lang="ar"] .cart-heading,
 :root[lang="ar"] .mname,
+:root[lang="ar"] .mchoice-name,
+:root[lang="ar"] .chooser-title,
 :root[lang="ar"] .cat-name,
 :root[lang="ar"] .bfact-num {
   font-family: 'Amiri', 'Cormorant Garamond', serif;
@@ -1760,6 +1842,8 @@ a.cart-send-wa {
    direction. text-align follows, so each figure still hugs the outer edge of
    its column exactly as it does in the German layout, only mirrored. */
 :root[dir="rtl"] .mprice,
+:root[dir="rtl"] .mchoice-price,
+:root[dir="rtl"] .chooser-price,
 :root[dir="rtl"] .area-plz,
 :root[dir="rtl"] .area-fee,
 :root[dir="rtl"] .hslot-time,

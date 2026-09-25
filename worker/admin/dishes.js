@@ -35,6 +35,15 @@ export async function page(request, env, url) {
     let group = groups.find((g) => g.name === name);
     if (!group) groups.push((group = { name, dishes: [] }));
     group.dishes.push({ id, name: dish.name, price: dish.price });
+    /* Each of the bowl's own options can run out on its own — no Kebda, but
+       chicken is fine; no noodles, but there is rice. They are listed under
+       the dish, by the name the menu prints, and switched off by the same
+       "dish:option" id the till refuses. */
+    for (const g of dish.groups || []) {
+      for (const o of g.options) {
+        group.dishes.push({ id: id + ':' + o.id, name: o.name, price: o.price, sub: true });
+      }
+    }
   }
 
   return new Response(
@@ -96,6 +105,8 @@ const CSS = `
  label.row input{width:24px;height:24px;flex:none;margin:0}
  .nm{flex:1;font-size:14.5px;color:#1c1409}
  .pr{color:#7a6030;font-size:13px;white-space:nowrap}
+ li.dish.sub label.row{padding-inline-start:40px}
+ li.dish.sub .nm{font-size:13.5px}
  li.dish.off{background:#fdf0e0}
  li.dish.off .nm{color:#a04a00;font-weight:600}
  .when{display:block;font-size:11.5px;color:#a04a00;font-weight:400;margin-top:2px}
@@ -112,13 +123,13 @@ export function render({ nonce, groups, soldOut, saved }) {
 
   const rowFor = (d) => {
     const markedAt = soldOut[d.id];
-    return `<li class="dish ${markedAt ? 'off' : ''}">
+    return `<li class="dish ${markedAt ? 'off' : ''} ${d.sub ? 'sub' : ''}">
       <label class="row">
         <input type="checkbox" name="soldout" value="${esc(d.id)}" ${markedAt ? 'checked' : ''}>
         <span class="nm">${esc(d.name)}
           ${markedAt ? `<span class="when">ausverkauft seit ${esc(since(markedAt))}</span>` : ''}
         </span>
-        <span class="pr">${(d.price / 100).toFixed(2).replace('.', ',')} €</span>
+        ${d.price ? `<span class="pr">${(d.price / 100).toFixed(2).replace('.', ',')} €</span>` : ''}
       </label>
     </li>`;
   };

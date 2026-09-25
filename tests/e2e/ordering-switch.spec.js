@@ -717,3 +717,110 @@ test('a dish marked sold out cannot be ordered, and says so', async ({ page }) =
     await expect(page.locator('.mitem[data-item="hummus"] [data-act="inc"]')).toHaveCount(1);
   }).toPass({ timeout: 20000 });
 });
+
+/* Running out of Kebda takes the Kebda bowl off and leaves the other three.
+   The topping is switched off by its own id, says so in words on its own row
+   and in the chooser, and the rest of the bowl is still an ordinary order. */
+test('a topping marked sold out is off the bowl, and only that topping', async ({ page }) => {
+  await signIn(page);
+  await goAdmin(page, '/admin/dishes');
+
+  const box = page.locator('input[name="soldout"][value="kairo-bowl:kebda"]');
+  await expect(box, 'each topping has its own box, read from the menu').toHaveCount(1);
+
+  try {
+    await box.check();
+    await page.click('button.save-btn');
+    await expect(page.locator('.msg')).toContainText('Saved');
+
+    const kebda = page.locator('.mitem[data-item="kairo-bowl"] .mchoice[data-option="kebda"]');
+    await expect(async () => {
+      await page.goto('/?lang=de&t=' + Date.now());
+      await expect(kebda).toHaveAttribute('data-soldout', '1');
+    }).toPass({ timeout: 20000 });
+    await expect(kebda).toContainText('Ausverkauft');
+
+    const bowl = page.locator('.mitem[data-item="kairo-bowl"]');
+    await bowl.scrollIntoViewIfNeeded();
+    await bowl.locator('[data-act="choose"]').click();
+    const dialog = page.locator('.chooser');
+    await expect(dialog.locator('.chooser-opt.is-soldout')).toContainText('Kebda');
+    await expect(dialog.locator('input[value="kebda"]')).toHaveCount(0);
+    await expect(dialog.locator('input[value="haehnchen"]')).toHaveCount(1);
+
+    /* A Kebda bowl put in the basket BEFORE the kitchen ran out is dropped at
+       the next load, by name, and the chicken bowl beside it stays. */
+    await page.evaluate(() => localStorage.setItem('kairo.cart.v2', JSON.stringify({
+      savedAt: Date.now(),
+      items: {
+        'kairo-bowl|basis=reis|topping=kebda': 1,
+        'kairo-bowl|basis=reis|topping=haehnchen': 1
+      }
+    })));
+    await page.goto('/?lang=de&t=' + Date.now());
+    await page.locator('#cartFab').click();
+    await expect(page.locator('.cart-line')).toHaveCount(1);
+    await expect(page.locator('.cart-line')).toContainText('Hähnchen');
+    await expect(page.locator('#cartSoldOutNote')).toContainText('KAIRO Bowl (Ägyptischer Reis, Kebda)');
+    await expect(page.locator('#cartSoldOutNote')).toContainText('ausverkauft');
+  } finally {
+    await goAdmin(page, '/admin/dishes');
+    await page.locator('input[name="soldout"][value="kairo-bowl:kebda"]').uncheck();
+    await page.click('button.save-btn');
+  }
+});
+
+/* --- a price changed at /admin ----------------------------------------------
+   One figure, everywhere at once: the menu row, the basket, the message the
+   restaurant reads. A typo refuses the whole save. Reset in a finally, for
+   the same reason the sold-out tests clean up. */
+test('a price changed at /admin is the price on the menu, in the basket and in the chat', async ({ page }) => {
+  const whatsapp = await captureWhatsApp(page);
+  await signIn(page);
+  await goAdmin(page, '/admin/prices');
+
+  const hummus = page.locator('input[name="price:hummus"]');
+  await expect(hummus, 'the list is read from the menu').toHaveValue('9,50');
+  // The bowl in two parts: each base has a price, each topping adds to it.
+  await expect(page.locator('input[name="price:kairo-bowl:reis"]')).toHaveValue('9,00');
+  await expect(page.locator('input[name="price:kairo-bowl:kebda"]')).toHaveValue('8,50');
+
+  try {
+    // A price that is not a price saves nothing at all.
+    await hummus.fill('95,0,0');
+    await page.locator('input[name="price:koshary"]').fill('15,00');
+    await page.click('button.save-btn');
+    await expect(page.locator('.err')).toContainText('Nothing was saved');
+    await goAdmin(page, '/admin/prices');
+    await expect(page.locator('input[name="price:koshary"]')).toHaveValue('14,50');
+
+    await page.locator('input[name="price:hummus"]').fill('10,50');
+    await page.click('button.save-btn');
+    await expect(page.locator('.msg')).toContainText('Saved');
+    await expect(page.locator('li.price.changed')).toContainText('Menu price: 9,50 €');
+
+    const row = page.locator('.mitem[data-item="hummus"]');
+    await expect(async () => {
+      await page.goto('/?lang=de&t=' + Date.now());
+      await expect(row).toHaveAttribute('data-price', '10.50');
+    }).toPass({ timeout: 20000 });
+    await expect(row.locator('.mprice')).toHaveText('10,50 €');
+
+    await addItem(page, 'hummus', 2);
+    await openBasket(page);
+    await expect(page.locator('.cart-line-price')).toContainText('21,00');
+    await choosePickup(page);
+    await fillContact(page, {});
+    await page.locator('#cartSend').click();
+    const message = decodeURIComponent((await whatsapp()).split('?text=')[1]);
+    expect(message).toContain('2× Hummus — 21,00');
+  } finally {
+    await goAdmin(page, '/admin/prices');
+    const all = page.locator('form.reset-all button');
+    if (await all.count()) await all.click();
+  }
+
+  await goAdmin(page, '/admin/prices');
+  await expect(page.locator('input[name="price:hummus"]')).toHaveValue('9,50');
+  await expect(page.locator('form.reset-all')).toHaveCount(0);
+});

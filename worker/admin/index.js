@@ -16,6 +16,7 @@ import { sendTestNotification } from '../notify.js';
 import * as ordersView from './orders.js';
 import * as salesView from './sales.js';
 import * as dishesView from './dishes.js';
+import * as pricesView from './prices.js';
 import * as hoursView from './hours.js';
 import {
   readSettings, closeOrdering, openOrdering, extendHours, clearExtension,
@@ -177,6 +178,9 @@ export async function handle(request, env, url) {
   if (path === '/admin/sales' && method === 'GET') return salesView.page(request, env, url);
   if (path === '/admin/dishes' && method === 'GET') return dishesView.page(request, env, url);
   if (path === '/admin/dishes' && method === 'POST') return dishesView.save(request, env);
+  if (path === '/admin/prices' && method === 'GET') return pricesView.page(request, env, url);
+  if (path === '/admin/prices' && method === 'POST') return pricesView.save(request, env);
+  if (path === '/admin/prices/reset' && method === 'POST') return pricesView.reset(request, env);
 
   return new Response('Not found.', {
     status: 404,

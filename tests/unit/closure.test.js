@@ -483,18 +483,27 @@ test('today\'s driver never becomes a published opening hour', async () => {
    rather than repaired, that it lapses by being read against the clock, and
    that it never becomes an opening hour. */
 
+/* A holiday that is still ahead whenever the suite runs. These two tests read
+   the stored holiday back through readSettings(), which drops one that is
+   already over by the real clock — so fixed dates pass until the day they
+   pass, and then fail a deploy that changed nothing about holidays. */
+const AWAY = (() => {
+  const day = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  return { today: day(0), from: day(30), until: day(40), lastDay: day(39) };
+})();
+
 test('a holiday is two dates, and the band is up from the moment it is saved', async () => {
   const { setHoliday, readSettings, forgetCache } = await import('../../worker/settings.js');
   const env = { DB: freshDatabase() };
 
   assert.equal((await readSettings(env)).holiday, null, 'nothing announced');
 
-  const saved = await setHoliday(env, '2026-09-09', '2026-09-19', '2026-08-20');
-  assert.deepEqual(saved, { from: '2026-09-09', until: '2026-09-19' });
+  const saved = await setHoliday(env, AWAY.from, AWAY.until, AWAY.today);
+  assert.deepEqual(saved, { from: AWAY.from, until: AWAY.until });
 
   forgetCache(env);
   const live = (await readSettings(env)).holiday;
-  assert.deepEqual(live, { from: '2026-09-09', until: '2026-09-19' });
+  assert.deepEqual(live, { from: AWAY.from, until: AWAY.until });
 });
 
 test('the pair that cannot be true is refused, not repaired', async () => {
@@ -610,7 +619,7 @@ test('a holiday is published as special hours, and never as the week', async () 
     page.match(/<script id="restaurantSchema"[^>]*>([\s\S]*?)<\/script>/)[1]
   );
 
-  await setHoliday(env, '2026-09-09', '2026-09-19', '2026-09-01');
+  await setHoliday(env, AWAY.from, AWAY.until, AWAY.today);
   forgetCache(env);
   const away = schemaOf(withLiveData(markup, await readSettings(env)));
 
@@ -621,8 +630,8 @@ test('a holiday is published as special hours, and never as the week', async () 
     '@type': 'OpeningHoursSpecification',
     opens: '00:00',
     closes: '00:00',
-    validFrom: '2026-09-09',
-    validThrough: '2026-09-18'
+    validFrom: AWAY.from,
+    validThrough: AWAY.lastDay
   }]);
 
   /* And the week is untouched: that is what the Google and Apple place cards

@@ -29,6 +29,8 @@
    page stating last week's hours beats a page with its markup torn open. */
 
 import { orderingNow } from './settings.js';
+import { parseMenu } from './site-data.js';
+import { priceOf } from './pricing.js';
 
 const DAYS = [
   ['mon', 'Montag', 'Monday', 'الاثنين'],
@@ -186,6 +188,8 @@ export function withLiveData(html, settings) {
   const { hours, ordering, soldOut } = settings;
   let out = html;
 
+  out = withPrices(out, settings.prices);
+
   /* A dish the kitchen has run out of is marked in the markup itself, not left
      to the script. The attribute is what CSS dims and what order.js reads, so a
      reader with no JavaScript still sees "ausverkauft" rather than an add
@@ -193,6 +197,17 @@ export function withLiveData(html, settings) {
   const off = Object.keys(soldOut || {});
   if (off.length) {
     for (const id of off) {
+      /* A topping is "dish:option" and is marked on its own row inside the
+         dish's, which is the first data-option of that name after the dish. */
+      const colon = id.indexOf(':');
+      if (colon > 0) {
+        const at = out.indexOf(`data-item="${id.slice(0, colon)}"`);
+        const opt = `data-option="${id.slice(colon + 1)}"`;
+        const where = at < 0 ? -1 : out.indexOf(opt, at);
+        if (where < 0) continue;
+        out = out.slice(0, where + opt.length) + ' data-soldout="1"' + out.slice(where + opt.length);
+        continue;
+      }
       const attr = `data-item="${id}"`;
       if (!out.includes(attr)) continue;   // a dish since removed from the menu
       out = out.split(attr).join(`${attr} data-soldout="1"`);
@@ -301,5 +316,107 @@ export function liveETag(assetETag, settings) {
     ? `h${settings.holiday.from}@${settings.holiday.until}`
     : 'h-';
 
-  return `W/"${base}~${settings.hoursVersion}~${settings.soldOutVersion || '0'}~${state}~${extension}~${shift}~${holiday}"`;
+  /* Prices are written into the markup like the sold-out marks, and move the
+     tag for the same reason — but by WHAT they are, not when they were saved.
+     updated_at has one-second precision, and two saves inside one second would
+     share a tag while stating different money. */
+  const prices = `p${pricesDigest(settings.prices)}`;
+
+  return `W/"${base}~${settings.hoursVersion}~${settings.soldOutVersion || '0'}~${state}~${extension}~${shift}~${holiday}~${prices}"`;
+}
+
+/* --- prices changed at /admin ---------------------------------------------
+   The page is sent already carrying the price in effect: the data-price the
+   basket and the structured data read, and the figure a reader without
+   JavaScript sees. Resolved through the same priceOf() the till charges by,
+   against the same markup, so the three cannot disagree — and an override
+   for anything the current menu does not price changes nothing here either. */
+
+/** A short fingerprint of the overrides in effect: FNV-1a over the sorted
+ *  pairs. Same prices, same tag; any other prices, another tag. */
+export function pricesDigest(prices) {
+  const text = Object.keys(prices || {}).sort().map((id) => id + '=' + prices[id]).join(';');
+  if (!text) return '0';
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(36);
+}
+
+const euro = (cents) => (cents / 100).toFixed(2).replace('.', ',') + ' €';
+const PRICE_TEXT = /\d+,\d{2} €/;
+
+/** Replace the first `class="<cls>"…price…` figure at or after `from`, and
+ *  no further than `until`. Returns the new html. */
+function setShown(html, cls, from, until, cents) {
+  const at = html.indexOf(`class="${cls}"`, from);
+  if (at < 0 || at > until) return html;
+  // To the element's own end: the bowl's "ab" sits in a span before the figure.
+  const close = html.indexOf(cls === 'mprice' ? '</div>' : '</span>', at);
+  const text = html.slice(at, close);
+  if (!PRICE_TEXT.test(text)) return html;
+  return html.slice(0, at) + text.replace(PRICE_TEXT, euro(cents)) + html.slice(close);
+}
+
+function setAttrPrice(html, tagStart, cents) {
+  const tagEnd = html.indexOf('>', tagStart);
+  const tag = html.slice(tagStart, tagEnd);
+  const next = tag.replace(/(\sdata-price=")[^"]*"/, `$1${(cents / 100).toFixed(2)}"`);
+  return html.slice(0, tagStart) + next + html.slice(tagEnd);
+}
+
+export function withPrices(html, overrides) {
+  const ids = Object.keys(overrides || {});
+  if (!ids.length) return html;
+  const { dishes } = parseMenu(html);
+  let out = html;
+
+  const dishTag = (id) => out.search(new RegExp(`<div\\b[^>]*\\sdata-item="${id}"`));
+  const dishEnd = (from) => {
+    const next = out.slice(from + 1).search(/<div\b[^>]*\bclass="[^"]*\b(?:mitem|cat-head)\b|<\/section>/);
+    return next < 0 ? out.length : from + 1 + next;
+  };
+  const touchedBowls = new Set();
+
+  for (const id of ids) {
+    const cents = priceOf(dishes, overrides, id);
+    if (!(cents > 0)) continue;
+    const colon = id.indexOf(':');
+    const dishId = colon < 0 ? id : id.slice(0, colon);
+    const start = dishTag(dishId);
+    if (start < 0) continue;
+    const end = dishEnd(start);
+
+    if (colon < 0) {
+      out = setAttrPrice(out, start, cents);
+      out = setShown(out, 'mprice', start, dishEnd(start), cents);
+      continue;
+    }
+    const optAt = out.slice(start, end).search(new RegExp(`<[a-z]+\\b[^>]*\\sdata-option="${id.slice(colon + 1)}"`));
+    if (optAt < 0) continue;
+    out = setAttrPrice(out, start + optAt, cents);
+    out = setShown(out, 'mchoice-price', start + optAt, dishEnd(start), cents);
+    touchedBowls.add(dishId);
+  }
+
+  /* A dish priced by its options prints "ab" its cheapest make-up. Only
+     rewritten when one of its options moved; otherwise the markup is right. */
+  for (const dishId of touchedBowls) {
+    const dish = dishes.get(dishId);
+    if (dish.price != null) continue;
+    /* One pick per group, and the picks add up — base plus topping — so the
+       cheapest bowl is the cheapest of each group, summed. */
+    const lowest = dish.groups.reduce((sum, g) => sum + Math.min(...g.options
+      .map((o) => priceOf(dishes, overrides, dishId + ':' + o.id))
+      .filter((c) => c > 0)), 0);
+    if (!Number.isFinite(lowest) || !(lowest > 0)) continue;
+    const start = dishTag(dishId);
+    // The dish's own figure is the LAST .mprice in its block, after the toppings.
+    const end = dishEnd(start);
+    const at = out.lastIndexOf('class="mprice"', end);
+    if (at > start) out = setShown(out, 'mprice', at, end, lowest);
+  }
+  return out;
 }
