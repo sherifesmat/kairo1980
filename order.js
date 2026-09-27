@@ -2100,9 +2100,12 @@
           : money(o.price);
         if (o.off) {
           // Shown, greyed, marked — and nothing to tick. The words are the reason.
+          // Same shape as its neighbours: name and price, then the words where
+          // the box to tick would be — not a third line under the name.
           html += '<div class="chooser-opt is-soldout"><span class="chooser-text">' +
             '<span class="chooser-name">' + escapeHtml(o.name) + '</span>' +
-            '<span class="soldout-tag">' + escapeHtml(L.soldOut) + '</span></span></div>';
+            (price ? '<span class="chooser-price">' + price + '</span>' : '') + '</span>' +
+            '<span class="soldout-tag">' + escapeHtml(L.soldOut) + '</span></div>';
           return;
         }
         html += '<label class="chooser-opt"><span class="chooser-text">' +

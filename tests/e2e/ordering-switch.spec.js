@@ -795,6 +795,11 @@ test('a sold-out drink is shown as sold out among the extras, and cannot be chos
     await expect(kola).toContainText('Ausverkauft');
     await expect(dialog.locator('input[value="fritz-kola-0-33-l"]')).toHaveCount(0);
     await expect(dialog.locator('input[value="fritz-orange-0-33-l"]')).toHaveCount(1);
+    // The same shape as its neighbour: the words sit where the box would be,
+    // never as a boxed third line under the name.
+    const orange = dialog.locator('.chooser-opt', { hasText: 'Fritz Orange' });
+    const [soldH, openH] = await Promise.all([kola, orange].map((l) => l.evaluate((el) => el.getBoundingClientRect().height)));
+    expect(Math.abs(soldH - openH)).toBeLessThanOrEqual(2);
 
     // And the till says no, whatever a hand-built request claims.
     const res = await page.request.post('/api/orders/announce', {

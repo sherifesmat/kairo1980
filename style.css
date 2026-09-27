@@ -1327,8 +1327,14 @@ body.chooser-open { overflow: hidden; }
 .chooser-name { font-size: 14.5px; color: #1c1409; }
 .chooser-price { font-size: 13px; color: #7a6030; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .chooser-opt.is-soldout { cursor: default; }
-.chooser-opt.is-soldout .chooser-name { opacity: 0.5; text-decoration: line-through; }
-.chooser-opt.is-soldout .soldout-tag { font-size: 12px; color: #a04a00; }
+.chooser-opt.is-soldout .chooser-text { opacity: 0.5; }
+.chooser-opt.is-soldout .chooser-name { text-decoration: line-through; }
+/* Plain words at the row's end, not the boxed label the menu rows use. */
+.chooser-opt.is-soldout .soldout-tag {
+  flex: none; background: none; border: 0; padding: 0;
+  font-family: 'DM Sans', sans-serif; font-size: 12.5px;
+  letter-spacing: 0; text-transform: none; color: #a04a00;
+}
 .chooser-foot { padding-block: 12px 18px; padding-inline: 22px; border-top: 1px solid rgba(200,165,90,0.22); }
 .chooser-hint { margin: 0 0 10px; font-size: 13px; color: #a04a00; }
 .chooser-actions { display: flex; align-items: center; gap: 12px; }
