@@ -65,7 +65,11 @@ test('topping and extras set the price, and the same bowl twice is one line', as
   await openBasket(page);
   const lines = page.locator('.cart-line');
   await expect(lines).toHaveCount(1);
-  await expect(lines.first()).toContainText('KAIRO Bowl (Nudeln, Kebda) + Hausgemachter Karkadeh (0,5 l)');
+  // The dish on its line; what it was made with and what was added beneath it,
+  // never run into the name — that wrapped a bowl over four lines.
+  const opts = lines.first().locator('.cart-line-opts');
+  await expect(opts).toHaveText(['Nudeln · Kebda', '+ Hausgemachter Karkadeh (0,5 l)']);
+  await expect(lines.first().locator('.cart-line-name')).toContainText(/^KAIRO Bowl/);
   await expect(lines.first().locator('.qty-num')).toHaveText('2');
   await expect(lines.first().locator('.cart-line-price')).toContainText('44,00');
 });
