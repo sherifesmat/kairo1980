@@ -29,7 +29,7 @@
    page stating last week's hours beats a page with its markup torn open. */
 
 import { orderingNow } from './settings.js';
-import { parseMenu } from './site-data.js';
+import { parseMenu, effectiveMenu } from './site-data.js';
 import { priceOf } from './pricing.js';
 
 const DAYS = [
@@ -189,6 +189,7 @@ export function withLiveData(html, settings) {
   let out = html;
 
   out = withPrices(out, settings.prices);
+  out = withAddons(out, settings.addons);
 
   /* A dish the kitchen has run out of is marked in the markup itself, not left
      to the script. The attribute is what CSS dims and what order.js reads, so a
@@ -321,8 +322,10 @@ export function liveETag(assetETag, settings) {
      updated_at has one-second precision, and two saves inside one second would
      share a tag while stating different money. */
   const prices = `p${pricesDigest(settings.prices)}`;
+  // The extras are written into the markup too, and move the tag by content.
+  const addons = `a${settings.addons ? digest(JSON.stringify(settings.addons)) : '0'}`;
 
-  return `W/"${base}~${settings.hoursVersion}~${settings.soldOutVersion || '0'}~${state}~${extension}~${shift}~${holiday}~${prices}"`;
+  return `W/"${base}~${settings.hoursVersion}~${settings.soldOutVersion || '0'}~${state}~${extension}~${shift}~${holiday}~${prices}~${addons}"`;
 }
 
 /* --- prices changed at /admin ---------------------------------------------
@@ -336,7 +339,10 @@ export function liveETag(assetETag, settings) {
  *  pairs. Same prices, same tag; any other prices, another tag. */
 export function pricesDigest(prices) {
   const text = Object.keys(prices || {}).sort().map((id) => id + '=' + prices[id]).join(';');
-  if (!text) return '0';
+  return text ? digest(text) : '0';
+}
+
+function digest(text) {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);
@@ -418,5 +424,55 @@ export function withPrices(html, overrides) {
     const at = out.lastIndexOf('class="mprice"', end);
     if (at > start) out = setShown(out, 'mprice', at, end, lowest);
   }
+  return out;
+}
+
+/* --- extras set up at /admin -----------------------------------------------
+   The page is sent already offering what the restaurant set up: the hidden
+   .addon-groups block is written afresh from the effective model, and every
+   dish's data-addons says which of those groups it offers. order.js reads
+   both from the DOM, and the till checks orders against the same
+   effectiveMenu(), so the chooser cannot offer what the till would refuse. */
+
+const escAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+  .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** [start, end) of the element opening at `start`, by counting nested divs. */
+function divSpan(html, start) {
+  const re = /<div\b|<\/div>/g;
+  re.lastIndex = start;
+  let depth = 0;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    depth += m[0] === '</div>' ? -1 : 1;
+    if (depth === 0) return [start, m.index + m[0].length];
+  }
+  return null;
+}
+
+export function withAddons(html, override) {
+  if (!override) return html;
+  const block = html.indexOf('<div class="addon-groups"');
+  const span = block < 0 ? null : divSpan(html, block);
+  if (!span) return html;
+  const { dishes, addonGroups } = effectiveMenu(parseMenu(html), override);
+
+  const groups = [...addonGroups.values()].map((g) =>
+    `<div data-addon-group="${escAttr(g.id)}" data-max="${g.max}" data-de="${escAttr(g.labels.de)}" ` +
+    `data-en="${escAttr(g.labels.en)}" data-ar="${escAttr(g.labels.ar)}">` +
+    g.refs.map((r) => `<span data-ref="${escAttr(r)}"></span>`).join('') + '</div>'
+  ).join('');
+  let out = html.slice(0, span[0]) + `<div class="addon-groups" hidden>${groups}</div>` + html.slice(span[1]);
+
+  // Each dish's own opening tag: drop what it offered, write what it offers.
+  out = out.replace(/<div\b[^>]*\sclass="[^"]*\bmitem\b[^"]*"[^>]*>/g, (tag) => {
+    const id = (tag.match(/\sdata-item="([^"]+)"/) || [])[1];
+    const dish = id && dishes.get(id);
+    if (!dish) return tag;
+    const bare = tag.replace(/\sdata-addons="[^"]*"/, '');
+    return dish.addons.length
+      ? bare.replace(/\sdata-item="[^"]+"/, (m) => `${m} data-addons="${dish.addons.join(' ')}"`)
+      : bare;
+  });
   return out;
 }

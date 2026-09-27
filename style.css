@@ -1292,7 +1292,7 @@ body.chooser-open { overflow: hidden; }
 }
 .chooser[hidden], .chooser-backdrop[hidden] { display: none; }
 .chooser-head {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
   padding-block: 18px; padding-inline: 22px; border-bottom: 1px solid rgba(200,165,90,0.22);
 }
 .chooser-title {
@@ -1301,23 +1301,39 @@ body.chooser-open { overflow: hidden; }
 }
 .chooser-body { overflow-y: auto; overscroll-behavior: contain; padding-block: 6px 12px; padding-inline: 22px; }
 .chooser-group { border: 0; margin: 0; padding: 14px 0 4px; }
-.chooser-group legend { padding: 0; margin-bottom: 6px; }
-.chooser-legend { font-size: 14px; font-weight: 600; color: #1c1409; }
-.chooser-rule { font-size: 12px; color: #9a8050; }
+.chooser-desc { margin: 6px 0 0; font-size: 12.5px; line-height: 1.6; color: #9a7f50; }
+/* A group's head: its name, a badge saying whether it must be answered, and
+   how many may be picked — the three things a guest checks before ticking. */
+.chooser-group legend {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px;
+  padding: 0; margin-bottom: 6px; width: 100%;
+}
+.chooser-legend { font-size: 15px; font-weight: 600; color: #1c1409; }
+.chooser-badge {
+  font-size: 11px; font-weight: 600; padding-block: 2px; padding-inline: 8px;
+  border-radius: 999px; background: #f1ead9; color: #7a6030;
+}
+.chooser-badge.is-required { background: #1c1409; color: #f5e8cc; }
+.chooser-rule { flex-basis: 100%; font-size: 12px; color: #9a8050; }
+/* Name and price read first; the control sits at the row's end. */
 .chooser-opt {
   display: flex; align-items: center; gap: 12px;
-  padding-block: 10px; border-bottom: 1px solid #f5ede0; cursor: pointer;
+  padding-block: 11px; border-bottom: 1px solid #f5ede0; cursor: pointer;
 }
 .chooser-group .chooser-opt:last-child { border-bottom: none; }
+.chooser-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .chooser-opt input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: #a07838; }
-.chooser-opt input:disabled + .chooser-name { opacity: 0.5; }
-.chooser-name { flex: 1; font-size: 14.5px; color: #1c1409; }
-.chooser-price { font-size: 13.5px; color: #7a6030; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chooser-opt:has(input:disabled) .chooser-text { opacity: 0.5; }
+.chooser-name { font-size: 14.5px; color: #1c1409; }
+.chooser-price { font-size: 13px; color: #7a6030; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .chooser-opt.is-soldout { cursor: default; }
-.chooser-opt.is-soldout .chooser-name { opacity: 0.5; }
+.chooser-opt.is-soldout .chooser-name { opacity: 0.5; text-decoration: line-through; }
+.chooser-opt.is-soldout .soldout-tag { font-size: 12px; color: #a04a00; }
 .chooser-foot { padding-block: 12px 18px; padding-inline: 22px; border-top: 1px solid rgba(200,165,90,0.22); }
 .chooser-hint { margin: 0 0 10px; font-size: 13px; color: #a04a00; }
-.chooser-add { width: 100%; }
+.chooser-actions { display: flex; align-items: center; gap: 12px; }
+.chooser-qty { flex: none; }
+.chooser-add { flex: 1; width: auto; }
 .qty-num {
   min-width: 26px; text-align: center;
   font-family: 'Cormorant Garamond', serif; font-size: 16px; color: #1c1409;

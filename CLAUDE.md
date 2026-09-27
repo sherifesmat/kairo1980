@@ -154,7 +154,7 @@ are only the no-JavaScript fallback — update both or neither.
   inside that, so `dropSoldOut()` clears such items at boot and says which.
 - **Prices live in the database now too, and index.html is the default.**
   Exactly like the hours: `data-price` is what the menu was published with and
-  what "Menu price" restores; a `prices` row in `settings` overrides single
+  the starting price; a `prices` row in `settings` overrides single
   prices by the id the till uses (`hummus`, `kairo-bowl:kebda`). The Worker
   writes the price in effect into the page (`withPrices()` in
   `worker/page-render.js`) and charges by the same `priceOf()`, so page, basket

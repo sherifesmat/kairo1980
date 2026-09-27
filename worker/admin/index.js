@@ -17,6 +17,7 @@ import * as ordersView from './orders.js';
 import * as salesView from './sales.js';
 import * as dishesView from './dishes.js';
 import * as pricesView from './prices.js';
+import * as extrasView from './extras.js';
 import * as hoursView from './hours.js';
 import {
   readSettings, closeOrdering, openOrdering, extendHours, clearExtension,
@@ -180,7 +181,9 @@ export async function handle(request, env, url) {
   if (path === '/admin/dishes' && method === 'POST') return dishesView.save(request, env);
   if (path === '/admin/prices' && method === 'GET') return pricesView.page(request, env, url);
   if (path === '/admin/prices' && method === 'POST') return pricesView.save(request, env);
-  if (path === '/admin/prices/reset' && method === 'POST') return pricesView.reset(request, env);
+  if (path === '/admin/extras' && method === 'GET') return extrasView.page(request, env, url);
+  if (path === '/admin/extras' && method === 'POST') return extrasView.save(request, env);
+  if (path === '/admin/extras/reset' && method === 'POST') return extrasView.reset(request, env);
 
   return new Response('Not found.', {
     status: 404,

@@ -70,6 +70,29 @@ test('topping and extras set the price, and the same bowl twice is one line', as
   await expect(lines.first().locator('.cart-line-price')).toContainText('44,00');
 });
 
+test('the chooser reads like Lieferando: required and optional, how many, and a quantity', async ({ page }) => {
+  await page.goto('/?lang=de');
+  const dialog = await openChooser(page, 'kairo-bowl');
+  await expect(dialog.locator('.chooser-desc')).toContainText('Wähle zuerst die Basis');
+  const basis = dialog.locator('fieldset[data-section="basis"]');
+  await expect(basis.locator('.chooser-badge')).toHaveText('Pflichtfeld');
+  await expect(basis.locator('.chooser-rule')).toHaveText('Wähle 1');
+  const sides = dialog.locator('fieldset[data-section="beilagen-bowl"]');
+  await expect(sides.locator('.chooser-badge')).toHaveText('Optional');
+  await expect(sides.locator('.chooser-rule')).toHaveText('Bis zu 3');
+
+  await dialog.locator('input[value="reis"]').check();
+  await dialog.locator('input[value="haehnchen"]').check();
+  await dialog.locator('[data-act="chooser-inc"]').click();
+  await dialog.locator('[data-act="chooser-inc"]').click();
+  await expect(dialog.locator('#chooserQty')).toHaveText('3');
+  await expect(dialog.locator('[data-act="chooser-add"]')).toContainText('49,50');   // 3 × 16,50
+  await dialog.locator('[data-act="chooser-add"]').click();
+
+  await openBasket(page);
+  await expect(page.locator('.cart-line .qty-num')).toHaveText('3');
+});
+
 test('a Menü costs the same whichever drink is chosen', async ({ page }) => {
   await page.goto('/?lang=de');
   const dialog = await openChooser(page, 'hawawshy-menue');

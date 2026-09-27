@@ -122,7 +122,7 @@ test('a price change makes every cached page stale, however quickly it follows t
 });
 
 test('the price page will not show or save prices it could not read', async () => {
-  const { page, save, reset } = await import('../../worker/admin/prices.js');
+  const { page, save } = await import('../../worker/admin/prices.js');
   const env = envWith({ broken: true });
   const url = new URL('https://kairo1980.de/admin/prices');
   const shown = await page(new Request(url), env, url);
@@ -131,7 +131,6 @@ test('the price page will not show or save prices it could not read', async () =
   const body = new FormData();
   body.set('price:hummus', '10,50');
   assert.equal((await save(new Request(url, { method: 'POST', body }), env)).status, 503);
-  assert.equal((await reset(new Request(url, { method: 'POST' }), env)).status, 503);
 });
 
 test('a price is typed the way a German writes one', () => {

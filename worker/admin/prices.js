@@ -1,7 +1,7 @@
 /* Changing a price without a developer.
    ---------------------------------------------------------------------------
    The same arrangement as the opening hours. index.html's `data-price` is the
-   DEFAULT — what the menu was published with and what "Menu price" puts back.
+   DEFAULT — what the menu was published with — the price until the restaurant sets another here.
    A row in `settings` OVERRIDES single prices, by the id the till already uses:
    a dish, or "dish:option" for a bowl topping. The Worker writes the price in
    effect into the page and charges by the same answer (priceOf() in
@@ -24,7 +24,7 @@
    is a typo on a phone at nine in the evening publishing a 95-euro hummus. */
 
 import { layout, esc, newNonce, adminHeaders } from './pages.js';
-import { readSettings, writePrices, resetPrices, PRICE_MIN, PRICE_MAX } from '../settings.js';
+import { readSettings, writePrices, PRICE_MIN, PRICE_MAX } from '../settings.js';
 import { menu } from '../site-data.js';
 import { priceOf } from '../pricing.js';
 
@@ -103,7 +103,6 @@ export async function save(request, env) {
     for (const r of g.rows) {
       const typed = String(form.get('price:' + r.id) || '');
       values[r.id] = typed;
-      if (form.get('reset:' + r.id)) { values[r.id] = euro(r.base); continue; }
       const cents = parseEuro(typed);
       if (cents == null || cents < PRICE_MIN || cents > PRICE_MAX) {
         errors.push(r.id);
@@ -128,16 +127,6 @@ export async function save(request, env) {
   });
 }
 
-/* Every price back to the menu's, in one tap and on purpose: its own form and
-   its own POST, so it can never be the side effect of saving the page. */
-export async function reset(request, env) {
-  if ((await readSettings(env)).unreadable) return unavailable();
-  await resetPrices(env);
-  return new Response(null, {
-    status: 303, headers: { Location: '/admin/prices?saved=reset', 'Cache-Control': 'no-store' }
-  });
-}
-
 const CSS = `
  .msg{padding:10px 12px;border:1px solid #bcd8b0;background:#eef6ea;color:#31601f;
       font-size:13.5px;margin-bottom:14px}
@@ -149,46 +138,33 @@ const CSS = `
  li.price{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f0e8d8;flex-wrap:wrap}
  li.price:last-child{border-bottom:none}
  li.price.sub{padding-inline-start:34px}
- li.price.changed{background:#fdf6e8}
  li.price.bad{background:#fbeaea}
  .nm{flex:1;min-width:140px;font-size:14.5px;color:#1c1409}
- .std{display:block;font-size:11.5px;color:#a0661a;margin-top:2px}
  .amt{display:flex;align-items:center;gap:6px}
  .amt input{width:84px;padding:8px;font-size:15px;text-align:end;border:1px solid #d9ccb0}
  li.price.bad .amt input{border-color:#c0392b}
- label.reset{display:flex;align-items:center;gap:6px;font-size:12px;color:#7a6030;margin:0;
-             text-transform:none;letter-spacing:0}
  .save{position:sticky;bottom:0;z-index:5;background:#faf7f2;padding:12px 0 8px;
        margin-top:12px;box-shadow:0 -10px 14px -8px rgba(28,20,9,0.18)}
  button.save-btn{width:100%;padding:14px;font-size:15px;font-weight:600;border:0;
                  background:#1c1409;color:#f5e8cc;cursor:pointer}
- form.reset-all{margin-top:22px}
- button.reset-btn{width:100%;padding:12px;font-size:14px;border:1px solid #c9b48a;
-                  background:#fff;color:#7a6030;cursor:pointer}
 `;
 
 export function render({ nonce, groups, prices, values, errors, saved }) {
   const rowFor = (r) => {
-    const changed = Number.isInteger(prices[r.id]) && prices[r.id] !== r.base;
     const bad = errors.includes(r.id);
-    return `<li class="price ${r.sub ? 'sub' : ''} ${changed ? 'changed' : ''} ${bad ? 'bad' : ''}">
-      <span class="nm">${esc(r.name)}
-        ${changed ? `<span class="std">Menu price: ${euro(r.base)} €</span>` : ''}
-      </span>
+    return `<li class="price ${r.sub ? 'sub' : ''} ${bad ? 'bad' : ''}">
+      <span class="nm">${esc(r.name)}</span>
       <span class="amt"><input name="price:${esc(r.id)}" value="${esc(values[r.id] || '')}"
         inputmode="decimal" autocomplete="off" aria-label="${esc(r.name)}"> €</span>
-      ${changed ? `<label class="reset"><input type="checkbox" name="reset:${esc(r.id)}"> Menu price</label>` : ''}
     </li>`;
   };
 
-  const overridden = Object.keys(prices).length;
   const body = `<h1>Prices</h1>
 <div class="sub">Type a new price and save. It is on the website, in the basket
 and in what is charged the moment you save. An extra (a drink or a side) costs
 what that dish costs, so change the dish itself.</div>
 
 ${saved === '1' ? '<p class="msg">Saved. Live now.</p>' : ''}
-${saved === 'reset' ? '<p class="msg">Every price is back to the menu.</p>' : ''}
 ${errors.length ? `<p class="err"><b>Nothing was saved.</b> ${errors.length} price(s) marked in red
   are not a price between ${euro(PRICE_MIN)} € and ${euro(PRICE_MAX)} € — write them like 9,50.</p>` : ''}
 
@@ -199,10 +175,6 @@ ${errors.length ? `<p class="err"><b>Nothing was saved.</b> ${errors.length} pri
     <button class="save-btn" type="submit">Save</button>
   </div>
 </form>
-
-${overridden ? `<form class="reset-all" method="post" action="/admin/prices/reset">
-  <button class="reset-btn" type="submit">Put every price back to the menu (${overridden} changed)</button>
-</form>` : ''}
 
 <p class="note">The list comes from the menu itself, so a new dish appears here on its own.
 Remember Lieferando and Uber Eats: their prices are set in their own portals.</p>`;

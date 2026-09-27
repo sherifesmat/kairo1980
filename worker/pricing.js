@@ -15,7 +15,7 @@
        driven out; pickup and company orders are never held to it
      - an unknown postcode charges no fee; that is agreed in the chat instead */
 
-import { CONFIG, menuData, zoneFor } from './site-data.js';
+import { CONFIG, menuData, effectiveMenu, zoneFor } from './site-data.js';
 import { readSettings } from './settings.js';
 
 export const MAX_ITEMS = 200;
@@ -45,7 +45,7 @@ function minimumApplies(type, business) {
  *                    fee: number, total: number, zone: object|null, belowMinimum: boolean}>}
  */
 export async function quote(env, req) {
-  const { dishes, addonGroups } = await menuData(env);
+  const published = await menuData(env);
 
   /* THE ONE REFUSAL ON THIS SITE. An unknown postcode, a closed slot and a
      sub-minimum basket are all warnings that let the order through, because
@@ -53,7 +53,7 @@ export async function quote(env, req) {
      of is not that: the ingredient is not in the building, and taking the money
      would mean ringing the guest back to say so. The browser dims it too, but
      the browser is not to be trusted with the answer. */
-  const { soldOut, prices: overrides, unreadable } = await readSettings(env);
+  const { soldOut, prices: overrides, addons, unreadable } = await readSettings(env);
   /* Money is the one thing a settings outage may not paper over. The page may
      have shown a price the restaurant set at /admin; the defaults are not the
      same claim. The guest is offered the way this site always offers when a
@@ -61,6 +61,8 @@ export async function quote(env, req) {
   if (unreadable) {
     throw new PricingError('prices_unavailable', 'Prices cannot be confirmed right now.');
   }
+  // The extras offered today — the menu's, or the setup saved at /admin/extras.
+  const { dishes, addonGroups } = effectiveMenu(published, addons);
   const price = (id) => priceOf(dishes, overrides, id);
   const type = req.type === 'pickup' ? 'pickup' : 'delivery';
   const business = !!req.business;
@@ -207,6 +209,9 @@ function resolveLine(key, dishes, addonGroups, soldOut, price = (id) => priceOf(
     }
     if (new Set(chosen).size !== chosen.length) refuse('duplicate ' + group.name);
     for (const ref of chosen) {
+      // Groups are shared, so one may hold the very dish it is offered on:
+      // "Salata Baladi + Salata Baladi" is not an extra, it is a second dish.
+      if (ref === parsed.dish) refuse('cannot add ' + dish.name + ' to itself');
       const target = group.refs.includes(ref) && dishes.get(ref);
       // An extra costs what its own row costs today, override and all.
       const refPrice = target ? price(ref) : null;

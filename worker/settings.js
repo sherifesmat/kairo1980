@@ -41,6 +41,7 @@ const EXTENSION = 'extension';
 const SHIFT = 'shift';
 const HOLIDAY = 'holiday';
 const PRICES = 'prices';
+const ADDONS = 'addons';
 
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -80,6 +81,7 @@ export async function readSettings(env) {
       holiday: null,
       // No binding, no overrides: the menu's own prices are the whole truth.
       prices: {},
+      addons: null,
       unreadable: false,
       hoursVersion: '0',
       soldOutVersion: '0',
@@ -148,6 +150,11 @@ export async function readSettings(env) {
        price on the current menu — see priceOf() in worker/pricing.js — so a
        row outliving the dish it named is inert. */
     prices: normalisePrices(raw[PRICES]),
+    /* Which extras each dish offers, when the restaurant has set that up at
+       /admin/extras: the WHOLE setup, or null for "as the menu says". Checked
+       against the current menu where it is used — effectiveMenu() in
+       worker/site-data.js — not here, where the menu is not known. */
+    addons: normaliseAddons(raw[ADDONS]),
     unreadable,
     pricesVersion: (rows.find((r) => r.key === PRICES) || {}).updated_at || '0'
   };
@@ -412,6 +419,48 @@ export async function resetPrices(env) {
   await env.DB.prepare('DELETE FROM settings WHERE key = ?1').bind(PRICES).run();
   forgetCache(env);
   return {};
+}
+
+
+/* --- which extras each dish offers -----------------------------------------
+   Like the hours: no row means the menu's own setup (the .addon-groups block
+   and each dish's data-addons in index.html); a row is the COMPLETE setup —
+   every editable group, and for every dish the groups it offers. One of the
+   two is in effect, never a blend. Only the shape is checked here; whether a
+   dish still exists is a question for the menu (effectiveMenu()). */
+const SLUG = /^[a-z0-9-]{1,40}$/;
+// A label that is too long is not a label cut short: the group is dropped.
+const label = (v) => (typeof v === 'string' && v.trim().length <= 60 ? v.trim() : '');
+
+export function normaliseAddons(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const groups = {};
+  for (const [id, g] of Object.entries(value.groups || {})) {
+    if (!SLUG.test(id) || !g || typeof g !== 'object') continue;
+    const de = label(g.de), en = label(g.en), ar = label(g.ar);
+    if (!de || !en || !ar) continue;               // trilingual, or not at all
+    const refs = [...new Set((Array.isArray(g.refs) ? g.refs : []).filter((r) => typeof r === 'string' && SLUG.test(r)))];
+    // "How many" outside 1..dishes is not a limit anybody saved — drop, never clamp.
+    if (!refs.length || !Number.isInteger(g.max) || g.max < 1 || g.max > refs.length) continue;
+    groups[id] = { de, en, ar, max: g.max, refs };
+  }
+  const dishes = {};
+  for (const [id, list] of Object.entries(value.dishes || {})) {
+    if (!SLUG.test(id) || !Array.isArray(list)) continue;
+    dishes[id] = [...new Set(list.filter((g) => typeof g === 'string' && groups[g]))];
+  }
+  return { groups, dishes };
+}
+
+export async function writeAddons(env, value) {
+  const clean = normaliseAddons(value);
+  await put(env, ADDONS, clean || { groups: {}, dishes: {} });
+  return clean;
+}
+
+export async function resetAddons(env) {
+  await env.DB.prepare('DELETE FROM settings WHERE key = ?1').bind(ADDONS).run();
+  forgetCache(env);
 }
 
 

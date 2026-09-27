@@ -523,6 +523,10 @@ export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extensio
     <b>Prices</b>
     <span>Change what a dish costs — on the website, in the basket and at the till at once.</span>
   </a>
+  <a class="tile" href="/admin/extras">
+    <b>Extras</b>
+    <span>Which drinks, sides and sauces a guest can add to each dish.</span>
+  </a>
 </div>
 
 <!-- The alert channel, and proof that it works.
