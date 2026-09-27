@@ -159,3 +159,41 @@ test('a group without a name in every language, or with no dish, saves nothing',
   assert.equal(res.status, 400);
   assert.match(await res.text(), /Nothing was saved[\s\S]*all three languages/);
 });
+
+/* Two groups may share a name — a guest only ever meets one of them — but
+   /admin/extras lists them side by side, and "Passt gut dazu" twice is a page
+   nobody can edit with confidence. The tag comes from where each is offered. */
+test('two groups with one name are told apart at /admin, by where they are offered', async () => {
+  const { adminLabels, page } = await import('../../worker/admin/extras.js');
+  const categories = [
+    { name: 'KAIRO Bowls', dishes: [{ id: 'kairo-bowl' }] },
+    { name: 'Ägyptische Straßenküche', dishes: [{ id: 'hawawshy' }, { id: 'soguk-baladi' }] }
+  ];
+  const groups = [
+    { id: 'getraenk', de: 'Dazu genießen' },
+    { id: 'beilagen-bowl', de: 'Passt gut dazu' },
+    { id: 'beilagen-sandwich', de: 'Passt gut dazu' }
+  ];
+  const assigned = {
+    'kairo-bowl': ['getraenk', 'beilagen-bowl'],
+    hawawshy: ['getraenk', 'beilagen-sandwich'],
+    'soguk-baladi': ['beilagen-sandwich']
+  };
+  const labels = adminLabels(groups, assigned, categories);
+  assert.equal(labels.getraenk, 'Dazu genießen', 'a name nobody else has is left alone');
+  assert.equal(labels['beilagen-bowl'], 'Passt gut dazu · KAIRO Bowls');
+  assert.equal(labels['beilagen-sandwich'], 'Passt gut dazu · Ägyptische Straßenküche');
+
+  // Offered in the same places, or nowhere: the id is what is left to tell them apart.
+  const nowhere = adminLabels(groups, {}, categories);
+  assert.notEqual(nowhere['beilagen-bowl'], nowhere['beilagen-sandwich']);
+
+  // And the real page, from the real menu: never two identical labels.
+  const res = await page(new Request('https://x/admin/extras'), envWith(), new URL('https://x/admin/extras'));
+  const html = await res.text();
+  const legends = [...html.matchAll(/<legend>([^<]*)<\/legend>/g)].map((x) => x[1]).filter((l) => l !== 'New group');
+  assert.equal(new Set(legends).size, legends.length, `duplicate group labels: ${legends.join(' | ')}`);
+  assert.ok(legends.some((l) => l.startsWith('Passt gut dazu · ')), legends.join(' | '));
+  // What a guest sees is untouched: the name field still holds the plain name.
+  assert.match(html, /name="g:beilagen-bowl:de" value="Passt gut dazu"/);
+});

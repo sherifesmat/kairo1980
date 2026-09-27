@@ -185,6 +185,30 @@ const CSS = `
  button.reset-btn{width:100%;padding:12px;font-size:14px;border:1px solid #c9b48a;background:#fff;color:#7a6030;cursor:pointer}
 `;
 
+/** What a group is called on THIS page. A guest only ever sees one group per
+ *  dish, so two can rightly share a name ("Passt gut dazu" on the bowl and on
+ *  the sandwiches) — but here they sit side by side and must be told apart.
+ *  The tag is read from where each group is offered, never stored: a second
+ *  name typed in would be one more thing to keep in step with the menu. */
+export function adminLabels(groups, assigned, categories) {
+  const where = (id) => {
+    const cats = categories.filter((c) => c.dishes.some((d) => (assigned[d.id] || []).includes(id)));
+    return cats.length ? cats.map((c) => c.name).join(', ') : 'on no dish';
+  };
+  const labels = {};
+  for (const g of groups) {
+    const name = g.de || g.id;
+    const twin = groups.some((o) => o !== g && (o.de || o.id) === name);
+    labels[g.id] = twin ? `${name} · ${where(g.id)}` : name;
+  }
+  // Still the same on both? Then the id is the only thing left that differs.
+  const seen = Object.values(labels);
+  for (const g of groups) {
+    if (seen.filter((l) => l === labels[g.id]).length > 1) labels[g.id] += ` (${g.id})`;
+  }
+  return labels;
+}
+
 export function render({ nonce, m, draft, errors, custom, saved }) {
   const names = (prefix, g) => `<div class="names">${LANGS.map((l) => `
     <label>${{ de: 'Deutsch', en: 'English', ar: 'العربية' }[l]}
@@ -199,19 +223,21 @@ export function render({ nonce, m, draft, errors, custom, saved }) {
       <label><input type="checkbox" name="${prefix}:ref" value="${esc(d.id)}" ${chosen.includes(d.id) ? 'checked' : ''}> ${esc(d.name)}</label>`).join('')}</div>`;
   }).join('');
 
+  const allGroups = draft.groups.filter((g) => !g.removed);
+  const label = adminLabels(draft.groups, draft.assigned, m.categories);
+
   const groupBlock = (g) => `<fieldset class="group ${g.removed ? 'removed' : ''}">
-    <legend>${esc(g.de || g.id)}</legend>
+    <legend>${esc(label[g.id])}</legend>
     <input type="hidden" name="group" value="${esc(g.id)}">
     ${names(`g:${g.id}`, g)}
     ${picks(`g:${g.id}`, g.refs || [])}
     <label class="remove"><input type="checkbox" name="g:${esc(g.id)}:remove" ${g.removed ? 'checked' : ''}> Remove this group (and from every dish)</label>
   </fieldset>`;
 
-  const allGroups = draft.groups.filter((g) => !g.removed);
   const dishRows = m.categories.map((c) => `<h3 class="cat">${esc(c.name)}</h3><ul class="dishes">${c.dishes.map((d) => `
     <li><div class="dn">${esc(d.name)}</div>
       <div class="picks">${allGroups.map((g) => `
-        <label><input type="checkbox" name="d:${esc(d.id)}" value="${esc(g.id)}" ${(draft.assigned[d.id] || []).includes(g.id) ? 'checked' : ''}> ${esc(g.de || g.id)}</label>`).join('') || '<span class="fixed">No groups yet.</span>'}</div>
+        <label><input type="checkbox" name="d:${esc(d.id)}" value="${esc(g.id)}" ${(draft.assigned[d.id] || []).includes(g.id) ? 'checked' : ''}> ${esc(label[g.id])}</label>`).join('') || '<span class="fixed">No groups yet.</span>'}</div>
       ${d.includes.length ? `<div class="fixed">Included in the price (set by the menu): ${esc(m.fixed.filter((f) => d.includes.includes(f.id)).map((f) => f.labels.de).join(', '))}</div>` : ''}
     </li>`).join('')}</ul>`).join('');
 
