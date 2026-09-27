@@ -1464,6 +1464,12 @@
       dish: p.dish,
       unit: unit,
       parts: parts,
+      // For the basket, in pieces: the dish, what it was made with, and what
+      // was added. Run together they wrapped a bowl over four lines beside
+      // the stepper; `name` stays the one line the chat and the till read.
+      title: itemName(p.dish),
+      own: own,
+      extras: extras,
       name: itemName(p.dish) +
         (own.length ? ' (' + own.join(', ') + ')' : '') +
         extras.map(function (n) { return ' + ' + n; }).join('')
@@ -2745,8 +2751,12 @@
       var line = lineOf(key);
       if (!line) return '';
       var id = escapeHtml(key);
-      return '<li class="cart-line">' +
-        '<span class="cart-line-name">' + escapeHtml(line.name) + '</span>' +
+      var detailed = line.own.length || line.extras.length;
+      return '<li class="cart-line' + (detailed ? ' has-opts' : '') + '">' +
+        '<span class="cart-line-name">' + escapeHtml(line.title) +
+          (line.own.length ? '<span class="cart-line-opts">' + escapeHtml(line.own.join(' · ')) + '</span>' : '') +
+          (line.extras.length ? '<span class="cart-line-opts">+ ' + escapeHtml(line.extras.join(' · ')) + '</span>' : '') +
+        '</span>' +
         '<span class="qty has-qty cart-line-qty">' +
           '<button type="button" class="qty-btn" data-act="dec" data-id="' + id + '" aria-label="−">−</button>' +
           '<span class="qty-num">' + cart[key] + '</span>' +
