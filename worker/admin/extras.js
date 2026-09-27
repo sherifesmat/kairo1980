@@ -168,12 +168,16 @@ const CSS = `
  fieldset.removed{opacity:.55}
  .names{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:8px}
  .names label,.max label{font-size:12px;color:#7a6030;text-transform:none;letter-spacing:0;margin:0}
- .names input{width:100%;padding:7px;font-size:14px;border:1px solid #d9ccb0}
+ .names input{width:100%;box-sizing:border-box;padding:7px;font-size:14px;border:1px solid #d9ccb0}
+ /* The shared admin style makes every input a full-width text field. A tick
+    box that inherits it claims a wide slot of its own and squeezes the dish
+    name beside it onto two or three lines ("Fritz / Kola / (0,33 l)"). */
+ .picks input,.remove input{width:18px;height:18px;padding:0;margin:0;flex:none;accent-color:#b8914a}
  .max input{width:60px;padding:7px;font-size:14px;border:1px solid #d9ccb0}
  .cat{font-size:11px;color:#7a6030;margin:10px 0 4px}
- .picks{display:flex;flex-wrap:wrap;gap:6px 14px}
- .picks label{display:flex;align-items:center;gap:6px;font-size:13.5px;text-transform:none;letter-spacing:0;margin:0}
- .remove{margin-top:10px;font-size:12.5px;color:#a0661a}
+ .picks{display:flex;flex-wrap:wrap;gap:8px 18px}
+ .picks label{display:flex;align-items:center;gap:7px;font-size:13.5px;text-transform:none;letter-spacing:0;margin:0;white-space:nowrap;cursor:pointer}
+ .remove{display:flex;align-items:center;gap:7px;margin-top:12px;font-size:12.5px;color:#a0661a;cursor:pointer}
  ul.dishes{list-style:none;margin:0;padding:0;background:#fff;border:1px solid #e6dcc9}
  ul.dishes li{padding:10px 14px;border-bottom:1px solid #f0e8d8}
  ul.dishes li:last-child{border-bottom:none}
