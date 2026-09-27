@@ -194,11 +194,13 @@ const CSS = `
  *  the sandwiches) — but here they sit side by side and must be told apart.
  *  The tag is read from where each group is offered, never stored: a second
  *  name typed in would be one more thing to keep in step with the menu. */
+export function offeredOn(id, assigned, categories) {
+  const cats = categories.filter((c) => c.dishes.some((d) => (assigned[d.id] || []).includes(id)));
+  return cats.length ? cats.map((c) => c.name).join(', ') : 'on no dish';
+}
+
 export function adminLabels(groups, assigned, categories) {
-  const where = (id) => {
-    const cats = categories.filter((c) => c.dishes.some((d) => (assigned[d.id] || []).includes(id)));
-    return cats.length ? cats.map((c) => c.name).join(', ') : 'on no dish';
-  };
+  const where = (id) => offeredOn(id, assigned, categories);
   const labels = {};
   for (const g of groups) {
     const name = g.de || g.id;
@@ -230,8 +232,12 @@ export function render({ nonce, m, draft, errors, custom, saved }) {
   const allGroups = draft.groups.filter((g) => !g.removed);
   const label = adminLabels(draft.groups, draft.assigned, m.categories);
 
+  /* The heading never repeats the name: the fields below ARE the name, and
+     with no script on these pages a heading copied from them stays at the
+     old name while the new one is typed. It says where the group is offered. */
+  const where = (g) => offeredOn(g.id, draft.assigned, m.categories);
   const groupBlock = (g) => `<fieldset class="group ${g.removed ? 'removed' : ''}">
-    <legend>${esc(label[g.id])}</legend>
+    <legend>${where(g) === 'on no dish' ? 'Not offered on any dish yet' : `Offered on: ${esc(where(g))}`}</legend>
     <input type="hidden" name="group" value="${esc(g.id)}">
     ${names(`g:${g.id}`, g)}
     ${picks(`g:${g.id}`, g.refs || [])}

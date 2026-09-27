@@ -188,12 +188,23 @@ test('two groups with one name are told apart at /admin, by where they are offer
   const nowhere = adminLabels(groups, {}, categories);
   assert.notEqual(nowhere['beilagen-bowl'], nowhere['beilagen-sandwich']);
 
-  // And the real page, from the real menu: never two identical labels.
+  // And the real page, from the real menu.
   const res = await page(new Request('https://x/admin/extras'), envWith(), new URL('https://x/admin/extras'));
   const html = await res.text();
+  // A group's heading says where it is offered and never repeats its name:
+  // with no script on the page, a copied name stays old while a new one is typed.
   const legends = [...html.matchAll(/<legend>([^<]*)<\/legend>/g)].map((x) => x[1]).filter((l) => l !== 'New group');
-  assert.equal(new Set(legends).size, legends.length, `duplicate group labels: ${legends.join(' | ')}`);
-  assert.ok(legends.some((l) => l.startsWith('Passt gut dazu · ')), legends.join(' | '));
+  assert.ok(legends.length >= 3, legends.join(' | '));
+  for (const l of legends) {
+    assert.match(l, /^(Offered on: |Not offered on any dish yet)/);
+    assert.ok(!/Passt gut dazu|Dazu genießen/.test(l), `a heading repeats a group name: ${l}`);
+  }
+  assert.ok(legends.includes('Offered on: KAIRO Bowls'), legends.join(' | '));
+  // The bowl's own row offers two groups; its two checkboxes never read the same.
+  const bowlRow = html.slice(html.indexOf('name="d:kairo-bowl"') - 400, html.lastIndexOf('name="d:kairo-bowl"') + 200);
+  const ticks = [...bowlRow.matchAll(/name="d:kairo-bowl" value="[^"]*"[^>]*>\s*([^<]*)</g)].map((x) => x[1].trim());
+  assert.equal(new Set(ticks).size, ticks.length, `duplicate checkbox labels: ${ticks.join(' | ')}`);
+  assert.ok(ticks.includes('Passt gut dazu · KAIRO Bowls'), ticks.join(' | '));
   // What a guest sees is untouched: the name field still holds the plain name.
   assert.match(html, /name="g:beilagen-bowl:de" value="Passt gut dazu"/);
 });
