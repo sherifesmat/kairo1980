@@ -292,7 +292,7 @@
       pay: { cash: 'Bargeld', giro: 'EC-/Girocard', card: 'Kreditkarte' },
       // Kennzeichnungspflichtige Allergene nach LMIV (EU) Nr. 1169/2011.
       allergen: {
-        gluten: 'Gluten', milk: 'Milch', sesame: 'Sesam',
+        gluten: 'Gluten', eggs: 'Eier', soy: 'Soja', milk: 'Milch', sesame: 'Sesam',
         nuts: 'Schalenfrüchte'
       },
       allergenLabel: 'Allergene',
@@ -448,7 +448,7 @@
       or: 'or',
       pay: { cash: 'cash', giro: 'girocard', card: 'credit card' },
       allergen: {
-        gluten: 'gluten', milk: 'milk', sesame: 'sesame',
+        gluten: 'gluten', eggs: 'eggs', soy: 'soy', milk: 'milk', sesame: 'sesame',
         nuts: 'tree nuts'
       },
       allergenLabel: 'Allergens',
@@ -599,7 +599,7 @@
       or: 'أو',
       pay: { cash: 'كاش', giro: 'كارت EC/Giro', card: 'كارت ائتمان' },
       allergen: {
-        gluten: 'جلوتين', milk: 'لبن', sesame: 'سمسم',
+        gluten: 'جلوتين', eggs: 'بيض', soy: 'صويا', milk: 'لبن', sesame: 'سمسم',
         nuts: 'مكسرات قشرية'
       },
       allergenLabel: 'مسببات الحساسية',
@@ -1812,8 +1812,8 @@
 
      The declaration lives on the .mitem in index.html, exactly like the price
      and the diet tags: one place, edited by whoever edits the menu, nothing to
-     keep in sync. Only the four that actually occur in these recipes have
-     labels; a fifth is one word in three dictionaries.
+     keep in sync. Only the six that actually occur in these recipes have
+     labels; a seventh is one word in three dictionaries.
 
      Where a manufacturer's declaration is not in hand the dish says so rather
      than guessing. An invented allergen line is worse than none — it is the
@@ -1830,8 +1830,8 @@
      to be available BEFORE the order, and something a guest must first
      discover, then open, is an argument waiting to happen. Small type on the
      page satisfies the law; a popup invites a lawyer. */
-  var ALLERGEN_CODE = { gluten: 'a', milk: 'g', nuts: 'h', sesame: 'k' };
-  var CODE_ORDER = ['a', 'g', 'h', 'k'];
+  var ALLERGEN_CODE = { gluten: 'a', eggs: 'c', soy: 'f', milk: 'g', nuts: 'h', sesame: 'k' };
+  var CODE_ORDER = ['a', 'c', 'f', 'g', 'h', 'k'];
 
   function renderAllergens() {
     var L = t();

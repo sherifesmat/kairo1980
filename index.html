@@ -479,10 +479,12 @@
 
     <!-- One dish with two choices, not eight dishes. A bowl costs its base
          (rice or noodles, each with its own price) plus its topping, each set
-         on its own at /admin/prices. Allergens stay "pending" until the
-         kitchen has confirmed each topping — the rice on this menu declares
-         milk, so not even the aubergine bowl is marked vegan by guesswork. -->
-    <div class="mitem mconfig" data-item="kairo-bowl" data-allergens="pending" data-addons="getraenk beilagen-bowl">
+         on its own at /admin/prices. Allergens are the union over every
+         combination, by standard recipe (owner's instruction, 29 Sep 2026):
+         both bases carry gluten (noodles; the rice's toasted vermicelli), the
+         rice and the ghee-cooked chicken carry milk, and the aubergine, soguk
+         and liver toppings carry none of the fourteen. -->
+    <div class="mitem mconfig" data-item="kairo-bowl" data-allergens="gluten milk" data-addons="getraenk beilagen-bowl">
       <div>
         <div class="mname t" data-de="KAIRO Bowl" data-en="KAIRO Bowl" data-ar="طبق KAIRO">KAIRO Bowl</div>
         <p class="mdesc t" data-de="Deine Bowl, wie du sie magst: Wähle zuerst die Basis – ägyptischer Reis oder Nudeln – und dann dein Topping." data-en="Your bowl, the way you like it: first choose the base – Egyptian rice or noodles – then your topping." data-ar="طبقك زي ما تحبه: اختار الأول القاعدة – رز مصري أو مكرونة – وبعدين اختار اللي فوقه.">Deine Bowl, wie du sie magst: Wähle zuerst die Basis – ägyptischer Reis oder Nudeln – und dann dein Topping.</p>
@@ -574,7 +576,7 @@
 
     <div class="cat-head"><h3 class="cat-name t" data-de="Desserts & Süßes" data-en="Desserts & Sweets" data-ar="الحلو">Desserts & Süßes</h3><div class="cat-line"></div></div>
 
-    <div class="mitem" data-item="schokoladentoertchen" data-price="7.00" data-allergens="pending">
+    <div class="mitem" data-item="schokoladentoertchen" data-price="7.00" data-allergens="gluten eggs soy milk">
       <div>
         <div class="mname t" data-de="Schokoladentörtchen" data-en="Schokoladentörtchen" data-ar="تارت شوكولاتة">Schokoladentörtchen</div>
         <p class="mdesc t" data-de="Lauwarmes Schokoladentörtchen mit flüssigem Kern – der perfekte Abschluss zu unserem Menü." data-en="Warm chocolate fondant with a liquid centre – the perfect ending to our menu." data-ar="تارت شوكولاتة دافية بقلب سايح — أحلى ختام للأكل.">Lauwarmes Schokoladentörtchen mit flüssigem Kern – der perfekte Abschluss zu unserem Menü.</p>
@@ -603,7 +605,7 @@
 
     <div class="cat-head"><h3 class="cat-name t" data-de="Extras" data-en="Extras" data-ar="إضافات">Extras</h3><div class="cat-line"></div></div>
     <div class="mitem" data-item="steakhouse-pommes" data-price="6.00" data-allergens=""><div><div class="mname t" data-de="Steakhouse Pommes" data-en="Steakhouse Pommes" data-ar="بطاطس ستيك هاوس">Steakhouse Pommes</div></div><div class="mprice">6,00 €</div></div>
-    <div class="mitem" data-item="aegyptischer-reis" data-price="5.50" data-allergens="milk"><div><div class="mname t" data-de="Ägyptischer Reis" data-en="Ägyptischer Reis" data-ar="رز مصري">Ägyptischer Reis</div></div><div class="mprice">5,50 €</div></div>
+    <div class="mitem" data-item="aegyptischer-reis" data-price="5.50" data-allergens="gluten milk"><div><div class="mname t" data-de="Ägyptischer Reis" data-en="Ägyptischer Reis" data-ar="رز مصري">Ägyptischer Reis</div></div><div class="mprice">5,50 €</div></div>
     <div class="mitem" data-item="aegyptisches-brot-1-stueck" data-price="3.50" data-allergens="gluten"><div><div class="mname t" data-de="Ägyptisches Brot (1 Stück)" data-en="Ägyptisches Brot (1 Stück)" data-ar="عيش مصري (رغيف)">Ägyptisches Brot (1 Stück)</div></div><div class="mprice">3,50 €</div></div>
     <div class="mitem" data-item="tahini-dip" data-price="2.50" data-allergens="milk sesame"><div><div class="mname t" data-de="Tahini Dip" data-en="Tahini Dip" data-ar="طحينة">Tahini Dip</div></div><div class="mprice">2,50 €</div></div>
     <div class="mitem" data-item="habanero-sauce" data-price="2.50" data-allergens=""><div><div class="mname t" data-de="Habanero Sauce" data-en="Habanero Sauce" data-ar="صوص هابانيرو">Habanero Sauce</div></div><div class="mprice">2,50 €</div></div>
