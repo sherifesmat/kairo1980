@@ -1783,20 +1783,32 @@
       stepper.setAttribute('data-for', id);
       buy.appendChild(stepper);
     });
+  }
 
-    /* A Menü declares no allergens of its own: it is its sandwich and its
-       fries, and those rows already say what is in them. Retyping the list
-       onto the Menü is how the two would one day disagree. Anything still
-       pending in a part leaves the Menü pending too. */
-    Object.keys(items).forEach(function (id) {
-      var el = items[id].el;
-      if (!items[id].contains.length || el.hasAttribute('data-allergens')) return;
+  /* A Menü declares no allergens of its own: it is its sandwich and its
+     fries, and those rows already say what is in them. Retyping the list
+     onto the Menü is how the two would one day disagree. Anything still
+     pending in a part leaves the Menü pending too.
+
+     Read straight from the page, not from the basket's item list: the letters
+     are drawn at boot before the basket is built, and on a page whose basket
+     is switched off it is never built at all. A Menü left without letters
+     reads as "no declarable allergens" — the one wrong answer here. */
+  function composeAllergens() {
+    var rows = {};
+    [].forEach.call(document.querySelectorAll('.mitem[data-item]'), function (el) {
+      rows[el.getAttribute('data-item')] = el;
+    });
+    Object.keys(rows).forEach(function (id) {
+      var el = rows[id];
+      var parts = words(el, 'data-contains');
+      if (!parts.length || el.hasAttribute('data-allergens')) return;
       var found = [];
       var pending = false;
-      items[id].contains.forEach(function (part) {
-        var declared = items[part] ? (items[part].el.getAttribute('data-allergens') || '').trim() : 'pending';
+      parts.forEach(function (part) {
+        var declared = rows[part] ? (rows[part].getAttribute('data-allergens') || '').trim() : 'pending';
         if (declared === 'pending') pending = true;
-        else words(items[part].el, 'data-allergens').forEach(function (a) {
+        else words(rows[part], 'data-allergens').forEach(function (a) {
           if (found.indexOf(a) < 0) found.push(a);
         });
       });
@@ -1838,6 +1850,8 @@
     var used = {};
     var anyPending = false;
     var anyCaffeine = false;
+
+    composeAllergens();
 
     [].forEach.call(document.querySelectorAll('.mitem[data-item]'), function (el) {
       var declared = (el.getAttribute('data-allergens') || '').trim();

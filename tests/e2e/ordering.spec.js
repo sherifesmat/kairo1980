@@ -447,3 +447,17 @@ test('the language switch is big enough to hit', async ({ page }) => {
     expect(b.h, `language button only ${b.w}x${b.h}`).toBeGreaterThanOrEqual(24);
   }
 });
+
+test('a Menü shows its allergens on the first load, before any language switch', async ({ page }) => {
+  // A Menü takes its allergens from the dishes it is made of. Those were
+  // worked out when the basket was built, which is after the letters were
+  // first drawn, so every Menü loaded with no letters — and "no letters" is
+  // the legend's word for "no declarable allergens". It only came right once
+  // the guest switched language (MENU_SYNC round 6).
+  await page.goto('/');
+  const codes = (id) => page.locator(`.mitem[data-item="${id}"] .mallergen-codes`);
+  await expect(codes('hawawshy')).toHaveText('a,g,k');
+  for (const menu of ['hawawshy-menue', 'kebda-eskandarany-menue', 'soguk-baladi-menue']) {
+    await expect(codes(menu)).toHaveText('a,g,k');
+  }
+});
