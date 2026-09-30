@@ -149,3 +149,54 @@ test('a basket holding a dish that left the menu is cleaned, and the guest told'
   await expect(page.locator('.cart-line')).toHaveCount(1);
   await expect(page.locator('#cartSoldOutNote')).toContainText('nicht mehr auf der Karte');
 });
+
+test('each bowl choice shows its own allergens, on the menu and in the chooser', async ({ page }) => {
+  // The bowl's own letters are every choice together (a,g). A guest choosing
+  // Nudeln with Aubergine is not eating milk, and must be able to read that
+  // before ordering (PO-05, MENU_SYNC round 7). An empty mark is a statement
+  // — "nothing declarable" — so it is asserted, not skipped.
+  const own = { reis: 'a,g', nudeln: 'a', haehnchen: 'g', aubergine: '', soguk: '', kebda: '' };
+  await page.goto('/?lang=de');
+  const bowl = page.locator('.mitem[data-item="kairo-bowl"]');
+  await expect(bowl.locator('.mname .mallergen-codes')).toHaveText('a,g');
+  for (const [option, codes] of Object.entries(own)) {
+    await expect(bowl.locator(`.mchoice[data-option="${option}"] .mallergen-codes`)).toHaveText(codes);
+  }
+
+  const dialog = await openChooser(page, 'kairo-bowl');
+  const mark = (value) => dialog.locator('label.chooser-opt', { has: page.locator(`input[value="${value}"]`) })
+    .locator('.mallergen-codes');
+  await expect(mark('reis')).toHaveText('a,g');
+  await expect(mark('nudeln')).toHaveText('a');
+  await expect(mark('haehnchen')).toHaveText('g');
+  await expect(mark('aubergine')).toHaveCount(0);
+  await expect(mark('tahini-dip')).toHaveText('g,k');          // an extra says its own too
+  await expect(mark('tahini-dip')).toHaveAttribute('title', /Milch.*Sesam/);
+  await expect(mark('salata-baladi')).toHaveCount(0);
+
+  // The letters are for the guest, never part of the name the order carries.
+  await dialog.locator('input[value="nudeln"]').check();
+  await dialog.locator('input[value="aubergine"]').check();
+  await dialog.locator('[data-act="chooser-add"]').click();
+  await openBasket(page);
+  await expect(page.locator('#cartPanel')).toContainText('Nudeln');
+  await expect(page.locator('#cartPanel')).not.toContainText(/Nudelna|Aubergine,|Nudeln a\b/);
+});
+
+test('with the basket switched off, the menu still declares every Menü and every choice', async ({ page }) => {
+  // config.js is the one switch; changing it for this page alone keeps the
+  // test from touching anything another test reads. Without the basket the
+  // Menüs were never given their parts' allergens at all.
+  await page.route('**/config.js*', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace(/cartEnabled:\s*true/, 'cartEnabled: false');
+    await route.fulfill({ response, body });
+  });
+  await page.goto('/?lang=de');
+  await expect(page.locator('body')).toHaveClass(/no-cart/);
+  await expect(page.locator('#cartFab, .cart-fab')).toHaveCount(0);
+  for (const menu of ['hawawshy-menue', 'kebda-eskandarany-menue', 'soguk-baladi-menue']) {
+    await expect(page.locator(`.mitem[data-item="${menu}"] .mname .mallergen-codes`)).toHaveText('a,g,k');
+  }
+  await expect(page.locator('.mchoice[data-option="reis"] .mallergen-codes')).toHaveText('a,g');
+});

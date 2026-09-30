@@ -299,7 +299,7 @@
       allergenNone: 'Keine kennzeichnungspflichtigen Allergene',
       allergenPending: 'Allergene bitte erfragen',
       allergenLegendTitle: 'Allergenkennzeichnung',
-      allergenLegendNote: 'Die Buchstaben hinter einem Gericht nennen die enthaltenen kennzeichnungspflichtigen Allergene nach LMIV (EU) Nr. 1169/2011. Gerichte ohne Buchstaben enthalten keine kennzeichnungspflichtigen Allergene. Bei Fragen sprechen Sie uns bitte an — auch zu Spuren, die sich in einer offenen Küche nie ganz ausschließen lassen.',
+      allergenLegendNote: 'Die Buchstaben hinter einem Gericht nennen die enthaltenen kennzeichnungspflichtigen Allergene nach LMIV (EU) Nr. 1169/2011. Gerichte ohne Buchstaben und ohne * enthalten keine kennzeichnungspflichtigen Allergene. Ein * heißt: Die Angaben liegen uns noch nicht vor — bitte fragen Sie uns vor der Bestellung. Bei Gerichten mit Auswahl nennen die Buchstaben am Gericht alle Möglichkeiten zusammen; was Ihre Wahl enthält, steht bei jeder einzelnen Option. Bei Fragen sprechen Sie uns bitte an — auch zu Spuren, die sich in einer offenen Küche nie ganz ausschließen lassen.',
       // Wortlaut gesetzlich vorgegeben (LMIV Anhang III Nr. 4.1).
       caffeineNotice: 'Erhöhter Koffeingehalt. Für Kinder und schwangere oder stillende Frauen nicht empfohlen.',
       payOnSite: 'Zahlung bei {type}: {methods}.',
@@ -455,7 +455,7 @@
       allergenNone: 'No allergens requiring declaration',
       allergenPending: 'Please ask us about allergens',
       allergenLegendTitle: 'Allergen information',
-      allergenLegendNote: 'The letters after a dish name list the allergens requiring declaration under LMIV (EU) 1169/2011. Dishes without letters contain none. Please ask us about anything else — including traces, which an open kitchen can never fully rule out.',
+      allergenLegendNote: 'The letters after a dish name list the allergens requiring declaration under LMIV (EU) 1169/2011. Dishes with neither letters nor * contain none. A * means we do not have the information yet — please ask us before you order. For dishes with choices, the letters on the dish cover every choice together; what your choice contains is shown next to each option. Please ask us about anything else — including traces, which an open kitchen can never fully rule out.',
       caffeineNotice: 'High caffeine content. Not recommended for children or pregnant or breastfeeding women.',
       payOnSite: 'Payment on {type}: {methods}.',
       payOnline: 'Or pay online right away — with Apple Pay, Google Pay, card or PayPal.',
@@ -606,7 +606,7 @@
       allergenNone: 'لا توجد مسببات حساسية واجبة الإعلان',
       allergenPending: 'برجاء السؤال عن مسببات الحساسية',
       allergenLegendTitle: 'بيان مسببات الحساسية',
-      allergenLegendNote: 'الحروف اللي جنب اسم الطبق بتوضّح مسببات الحساسية الواجب الإعلان عنها حسب لائحة LMIV (EU) 1169/2011. والأطباق اللي من غير حروف مفيهاش مسببات واجبة الإعلان. ولو عندك أي سؤال كلّمنا — كمان بخصوص الآثار البسيطة اللي مطبخ مفتوح عمره ما يقدر يمنعها تماماً.',
+      allergenLegendNote: 'الحروف اللي جنب اسم الطبق بتوضّح مسببات الحساسية الواجب الإعلان عنها حسب لائحة LMIV (EU) 1169/2011. والأطباق اللي من غير حروف ومن غير * مفيهاش مسببات واجبة الإعلان. والنجمة * معناها إن البيانات لسه مش عندنا — اسألنا قبل ما تطلب. وفي الأطباق اللي فيها اختيارات، الحروف اللي جنب الطبق بتجمع كل الاختيارات مع بعض، واللي في اختيارك مكتوب جنب كل اختيار لوحده. ولو عندك أي سؤال كلّمنا — كمان بخصوص الآثار البسيطة اللي مطبخ مفتوح عمره ما يقدر يمنعها تماماً.',
       caffeineNotice: 'نسبة كافيين عالية. غير مناسب للأطفال ولا للحوامل أو المرضعات.',
       payOnSite: 'الدفع عند ال{type}: {methods}.',
       payOnline: 'أو ادفع أونلاين على طول — بـ Apple Pay أو Google Pay أو الكارت أو PayPal.',
@@ -1793,7 +1793,12 @@
      Read straight from the page, not from the basket's item list: the letters
      are drawn at boot before the basket is built, and on a page whose basket
      is switched off it is never built at all. A Menü left without letters
-     reads as "no declarable allergens" — the one wrong answer here. */
+     reads as "no declarable allergens" — the one wrong answer here.
+
+     An initial composition from the served declarations: once written, a
+     Menü's value is reused, not recomputed. Nothing changes a part's
+     allergens in the page today; if that ever happens, derived values must be
+     told apart from declared ones and worked out again. */
   function composeAllergens() {
     var rows = {};
     [].forEach.call(document.querySelectorAll('.mitem[data-item]'), function (el) {
@@ -1853,8 +1858,21 @@
 
     composeAllergens();
 
+    function paint(mark, declared) {
+      var info = allergenInfo(declared, L);
+      if (declared === 'pending') anyPending = true;
+      info.codes.forEach(function (c) { used[c] = true; });
+      mark.textContent = info.text;
+      if (info.label) {
+        mark.setAttribute('aria-label', info.label);
+        mark.title = info.label;
+      } else {
+        mark.removeAttribute('aria-label');
+        mark.removeAttribute('title');
+      }
+    }
+
     [].forEach.call(document.querySelectorAll('.mitem[data-item]'), function (el) {
-      var declared = (el.getAttribute('data-allergens') || '').trim();
       var name = el.querySelector('.mname');
       if (!name) return;
 
@@ -1864,36 +1882,50 @@
         mark.className = 'mallergen-codes';
         name.appendChild(mark);
       }
-
-      if (declared === 'pending') {
-        anyPending = true;
-        mark.textContent = '*';
-        mark.setAttribute('aria-label', L.allergenPending);
-        mark.title = L.allergenPending;
-      } else if (!declared) {
-        // Nothing to declare: no mark, and no clutter.
-        mark.textContent = '';
-        mark.removeAttribute('aria-label');
-        mark.removeAttribute('title');
-      } else {
-        var codes = declared.split(/\s+/).map(function (key) {
-          return ALLERGEN_CODE[key];
-        }).filter(Boolean).sort();
-        codes.forEach(function (c) { used[c] = true; });
-        mark.textContent = codes.join(',');
-        // The letters are shorthand; screen readers and hovers get the words.
-        var words = declared.split(/\s+/).map(function (key) {
-          return L.allergen[key] || key;
-        }).join(', ');
-        mark.setAttribute('aria-label', L.allergenLabel + ': ' + words);
-        mark.title = L.allergenLabel + ': ' + words;
-      }
+      paint(mark, el.getAttribute('data-allergens'));
 
       if (el.getAttribute('data-caffeine')) anyCaffeine = true;
       renderCaffeine(el, L);
     });
 
+    /* A dish with choices carries the letters of every choice together, which
+       is not what the guest's own bowl contains. Each option says its own, on
+       the menu and in the chooser, so the guest reads what they picked before
+       they order it. The mark sits beside the name, not inside it: the name is
+       re-translated on a language switch, and it is what reaches the order. */
+    [].forEach.call(document.querySelectorAll('.mchoice'), function (li) {
+      var name = li.querySelector('.mchoice-name');
+      if (!name) return;
+      var mark = name.nextElementSibling;
+      if (!mark || !mark.classList.contains('mallergen-codes')) {
+        mark = document.createElement('sup');
+        mark.className = 'mallergen-codes';
+        name.parentNode.insertBefore(mark, name.nextSibling);
+      }
+      paint(mark, li.getAttribute('data-allergens'));
+    });
+
     renderLegend(L, used, anyPending, anyCaffeine);
+  }
+
+  /* What a declaration shows: the letters, and the words behind them for a
+     screen reader or a hover. A declaration that is missing altogether is
+     pending, never "none" — no letters has to be a statement, not an absence. */
+  function allergenInfo(declared, L) {
+    declared = declared == null ? 'pending' : String(declared).trim();
+    if (declared === 'pending') return { text: '*', label: L.allergenPending, codes: [] };
+    if (!declared) return { text: '', label: '', codes: [] };
+    var keys = declared.split(/\s+/);
+    var codes = keys.map(function (key) { return ALLERGEN_CODE[key]; }).filter(Boolean).sort();
+    var words = keys.map(function (key) { return L.allergen[key] || key; }).join(', ');
+    return { text: codes.join(','), label: L.allergenLabel + ': ' + words, codes: codes };
+  }
+
+  function allergenMarkHtml(declared) {
+    var info = allergenInfo(declared, t());
+    if (!info.text) return '';
+    return ' <sup class="mallergen-codes" title="' + escapeHtml(info.label) + '" aria-label="' +
+      escapeHtml(info.label) + '">' + escapeHtml(info.text) + '</sup>';
   }
 
   // The caffeine wording is prescribed by law and belongs on the drink itself,
@@ -2024,7 +2056,8 @@
       return {
         id: g.id, kind: 'own', label: labelOf(g.el), max: 1, surcharge: g.surcharge,
         options: g.options.map(function (o) {
-          return { id: o.id, name: textOf(o.node), price: o.price, off: soldOut(id + ':' + o.id) };
+          return { id: o.id, name: textOf(o.node), price: o.price, off: soldOut(id + ':' + o.id),
+                   allergens: o.el.getAttribute('data-allergens') };
         })
       };
     });
@@ -2038,7 +2071,8 @@
            read that it is out, not wonder whether it was ever offered. Never
            the dish itself: a shared group may hold the dish it is offered on. */
         options: addon.refs.filter(function (r) { return items[r] && r !== id; }).map(function (r) {
-          return { id: r, name: itemName(r), price: kind === 'included' ? 0 : items[r].price, off: soldOut(r) };
+          return { id: r, name: itemName(r), price: kind === 'included' ? 0 : items[r].price, off: soldOut(r),
+                   allergens: items[r].el.getAttribute('data-allergens') };
         })
       });
     }
@@ -2117,13 +2151,13 @@
           // Same shape as its neighbours: name and price, then the words where
           // the box to tick would be — not a third line under the name.
           html += '<div class="chooser-opt is-soldout"><span class="chooser-text">' +
-            '<span class="chooser-name">' + escapeHtml(o.name) + '</span>' +
+            '<span class="chooser-name">' + escapeHtml(o.name) + allergenMarkHtml(o.allergens) + '</span>' +
             (price ? '<span class="chooser-price">' + price + '</span>' : '') + '</span>' +
             '<span class="soldout-tag">' + escapeHtml(L.soldOut) + '</span></div>';
           return;
         }
         html += '<label class="chooser-opt"><span class="chooser-text">' +
-          '<span class="chooser-name">' + escapeHtml(o.name) + '</span>' +
+          '<span class="chooser-name">' + escapeHtml(o.name) + allergenMarkHtml(o.allergens) + '</span>' +
           (price ? '<span class="chooser-price">' + price + '</span>' : '') + '</span>' +
           '<input type="' + type + '" name="' + escapeHtml(name) + '" value="' + escapeHtml(o.id) + '"' +
           (keep[name + '=' + o.id] ? ' checked' : '') + '></label>';
