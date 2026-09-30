@@ -428,7 +428,7 @@
       <div class="mprice">11,00 €</div>
     </div>
 
-    <div class="mitem" data-item="hummus" data-price="9.50" data-allergens="gluten sesame nuts">
+    <div class="mitem" data-item="hummus" data-price="9.50" data-allergens="gluten sesame">
       <div>
         <div class="mname t" data-de="Hummus" data-en="Hummus" data-ar="حمص">Hummus</div>
         <p class="mdesc t" data-de="Der bekannte Klassiker der arabischen Küche: Fein-cremiges Kichererbsenpüree mit feiner Limettennote und einem Hauch Knoblauch, garniert mit gerösteten Pinienkernen und serviert mit arabischem Fladenbrot." data-en="The well-known classic of Arabic cuisine: finely creamy chickpea purée with a subtle lime note and a hint of garlic, garnished with roasted pine nuts and served with Arabic flatbread." data-ar="كلاسيك المطبخ العربي المعروف: حمص كريمي ناعم بلمسة ليمون خفيفة وشوية توم، متزيّن بصنوبر محمّص وبيتقدّم مع العيش العربي.">Der bekannte Klassiker der arabischen Küche: Fein-cremiges Kichererbsenpüree mit feiner Limettennote und einem Hauch Knoblauch, garniert mit gerösteten Pinienkernen und serviert mit arabischem Fladenbrot.</p>
@@ -437,7 +437,7 @@
       <div class="mprice">9,50 €</div>
     </div>
 
-    <div class="mitem" data-item="etwas-von-allem" data-price="26.00" data-allergens="gluten milk sesame nuts">
+    <div class="mitem" data-item="etwas-von-allem" data-price="26.00" data-allergens="gluten milk sesame">
       <div>
         <div class="mname t" data-de="Etwas von allem" data-en="Etwas von allem" data-ar="من كل بستان زهرة">Etwas von allem</div>
         <p class="mdesc t" data-de="Für alle, die unsere Vorspeisenwelt entdecken möchten: Samtiger Hummus, aromatisches Baba Ghanough und erfrischende frittierte Auberginen vereint auf einem Teller. Eine kleine Reise durch ägyptische Aromen." data-en="For those who want to explore our starter world: velvety Hummus, aromatic Baba Ghanough and refreshing fried aubergines united on one plate. A small journey through Egyptian flavours." data-ar="لأي حد عايز يكتشف عالم المقبلات عندنا: حمص مخملي، وبابا غنوج بريحة حلوة، وباذنجان مقلي منعش — كلهم في طبق واحد. رحلة صغيرة في طعم مصر.">Für alle, die unsere Vorspeisenwelt entdecken möchten: Samtiger Hummus, aromatisches Baba Ghanough und erfrischende frittierte Auberginen vereint auf einem Teller. Eine kleine Reise durch ägyptische Aromen.</p>
@@ -479,10 +479,13 @@
 
     <!-- One dish with two choices, not eight dishes. A bowl costs its base
          (rice or noodles, each with its own price) plus its topping, each set
-         on its own at /admin/prices. Allergens stay "pending" until the
-         kitchen has confirmed each topping — the rice on this menu declares
-         milk, so not even the aubergine bowl is marked vegan by guesswork. -->
-    <div class="mitem mconfig" data-item="kairo-bowl" data-allergens="pending" data-addons="getraenk beilagen-bowl">
+         on its own at /admin/prices. Allergens are the union over every
+         combination, by standard recipe (owner's instruction, 29 Sep 2026):
+         both bases carry gluten (noodles; the rice's toasted vermicelli), the
+         rice and the ghee-cooked chicken carry milk. The liver and the aubergine are
+         cooked in oil, and the soguk label lists none of the fourteen (owner,
+         29 Sep 2026, MENU_SYNC round 5). -->
+    <div class="mitem mconfig" data-item="kairo-bowl" data-allergens="gluten milk" data-addons="getraenk beilagen-bowl">
       <div>
         <div class="mname t" data-de="KAIRO Bowl" data-en="KAIRO Bowl" data-ar="طبق KAIRO">KAIRO Bowl</div>
         <p class="mdesc t" data-de="Deine Bowl, wie du sie magst: Wähle zuerst die Basis – ägyptischer Reis oder Nudeln – und dann dein Topping." data-en="Your bowl, the way you like it: first choose the base – Egyptian rice or noodles – then your topping." data-ar="طبقك زي ما تحبه: اختار الأول القاعدة – رز مصري أو مكرونة – وبعدين اختار اللي فوقه.">Deine Bowl, wie du sie magst: Wähle zuerst die Basis – ägyptischer Reis oder Nudeln – und dann dein Topping.</p>
@@ -603,7 +606,7 @@
 
     <div class="cat-head"><h3 class="cat-name t" data-de="Extras" data-en="Extras" data-ar="إضافات">Extras</h3><div class="cat-line"></div></div>
     <div class="mitem" data-item="steakhouse-pommes" data-price="6.00" data-allergens=""><div><div class="mname t" data-de="Steakhouse Pommes" data-en="Steakhouse Pommes" data-ar="بطاطس ستيك هاوس">Steakhouse Pommes</div></div><div class="mprice">6,00 €</div></div>
-    <div class="mitem" data-item="aegyptischer-reis" data-price="5.50" data-allergens="milk"><div><div class="mname t" data-de="Ägyptischer Reis" data-en="Ägyptischer Reis" data-ar="رز مصري">Ägyptischer Reis</div></div><div class="mprice">5,50 €</div></div>
+    <div class="mitem" data-item="aegyptischer-reis" data-price="5.50" data-allergens="gluten milk"><div><div class="mname t" data-de="Ägyptischer Reis" data-en="Ägyptischer Reis" data-ar="رز مصري">Ägyptischer Reis</div></div><div class="mprice">5,50 €</div></div>
     <div class="mitem" data-item="aegyptisches-brot-1-stueck" data-price="3.50" data-allergens="gluten"><div><div class="mname t" data-de="Ägyptisches Brot (1 Stück)" data-en="Ägyptisches Brot (1 Stück)" data-ar="عيش مصري (رغيف)">Ägyptisches Brot (1 Stück)</div></div><div class="mprice">3,50 €</div></div>
     <div class="mitem" data-item="tahini-dip" data-price="2.50" data-allergens="milk sesame"><div><div class="mname t" data-de="Tahini Dip" data-en="Tahini Dip" data-ar="طحينة">Tahini Dip</div></div><div class="mprice">2,50 €</div></div>
     <div class="mitem" data-item="habanero-sauce" data-price="2.50" data-allergens=""><div><div class="mname t" data-de="Habanero Sauce" data-en="Habanero Sauce" data-ar="صوص هابانيرو">Habanero Sauce</div></div><div class="mprice">2,50 €</div></div>
