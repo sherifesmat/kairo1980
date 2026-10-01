@@ -151,7 +151,7 @@ test('a basket holding a dish that left the menu is cleaned, and the guest told'
 });
 
 test('each bowl choice shows its own allergens, on the menu and in the chooser', async ({ page }) => {
-  // The bowl's own letters are every choice together (a,g). A guest choosing
+  // The bowl's own letters are its base and topping alternatives (a,g). A guest choosing
   // Nudeln with Aubergine is not eating milk, and must be able to read that
   // before ordering (PO-05, MENU_SYNC round 7). An empty mark is a statement
   // — "nothing declarable" — so it is asserted, not skipped.
@@ -199,4 +199,50 @@ test('with the basket switched off, the menu still declares every Menü and ever
     await expect(page.locator(`.mitem[data-item="${menu}"] .mname .mallergen-codes`)).toHaveText('a,g,k');
   }
   await expect(page.locator('.mchoice[data-option="reis"] .mallergen-codes')).toHaveText('a,g');
+});
+
+test('a part that declares nothing leaves its Menü pending, never "none"', async ({ page }) => {
+  // MENU_SYNC round 8 (MS-08-01): a sandwich with no declaration showed *
+  // itself, while its Menü read "" — "no declarable allergens". Only an
+  // explicit empty declaration means none. The cake is declared empty here
+  // so that the legend's * can only come from the undeclared sandwich.
+  await page.route((url) => url.pathname === '/', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.text())
+      .replace(/(data-item="hawawshy"[^>]*?) data-allergens="[^"]*"/, '$1')
+      .replace(/(data-item="schokoladentoertchen"[^>]*?) data-allergens="pending"/, '$1 data-allergens=""');
+    await route.fulfill({ response, body });
+  });
+  await page.goto('/?lang=de');
+  const codes = (id) => page.locator(`.mitem[data-item="${id}"] .mname .mallergen-codes`);
+  await expect(page.locator('.mitem[data-item="hawawshy"]')).not.toHaveAttribute('data-allergens', /./);
+  await expect(codes('hawawshy')).toHaveText('*');
+  await expect(codes('hawawshy-menue')).toHaveText('*');
+  await expect(codes('kebda-eskandarany-menue')).toHaveText('a,g,k');   // its parts are declared
+  await expect(codes('schokoladentoertchen')).toHaveText('');           // explicit empty is none
+  await expect(codes('steakhouse-pommes')).toHaveText('');
+  await expect(page.locator('#allergenLegend .legend-item', { hasText: '*' })).toHaveCount(1);
+});
+
+test('the chooser keeps each choice\'s allergens through a language switch, in words of that language', async ({ page }) => {
+  await page.goto('/?lang=de');
+  const dialog = await openChooser(page, 'kairo-bowl');
+  const mark = (value) => dialog.locator('label.chooser-opt', { has: page.locator(`input[value="${value}"]`) })
+    .locator('.mallergen-codes');
+  const switchTo = (label) => page.evaluate((text) => {
+    [...document.querySelectorAll('button, a')].find((e) => e.textContent.trim() === text).click();
+  }, label);
+
+  await expect(mark('tahini-dip')).toHaveAttribute('title', 'Allergene: Milch, Sesam');
+  await switchTo('EN');
+  await expect(mark('reis')).toHaveText('a,g');
+  await expect(mark('haehnchen')).toHaveText('g');
+  await expect(mark('tahini-dip')).toHaveText('g,k');
+  await expect(mark('tahini-dip')).toHaveAttribute('title', 'Allergens: milk, sesame');
+  await expect(page.locator('.mchoice[data-option="nudeln"] .mallergen-codes')).toHaveText('a');
+  await switchTo('العربية');
+  await expect(mark('reis')).toHaveText('a,g');
+  await expect(mark('tahini-dip')).toHaveText('g,k');
+  await expect(mark('tahini-dip')).toHaveAttribute('aria-label', /لبن.*سمسم/);
+  await expect(page.locator('.mchoice[data-option="nudeln"] .mallergen-codes')).toHaveText('a');
 });

@@ -299,7 +299,7 @@
       allergenNone: 'Keine kennzeichnungspflichtigen Allergene',
       allergenPending: 'Allergene bitte erfragen',
       allergenLegendTitle: 'Allergenkennzeichnung',
-      allergenLegendNote: 'Die Buchstaben hinter einem Gericht nennen die enthaltenen kennzeichnungspflichtigen Allergene nach LMIV (EU) Nr. 1169/2011. Gerichte ohne Buchstaben und ohne * enthalten keine kennzeichnungspflichtigen Allergene. Ein * heißt: Die Angaben liegen uns noch nicht vor — bitte fragen Sie uns vor der Bestellung. Bei Gerichten mit Auswahl nennen die Buchstaben am Gericht alle Möglichkeiten zusammen; was Ihre Wahl enthält, steht bei jeder einzelnen Option. Bei Fragen sprechen Sie uns bitte an — auch zu Spuren, die sich in einer offenen Küche nie ganz ausschließen lassen.',
+      allergenLegendNote: 'Die Buchstaben hinter einem Gericht nennen die enthaltenen kennzeichnungspflichtigen Allergene nach LMIV (EU) Nr. 1169/2011. Gerichte ohne Buchstaben und ohne * enthalten keine kennzeichnungspflichtigen Allergene. Ein * heißt: Die Angaben liegen uns noch nicht vor — bitte fragen Sie uns vor der Bestellung. Bei Gerichten mit Auswahl nennen die Buchstaben am Gericht die Möglichkeiten für Basis und Topping zusammen. Jede Option und jedes Extra zeigt seine eigenen Allergene; was Sie zusammen wählen, bestimmt Ihr Gericht. Bei Fragen sprechen Sie uns bitte an — auch zu Spuren, die sich in einer offenen Küche nie ganz ausschließen lassen.',
       // Wortlaut gesetzlich vorgegeben (LMIV Anhang III Nr. 4.1).
       caffeineNotice: 'Erhöhter Koffeingehalt. Für Kinder und schwangere oder stillende Frauen nicht empfohlen.',
       payOnSite: 'Zahlung bei {type}: {methods}.',
@@ -455,7 +455,7 @@
       allergenNone: 'No allergens requiring declaration',
       allergenPending: 'Please ask us about allergens',
       allergenLegendTitle: 'Allergen information',
-      allergenLegendNote: 'The letters after a dish name list the allergens requiring declaration under LMIV (EU) 1169/2011. Dishes with neither letters nor * contain none. A * means we do not have the information yet — please ask us before you order. For dishes with choices, the letters on the dish cover every choice together; what your choice contains is shown next to each option. Please ask us about anything else — including traces, which an open kitchen can never fully rule out.',
+      allergenLegendNote: 'The letters after a dish name list the allergens requiring declaration under LMIV (EU) 1169/2011. Dishes with neither letters nor * contain none. A * means we do not have the information yet — please ask us before you order. For dishes with choices, the letters on the dish cover the base and topping alternatives. Each option and optional extra shows its own allergens; the components you select together determine your dish. Please ask us about anything else — including traces, which an open kitchen can never fully rule out.',
       caffeineNotice: 'High caffeine content. Not recommended for children or pregnant or breastfeeding women.',
       payOnSite: 'Payment on {type}: {methods}.',
       payOnline: 'Or pay online right away — with Apple Pay, Google Pay, card or PayPal.',
@@ -606,7 +606,7 @@
       allergenNone: 'لا توجد مسببات حساسية واجبة الإعلان',
       allergenPending: 'برجاء السؤال عن مسببات الحساسية',
       allergenLegendTitle: 'بيان مسببات الحساسية',
-      allergenLegendNote: 'الحروف اللي جنب اسم الطبق بتوضّح مسببات الحساسية الواجب الإعلان عنها حسب لائحة LMIV (EU) 1169/2011. والأطباق اللي من غير حروف ومن غير * مفيهاش مسببات واجبة الإعلان. والنجمة * معناها إن البيانات لسه مش عندنا — اسألنا قبل ما تطلب. وفي الأطباق اللي فيها اختيارات، الحروف اللي جنب الطبق بتجمع كل الاختيارات مع بعض، واللي في اختيارك مكتوب جنب كل اختيار لوحده. ولو عندك أي سؤال كلّمنا — كمان بخصوص الآثار البسيطة اللي مطبخ مفتوح عمره ما يقدر يمنعها تماماً.',
+      allergenLegendNote: 'الحروف اللي جنب اسم الطبق بتوضّح مسببات الحساسية الواجب الإعلان عنها حسب لائحة LMIV (EU) 1169/2011. والأطباق اللي من غير حروف ومن غير * مفيهاش مسببات واجبة الإعلان. والنجمة * معناها إن البيانات لسه مش عندنا — اسألنا قبل ما تطلب. وفي الأطباق اللي فيها اختيارات، الحروف اللي جنب الطبق بتجمع اختيارات القاعدة واللي فوقه. وكل اختيار وكل إضافة مكتوب جنبه مسببات الحساسية بتاعته؛ واللي بتختاره كله مع بعض هو اللي بيحدد طبقك. ولو عندك أي سؤال كلّمنا — كمان بخصوص الآثار البسيطة اللي مطبخ مفتوح عمره ما يقدر يمنعها تماماً.',
       caffeineNotice: 'نسبة كافيين عالية. غير مناسب للأطفال ولا للحوامل أو المرضعات.',
       payOnSite: 'الدفع عند ال{type}: {methods}.',
       payOnline: 'أو ادفع أونلاين على طول — بـ Apple Pay أو Google Pay أو الكارت أو PayPal.',
@@ -1811,7 +1811,10 @@
       var found = [];
       var pending = false;
       parts.forEach(function (part) {
-        var declared = rows[part] ? (rows[part].getAttribute('data-allergens') || '').trim() : 'pending';
+        // A part that is missing, or declares nothing at all, is not known —
+        // and neither is the Menü. Only an explicit empty declaration is none.
+        var raw = rows[part] ? rows[part].getAttribute('data-allergens') : null;
+        var declared = raw == null ? 'pending' : raw.trim();
         if (declared === 'pending') pending = true;
         else words(rows[part], 'data-allergens').forEach(function (a) {
           if (found.indexOf(a) < 0) found.push(a);
@@ -1860,7 +1863,7 @@
 
     function paint(mark, declared) {
       var info = allergenInfo(declared, L);
-      if (declared === 'pending') anyPending = true;
+      if (info.text === '*') anyPending = true;
       info.codes.forEach(function (c) { used[c] = true; });
       mark.textContent = info.text;
       if (info.label) {
@@ -1888,8 +1891,9 @@
       renderCaffeine(el, L);
     });
 
-    /* A dish with choices carries the letters of every choice together, which
-       is not what the guest's own bowl contains. Each option says its own, on
+    /* A dish with choices carries the letters of its base and topping
+       alternatives together, which is not what the guest's own bowl contains,
+       and optional extras add their own. Each option says its own, on
        the menu and in the chooser, so the guest reads what they picked before
        they order it. The mark sits beside the name, not inside it: the name is
        re-translated on a language switch, and it is what reaches the order. */
