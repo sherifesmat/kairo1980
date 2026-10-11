@@ -239,14 +239,17 @@ summary:focus-visible {
 .cat-head { display: flex; align-items: center; gap: 18px; margin: 44px 0 6px; }
 .cat-name { font-family: 'Cinzel', serif; font-size: 9px; letter-spacing: 0.26em; text-transform: uppercase; color: #b8914a; white-space: nowrap; }
 .cat-line { flex: 1; height: 1px; background: #ede4d0; }
-.mitem { display: grid; grid-template-columns: 1fr auto; gap: 24px; padding: 18px 0; border-bottom: 1px solid #f5ede0; align-items: start; }
+/* minmax(0, …): a plain 1fr column never shrinks below its longest word, and
+   "Schokoladentörtchen" plus its allergen letters is one unbroken run — at
+   320px it pushed the price and the stepper off the screen. */
+.mitem { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; padding: 18px 0; border-bottom: 1px solid #f5ede0; align-items: start; }
 /* The last dish of a category drew its own bottom rule directly above the
    next category's rule — two hairlines a few pixels apart, reading as a
    printing error. The category rule is the separator; the dish above it does
    not need a second one. */
 .mitem:last-child,
 .mitem:has(+ .cat-head) { border-bottom: none; }
-.mname { font-family: 'Cormorant Garamond', serif; font-size: 20px; font-weight: 400; color: #1c1409; margin-bottom: 5px; }
+.mname { font-family: 'Cormorant Garamond', serif; font-size: 20px; font-weight: 400; color: #1c1409; margin-bottom: 5px; overflow-wrap: break-word; }
 .mdesc { font-size: 13px; line-height: 1.75; color: #9a7f50; max-width: 580px; }
 .mtags { margin-top: 9px; display: flex; gap: 7px; flex-wrap: wrap; }
 .mprice { font-family: 'Cormorant Garamond', serif; font-size: 17px; color: #a07838; padding-top: 3px; }
@@ -1758,6 +1761,9 @@ a.cart-send-wa {
    negotiable, so the space comes out of the gaps and the price column. */
 @media (max-width: 360px) {
   .mitem { gap: 12px; }
+  /* The longest dish name, "Schokoladentörtchen", is one word: at 20px it is
+     wider than the name column here and could only be split mid-word. */
+  .mname { font-size: 18px; }
   .mbuy { gap: 8px; }
   .mbuy .mprice { min-width: 50px; }
 }
@@ -1990,6 +1996,11 @@ a.cart-send-wa {
 }
 .legend-item { font-size: 12.5px; color: #5a4020; }
 .legend-item b { color: #a07838; margin-inline-end: 4px; }
+/* A maker's own trace warning for one bought-in dish: as legible as the
+   letters above it, since it names allergens the kitchen does not use. */
+.legend-traces {
+  margin: 0 0 10px; font-size: 12px; line-height: 1.75; color: #5a4020; text-align: center;
+}
 .legend-note {
   margin: 0; font-size: 12px; line-height: 1.75; color: #6b5836; text-align: center;
 }
