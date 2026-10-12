@@ -186,3 +186,10 @@ test('another worker binding cannot accept delivery using a cached mode after th
   const pickup = await quote(guest, { items: { hummus: 1 }, type: 'pickup' });
   assert.equal(pickup.fee, 0);
 });
+
+
+test('pickup guide visibility is semantic and does not depend on a freshly downloaded stylesheet', () => {
+  const html = '<section class="pickup-guide" aria-labelledby="pickupGuideTitle" hidden><h2>Guide</h2></section>';
+  assert.equal(withServiceMode(html, 'delivery'), html);
+  assert.ok(!withServiceMode(html, 'pickup').includes(' hidden'));
+});
