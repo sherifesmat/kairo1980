@@ -4,7 +4,7 @@ const decode = (s) => s.replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'")
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 const escape = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-export function withServiceMode(html, mode) {
+export function withServiceMode(html, mode, hours) {
   if (mode !== 'pickup') return html;
   let out = html.replace(/<body([^>]*)>/, (whole, attrs) => {
     if (/\bclass="/.test(attrs)) return '<body' + attrs.replace(/class="/, 'class="pickup-only ') + '>';
@@ -12,7 +12,7 @@ export function withServiceMode(html, mode) {
   });
   out = out.replace(/(<p[^>]*class="payment-note"[^>]*>)[\s\S]*?(<\/p>)/g,
     '$1Zahlung bei Abholung oder online.$2');
-  const opening = /<(p|span|h2|a|summary|title|meta)\b[^>]*\bdata-pickup-de="([^"]*)"[^>]*>/g;
+  const opening = /<(p|span|h1|h2|strong|a|summary|title|meta)\b[^>]*\bdata-pickup-de="([^"]*)"[^>]*>/g;
   const matches = [...out.matchAll(opening)].reverse();
   for (const m of matches) {
     let tag = m[0];
@@ -29,6 +29,18 @@ export function withServiceMode(html, mode) {
         String(CONFIG.order?.directDiscountPercent || 0))) + out.slice(close);
     }
   }
+  // Publish the actual saved week, including exceptions, in all three languages.
+  // The language switch consumes these attributes without inventing Tuesday's hours.
+  if (hours && hours.days) {
+    for (const id of ['pickupWeek', 'businessHours']) {
+      out = out.replace(new RegExp('<p([^>]*\\bid="' + id + '"[^>]*)>[\\s\\S]*?</p>'), (whole, attrs) => {
+        let clean = attrs.replace(/\bdata-(?:de|en|ar)="[^"]*"/g, '');
+        if (!/class="[^"]*\bt\b/.test(clean)) clean = clean.replace(/class="/, 'class="t ');
+        const translated = ['de', 'en', 'ar'].map(lang => ' data-' + lang + '="' + escape(pickupWeekSummary(hours, lang)).replace(/"/g, '&quot;') + '"').join('');
+        return '<p' + clean + translated + '>' + escape(pickupWeekSummary(hours, 'de')) + '</p>';
+      });
+    }
+  }
   // The source keeps its original regional service schema for delivery mode.
   out = out.replace(/(<script[^>]*id="serviceSchema"[^>]*>)([\s\S]*?)(<\/script>)/,
     (whole, before, raw, after) => {
@@ -41,4 +53,26 @@ export function withServiceMode(html, mode) {
       } catch { return whole; }
     });
   return out;
+}
+
+
+export function pickupWeekSummary(hours, language = 'de') {
+  const keys = ['mon','tue','wed','thu','fri','sat','sun'];
+  const labels = {
+    de: ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'],
+    en: ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
+    ar: ['الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت','الأحد']
+  };
+  const days = labels[language] || labels.de;
+  const groups = [];
+  for (let i = 0; i < keys.length; i++) {
+    const day = hours.days[keys[i]];
+    const times = !day || day.closed ? '' : [day.lunch, day.evening].filter(Boolean).map(w => w.join('–')).join(' / ');
+    if (!times) continue;
+    const previous = groups[groups.length - 1];
+    if (previous && previous.end === i - 1 && previous.times === times) previous.end = i;
+    else groups.push({ start:i, end:i, times });
+  }
+  return groups.length ? groups.map(g => days[g.start] + (g.end !== g.start ? '–' + days[g.end] : '') + ' · ' + g.times).join(' | ')
+    : ({de:'Geschlossen',en:'Closed',ar:'مغلق'}[language] || 'Geschlossen');
 }
