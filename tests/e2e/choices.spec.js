@@ -204,14 +204,13 @@ test('with the basket switched off, the menu still declares every Menü and ever
 test('a part that declares nothing leaves its Menü pending, never "none"', async ({ page }) => {
   // MENU_SYNC round 8 (MS-08-01): a sandwich with no declaration showed *
   // itself, while its Menü read "" — "no declarable allergens". Only an
-  // explicit empty declaration means none. The cake is declared empty here,
-  // so the legend's * comes from the undeclared sandwich or the pending Menü
+  // explicit empty declaration means none. Every other dish is declared, so
+  // the legend's * comes from the undeclared sandwich or the pending Menü
   // derived from it; the next test isolates the sandwich's own contribution.
   await page.route((url) => url.pathname === '/', async (route) => {
     const response = await route.fetch();
     const body = (await response.text())
-      .replace(/(data-item="hawawshy"[^>]*?) data-allergens="[^"]*"/, '$1')
-      .replace(/(data-item="schokoladentoertchen"[^>]*?) data-allergens="pending"/, '$1 data-allergens=""');
+      .replace(/(data-item="hawawshy"[^>]*?) data-allergens="[^"]*"/, '$1');
     await route.fulfill({ response, body });
   });
   await page.goto('/?lang=de');
@@ -220,8 +219,7 @@ test('a part that declares nothing leaves its Menü pending, never "none"', asyn
   await expect(codes('hawawshy')).toHaveText('*');
   await expect(codes('hawawshy-menue')).toHaveText('*');
   await expect(codes('kebda-eskandarany-menue')).toHaveText('a,g,k');   // its parts are declared
-  await expect(codes('schokoladentoertchen')).toHaveText('');           // explicit empty is none
-  await expect(codes('steakhouse-pommes')).toHaveText('');
+  await expect(codes('steakhouse-pommes')).toHaveText('');              // explicit empty is none
   await expect(page.locator('#allergenLegend .legend-item', { hasText: '*' })).toHaveCount(1);
 });
 
@@ -251,20 +249,19 @@ test('the chooser keeps each choice\'s allergens through a language switch, in w
 test('an undeclared dish on its own registers the pending legend entry', async ({ page }) => {
   // MENU_SYNC round 9 (ChatGPT): the test above cannot tell whether the legend's *
   // came from the undeclared sandwich or from the Menü derived from it, which
-  // carries a literal 'pending'. Koshary is in no Menü, and the cake is declared
-  // empty here, so the only source left is paint() reading a missing declaration.
+  // carries a literal 'pending'. Koshary is in no Menü and every other dish is
+  // declared, so the only source left is paint() reading a missing declaration.
   await page.route((url) => url.pathname === '/', async (route) => {
     const response = await route.fetch();
     const body = (await response.text())
-      .replace(/(data-item="koshary"[^>]*?) data-allergens="[^"]*"/, '$1')
-      .replace(/(data-item="schokoladentoertchen"[^>]*?) data-allergens="pending"/, '$1 data-allergens=""');
+      .replace(/(data-item="koshary"[^>]*?) data-allergens="[^"]*"/, '$1');
     await route.fulfill({ response, body });
   });
   await page.goto('/?lang=de');
   const codes = (id) => page.locator(`.mitem[data-item="${id}"] .mname .mallergen-codes`);
   await expect(page.locator('.mitem[data-item="koshary"]')).not.toHaveAttribute('data-allergens', /./);
   await expect(codes('koshary')).toHaveText('*');
-  await expect(codes('schokoladentoertchen')).toHaveText('');
+  await expect(codes('steakhouse-pommes')).toHaveText('');
   for (const menu of ['hawawshy-menue', 'kebda-eskandarany-menue', 'soguk-baladi-menue']) {
     await expect(codes(menu)).toHaveText('a,g,k');
   }

@@ -293,8 +293,12 @@
       // Kennzeichnungspflichtige Allergene nach LMIV (EU) Nr. 1169/2011.
       allergen: {
         gluten: 'Gluten', eggs: 'Eier', soy: 'Soja', milk: 'Milch', sesame: 'Sesam',
-        nuts: 'Schalenfrüchte'
+        nuts: 'Schalenfrüchte', walnuts: 'Schalenfrüchte (Walnüsse)',
+        // Only ever named as traces a supplier warns of, never declared on a dish here.
+        celery: 'Sellerie', crustaceans: 'Krebstiere', mustard: 'Senf', fish: 'Fisch',
+        sulphites: 'Sulfite', molluscs: 'Weichtiere', lupin: 'Lupinen', peanuts: 'Erdnüsse'
       },
+      tracesByManufacturer: 'laut Hersteller kann es Spuren enthalten von:',
       allergenLabel: 'Allergene',
       allergenNone: 'Keine kennzeichnungspflichtigen Allergene',
       allergenPending: 'Allergene bitte erfragen',
@@ -449,8 +453,11 @@
       pay: { cash: 'cash', giro: 'girocard', card: 'credit card' },
       allergen: {
         gluten: 'gluten', eggs: 'eggs', soy: 'soy', milk: 'milk', sesame: 'sesame',
-        nuts: 'tree nuts'
+        nuts: 'tree nuts', walnuts: 'Tree nuts (walnuts)',
+        celery: 'celery', crustaceans: 'crustaceans', mustard: 'mustard', fish: 'fish',
+        sulphites: 'sulphites', molluscs: 'molluscs', lupin: 'lupin', peanuts: 'peanuts'
       },
+      tracesByManufacturer: 'the manufacturer says it may contain traces of:',
       allergenLabel: 'Allergens',
       allergenNone: 'No allergens requiring declaration',
       allergenPending: 'Please ask us about allergens',
@@ -600,8 +607,11 @@
       pay: { cash: 'كاش', giro: 'كارت EC/Giro', card: 'كارت ائتمان' },
       allergen: {
         gluten: 'جلوتين', eggs: 'بيض', soy: 'صويا', milk: 'لبن', sesame: 'سمسم',
-        nuts: 'مكسرات قشرية'
+        nuts: 'مكسرات قشرية', walnuts: 'مكسرات قشرية (عين جمل)',
+        celery: 'كرفس', crustaceans: 'قشريات', mustard: 'مستردة', fish: 'سمك',
+        sulphites: 'كبريتيت', molluscs: 'رخويات', lupin: 'ترمس', peanuts: 'فول سوداني'
       },
+      tracesByManufacturer: 'حسب الشركة المصنّعة ممكن يكون فيه آثار من:',
       allergenLabel: 'مسببات الحساسية',
       allergenNone: 'لا توجد مسببات حساسية واجبة الإعلان',
       allergenPending: 'برجاء السؤال عن مسببات الحساسية',
@@ -1850,7 +1860,8 @@
      to be available BEFORE the order, and something a guest must first
      discover, then open, is an argument waiting to happen. Small type on the
      page satisfies the law; a popup invites a lawyer. */
-  var ALLERGEN_CODE = { gluten: 'a', eggs: 'c', soy: 'f', milk: 'g', nuts: 'h', sesame: 'k' };
+  // Within one letter, the more specific allergen is named first.
+  var ALLERGEN_CODE = { gluten: 'a', eggs: 'c', soy: 'f', milk: 'g', walnuts: 'h', nuts: 'h', sesame: 'k' };
   var CODE_ORDER = ['a', 'c', 'f', 'g', 'h', 'k'];
 
   function renderAllergens() {
@@ -1864,7 +1875,13 @@
     function paint(mark, declared) {
       var info = allergenInfo(declared, L);
       if (info.text === '*') anyPending = true;
-      info.codes.forEach(function (c) { used[c] = true; });
+      /* Which allergen each letter stood for, as declared. One letter can
+         carry more than one: h is any tree nut, and the walnut is named. */
+      info.keys.forEach(function (key) {
+        var code = ALLERGEN_CODE[key];
+        if (!code) return;
+        (used[code] = used[code] || {})[key] = true;
+      });
       mark.textContent = info.text;
       if (info.label) {
         mark.setAttribute('aria-label', info.label);
@@ -1883,6 +1900,9 @@
       if (!mark) {
         mark = document.createElement('sup');
         mark.className = 'mallergen-codes';
+        // The letters may wrap under a long name on a narrow phone; the name
+        // itself must not be split to make room for them.
+        name.appendChild(document.createElement('wbr'));
         name.appendChild(mark);
       }
       paint(mark, el.getAttribute('data-allergens'));
@@ -1917,12 +1937,12 @@
      pending, never "none" — no letters has to be a statement, not an absence. */
   function allergenInfo(declared, L) {
     declared = declared == null ? 'pending' : String(declared).trim();
-    if (declared === 'pending') return { text: '*', label: L.allergenPending, codes: [] };
-    if (!declared) return { text: '', label: '', codes: [] };
+    if (declared === 'pending') return { text: '*', label: L.allergenPending, codes: [], keys: [] };
+    if (!declared) return { text: '', label: '', codes: [], keys: [] };
     var keys = declared.split(/\s+/);
     var codes = keys.map(function (key) { return ALLERGEN_CODE[key]; }).filter(Boolean).sort();
     var words = keys.map(function (key) { return L.allergen[key] || key; }).join(', ');
-    return { text: codes.join(','), label: L.allergenLabel + ': ' + words, codes: codes };
+    return { text: codes.join(','), label: L.allergenLabel + ': ' + words, codes: codes, keys: keys };
   }
 
   function allergenMarkHtml(declared) {
@@ -1957,12 +1977,15 @@
       section.appendChild(host);
     }
 
+    /* Each letter is named by the allergens actually declared under it, never
+       by the first key that happens to map to it: a menu with a walnut dish
+       reads "h Schalenfrüchte (Walnüsse)", and one that also had a dish with
+       an unnamed nut would say both rather than one passing for the other. */
     var parts = CODE_ORDER.filter(function (c) { return used[c]; }).map(function (code) {
-      var key = Object.keys(ALLERGEN_CODE).filter(function (k) {
-        return ALLERGEN_CODE[k] === code;
-      })[0];
-      return '<span class="legend-item"><b>' + code + '</b> ' +
-        escapeHtml(L.allergen[key] || key) + '</span>';
+      var words = Object.keys(ALLERGEN_CODE).filter(function (key) {
+        return ALLERGEN_CODE[key] === code && used[code][key];
+      }).map(function (key) { return escapeHtml(L.allergen[key] || key); });
+      return '<span class="legend-item"><b>' + code + '</b> ' + words.join(', ') + '</span>';
     });
     if (anyPending) {
       parts.push('<span class="legend-item"><b>*</b> ' + escapeHtml(L.allergenPending) + '</span>');
@@ -1971,7 +1994,26 @@
     host.innerHTML =
       '<h3 class="legend-title">' + escapeHtml(L.allergenLegendTitle) + '</h3>' +
       '<div class="legend-items">' + parts.join('') + '</div>' +
+      tracesHtml(L) +
       '<p class="legend-note">' + escapeHtml(L.allergenLegendNote) + '</p>';
+  }
+
+  /* What a bought-in product's maker warns it may contain, on the product's
+     own label. It is a different statement from the open-kitchen note below
+     it, and a longer one, so it is said per dish, in the legend, not in the
+     description. The name comes from the dish's translation attributes:
+     its painted text carries the allergen letters by now. */
+  function tracesHtml(L) {
+    var lang = (window.KairoLang && window.KairoLang.current) || 'de';
+    return [].map.call(document.querySelectorAll('.mitem[data-traces]'), function (el) {
+      var name = el.querySelector('.mname');
+      var title = name && (name.getAttribute('data-' + lang) || name.getAttribute('data-de'));
+      var keys = el.getAttribute('data-traces').trim().split(/\s+/).filter(Boolean);
+      if (!title || !keys.length) return '';
+      var words = keys.map(function (key) { return L.allergen[key] || key; }).join(', ');
+      return '<p class="legend-traces">' + escapeHtml(title) + ' — ' +
+        escapeHtml(L.tracesByManufacturer + ' ' + words) + '.</p>';
+    }).join('');
   }
 
   function paintMenu() {
