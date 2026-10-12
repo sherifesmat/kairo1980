@@ -2084,3 +2084,20 @@ a.cart-send-wa {
 
 /* Temporary pickup mode: saved delivery setup remains intact. */
 body.pickup-only #liefergebiet, body.pickup-only a[href="#liefergebiet"], body.pickup-only .bfact:has([data-cfg="leadTimeHours"]), body.pickup-only .bfact:has([data-cfg="freeDeliveryFrom"]), body.pickup-only .delivery-note { display: none !important; }
+
+/* The temporary pickup guide uses the same warm palette as the restaurant. */
+.pickup-guide { display:none; max-width:1160px; margin:0 auto; padding:32px 40px; }
+body.pickup-only .pickup-guide { display:block; }
+.pickup-guide-heading { display:flex; align-items:center; gap:18px; flex-wrap:wrap; margin-bottom:22px; }
+.pickup-guide-tag { padding:8px 12px; border:1px solid #b8914a; color:#785921; font-size:12px; font-weight:500; letter-spacing:.06em; }
+.pickup-guide h2 { font-family:'Cormorant Garamond',serif; font-weight:400; font-size:30px; line-height:1.2; }
+.pickup-guide-details { display:grid; grid-template-columns:1.3fr 1.3fr 1fr; gap:24px; }
+.pickup-guide-label { display:block; color:#785921; font-size:11px; letter-spacing:.07em; margin-bottom:8px; text-transform:uppercase; }
+.pickup-guide-details p, .pickup-guide-details a { font-size:14px; line-height:1.65; color:#1c1409; font-weight:400; }
+.pickup-guide-details a { text-decoration:underline; text-decoration-color:#b8914a; text-underline-offset:4px; }
+.pickup-guide-status { margin-top:20px; padding-top:16px; border-top:1px solid #e5dac6; font-size:14px; line-height:1.6; }
+@media(max-width:700px) {
+  .pickup-guide { padding:26px 24px; }
+  .pickup-guide h2 { font-size:27px; }
+  .pickup-guide-details { grid-template-columns:1fr; gap:18px; }
+}
