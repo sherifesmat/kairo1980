@@ -3795,6 +3795,8 @@
 
   function applyConfig() {
     document.body.classList.toggle("pickup-only", pickupOnly());
+    var guide = document.querySelector('.pickup-guide');
+    if (guide) guide.hidden = !pickupOnly();
     var b = CFG.business || {};
     var minRule = (CFG.order && CFG.order.minimumOrder) || {};
 
