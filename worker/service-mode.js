@@ -21,10 +21,11 @@ export function withServiceMode(html, mode, hours) {
     const start = m.index;
     const end = start + m[0].length;
     if (m[1] === 'meta') {
-      tag = tag.replace(/(?<![-\w])content="[^"]*"/, 'content="' + m[2] + '"');
+      const value = m[2].replace(/\{discount\}/g, String(CONFIG.order?.directDiscountPercent || 0));
+      tag = tag.replace(/(?<![-\w])content="[^"]*"/, () => 'content="' + value + '"');
       out = out.slice(0, start) + tag + out.slice(end);
     } else {
-      const close = out.indexOf('</' + m[1] + '>', end);
+      const close = matchingClose(out, m[1], end);
       if (close !== -1) out = out.slice(0, start) + tag + escape(decode(m[2]).replace(/\{discount\}/g,
         String(CONFIG.order?.directDiscountPercent || 0))) + out.slice(close);
     }
@@ -75,4 +76,18 @@ export function pickupWeekSummary(hours, language = 'de') {
   }
   return groups.length ? groups.map(g => days[g.start] + (g.end !== g.start ? '–' + days[g.end] : '') + ' · ' + g.times).join(' | ')
     : ({de:'Geschlossen',en:'Closed',ar:'مغلق'}[language] || 'Geschlossen');
+}
+
+
+function matchingClose(html, name, from) {
+  const tags = new RegExp('</?' + name + '\\b[^>]*>', 'gi');
+  tags.lastIndex = from;
+  let depth = 1;
+  let match;
+  while ((match = tags.exec(html))) {
+    if (match[0].startsWith('</')) depth--;
+    else depth++;
+    if (!depth) return match.index;
+  }
+  return -1;
 }
