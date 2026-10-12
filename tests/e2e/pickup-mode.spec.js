@@ -38,6 +38,7 @@ for (const language of ['de', 'en', 'ar']) {
       await page.goto('/firmencatering?lang=' + language);
       await expect(page.locator('#businessHours')).toContainText('11:00–21:00');
       await expect(page.locator('#serviceName')).not.toContainText('Rhein-Neckar');
+      await expect(page.locator('#businessTiming')).not.toContainText('2');
     });
   }
 }
