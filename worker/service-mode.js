@@ -36,7 +36,8 @@ export function withServiceMode(html, mode, hours) {
     for (const id of ['pickupWeek', 'businessHours']) {
       out = out.replace(new RegExp('<p([^>]*\\bid="' + id + '"[^>]*)>[\\s\\S]*?</p>'), (whole, attrs) => {
         let clean = attrs.replace(/\bdata-(?:de|en|ar)="[^"]*"/g, '');
-        if (!/class="[^"]*\bt\b/.test(clean)) clean = clean.replace(/class="/, 'class="t ');
+        if (!/\bclass="/.test(clean)) clean += ' class="t"';
+        else if (!/class="[^"]*\bt\b/.test(clean)) clean = clean.replace(/class="/, 'class="t ');
         const translated = ['de', 'en', 'ar'].map(lang => ' data-' + lang + '="' + escape(pickupWeekSummary(hours, lang)).replace(/"/g, '&quot;') + '"').join('');
         return '<p' + clean + translated + '>' + escape(pickupWeekSummary(hours, 'de')) + '</p>';
       });
