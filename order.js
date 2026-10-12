@@ -4244,8 +4244,10 @@
   // outside those hours is still possible, by arrangement.
   function renderBusinessHours() {
     if (pickupOnly()) {
+      // The Worker publishes the complete saved week in translated attributes.
+      // Leave it intact rather than treating Tuesday as every day's schedule.
       var h = document.getElementById("businessHours");
-      if (h) h.textContent = t().pickupLabel + " · " + slotsFor("tue").map(function(s) { return s.from + "–" + s.to; }).join(", ");
+      if (h && !h.getAttribute('data-de')) h.textContent = t().pickupLabel;
       return;
     }
     var host = document.getElementById('businessHours');
