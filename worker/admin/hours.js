@@ -11,7 +11,7 @@
    be one thing or another are worse than either. */
 
 import { layout, esc, newNonce, adminHeaders } from './pages.js';
-import { readSettings, writeHours, resetHours } from '../settings.js';
+import { readSettings, writeHours, resetHours, forgetCache } from '../settings.js';
 
 const DAYS = [
   ['mon', 'Monday'], ['tue', 'Tuesday'], ['wed', 'Wednesday'], ['thu', 'Thursday'],
@@ -19,6 +19,7 @@ const DAYS = [
 ];
 
 export async function page(request, env, url) {
+  forgetCache(env);
   const { hours, hoursAreCustom, serviceMode } = await readSettings(env);
   const nonce = newNonce();
   return new Response(
@@ -30,12 +31,14 @@ export async function page(request, env, url) {
 
 export async function save(request, env, url) {
   const form = await request.formData();
+  forgetCache(env);
   const current = await readSettings(env);
   if (form.get('service_mode') && form.get('service_mode') !== current.serviceMode) {
     return seeOther('/admin/hours?failed=1');
   }
 
   if (form.get('reset')) {
+    if (!['pickup', 'delivery'].includes(form.get('service_mode'))) return seeOther('/admin/hours?failed=1');
     await resetHours(env, form.get('service_mode'));
     return seeOther('/admin/hours?saved=1');
   }
@@ -159,7 +162,7 @@ ${failed ? `<p class="msg bad">Not saved. Every time must be HH:MM, each closing
 
 <form method="post" action="/admin/hours">
   <input type="hidden" name="service_mode" value="${esc(serviceMode || 'delivery')}">
-  <fieldset ${serviceMode === 'pickup' ? 'style="display:none"' : ''}><legend>Deliveries</legend>
+  <fieldset ${serviceMode === 'pickup' ? 'hidden disabled' : ''}><legend>Deliveries</legend>
     <div class="day">
       <p class="note full" style="margin:0 0 2px">Collection runs for the whole
       opening below. This is the time a driver starts — before it, the website
@@ -200,6 +203,7 @@ ${failed ? `<p class="msg bad">Not saved. Every time must be HH:MM, each closing
 </form>
 
 ${hoursAreCustom ? `<form method="post" action="/admin/hours">
+  <input type="hidden" name="service_mode" value="${esc(serviceMode)}">
   <button class="reset" name="reset" value="1" type="submit">Reset to the default hours</button>
 </form>` : ''}`;
 
