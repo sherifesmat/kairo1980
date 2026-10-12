@@ -104,3 +104,26 @@ test('pickup copy is served to crawlers, while original delivery copy remains ex
     assert.match(original, /data-de=.*(?:Liefer|liefer)/);
   }
 });
+
+test('pickup regular-hours summary follows the entire saved week, including exceptions and closure', async () => {
+  const { pickupWeekSummary } = await import('../../worker/service-mode.js');
+  const saved = (await readSettings({ DB: freshDatabase({ serviceMode: 'pickup' }) })).hours;
+  assert.equal(pickupWeekSummary(saved, 'de'), 'Dienstag–Sonntag · 11:00–21:00');
+  const changed = structuredClone(saved);
+  changed.days.wed = { closed: false, lunch: ['12:00', '14:00'], evening: ['18:00', '20:00'] };
+  assert.equal(pickupWeekSummary(changed, 'en'), 'Tuesday · 11:00–21:00 | Wednesday · 12:00–14:00 / 18:00–20:00 | Thursday–Sunday · 11:00–21:00');
+  for (const day of Object.values(changed.days)) day.closed = true;
+  assert.equal(pickupWeekSummary(changed, 'en'), 'Closed');
+});
+
+test('pickup story and team-lunch heading have no delivery promise, while delivery wording is retained', async () => {
+  const s = await readSettings({ DB: freshDatabase({ serviceMode: 'pickup' }) });
+  const original = readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
+  const pickup = withServiceMode(original, 'pickup', s.hours);
+  assert.match(pickup, /bereit zum Mitnehmen\.<\/strong>/);
+  assert.match(pickup, /id="pickupWeek"[^>]*data-en="Tuesday–Sunday · 11:00–21:00"/);
+  assert.equal(withServiceMode(original, 'delivery', s.hours), original);
+  const company = withServiceMode(readFileSync(new URL('../../firmencatering.html', import.meta.url), 'utf8'), 'pickup', s.hours);
+  assert.match(company, /Mittagessen fürs Team — zum Abholen in Hockenheim<\/h1>/);
+  assert.match(company, /id="businessHours"[^>]*data-en="Tuesday–Sunday · 11:00–21:00"/);
+});
