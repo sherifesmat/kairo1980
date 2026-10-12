@@ -176,3 +176,13 @@ test('generated weekly translations also work on a source element without a clas
   assert.match(html, /class="t"/);
   assert.match(html, /data-en="Tuesday · 11:00–21:00"/);
 });
+
+test('another worker binding cannot accept delivery using a cached mode after the owner switches to pickup', async () => {
+  const owner = workerEnv(MENU);
+  const guest = { ...owner, DB: { prepare: (...args) => owner.DB.prepare(...args) } };
+  assert.equal((await readSettings(guest)).serviceMode, 'delivery');
+  await writeServiceMode(owner, 'pickup');
+  await assert.rejects(quote(guest, { items: { hummus: 1 }, type: 'delivery', postcode: '69168' }), error => error.code === 'pickup_only');
+  const pickup = await quote(guest, { items: { hummus: 1 }, type: 'pickup' });
+  assert.equal(pickup.fee, 0);
+});
