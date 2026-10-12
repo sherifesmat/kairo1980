@@ -127,3 +127,30 @@ test('pickup story and team-lunch heading have no delivery promise, while delive
   assert.match(company, /Mittagessen fürs Team — zum Abholen in Hockenheim<\/h1>/);
   assert.match(company, /id="businessHours"[^>]*data-en="Tuesday–Sunday · 11:00–21:00"/);
 });
+
+test('a stale pickup reset cannot erase saved delivery hours, and reset forms identify their mode', async () => {
+  const env = workerEnv(MENU, { ADMIN_USER: 'test-owner', ADMIN_PASSWORD: 'test-only-password' });
+  await writeHours(env, hours, 'delivery');
+  await writeHours(env, { ...hours, deliveryFrom: '', days: { ...hours.days, tue: { closed: false, lunch: ['11:00', '20:00'], evening: null } } }, 'pickup');
+  await writeServiceMode(env, 'pickup');
+  const cookie = (await issueSession(env, new URL('https://kairo1980.de'))).split(';')[0];
+  const headers = { 'Content-Type': 'application/x-www-form-urlencoded', Origin: 'https://kairo1980.de', Cookie: cookie };
+  const page = await worker.fetch(new Request('https://kairo1980.de/admin/hours', { headers }), env, { waitUntil() {} });
+  const html = await page.text();
+  assert.match(html, /name="service_mode" value="pickup"[\s\S]*?name="reset"/);
+  assert.match(html, /<fieldset hidden disabled><legend>Deliveries/);
+  const saved = env.DB._raw.prepare("select value from settings where key='hours'").get().value;
+  await writeServiceMode(env, 'delivery');
+  for (const body of ['service_mode=pickup&reset=1', 'reset=1']) {
+    const response = await worker.fetch(new Request('https://kairo1980.de/admin/hours', { method: 'POST', headers, body }), env, { waitUntil() {} });
+    assert.match(response.headers.get('Location'), /failed=1/);
+    assert.equal(env.DB._raw.prepare("select value from settings where key='hours'").get().value, saved);
+  }
+});
+
+test('pickup rendering closes nested spans safely and keeps dollar text and discount placeholders literal', () => {
+  const source = '<span data-pickup-de="Abholen"><span>icon</span>Old label</span><p>After</p>';
+  assert.equal(withServiceMode(source, 'pickup'), '<span data-pickup-de="Abholen">Abholen</span><p>After</p>');
+  const meta = '<meta content="Old" data-pickup-de="$&amp; {discount} Prozent">';
+  assert.match(withServiceMode(meta, 'pickup'), /content="\$&amp; 10 Prozent"/);
+});
