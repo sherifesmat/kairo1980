@@ -10,6 +10,8 @@ export function withServiceMode(html, mode, hours) {
     if (/\bclass="/.test(attrs)) return '<body' + attrs.replace(/class="/, 'class="pickup-only ') + '>';
     return '<body class="pickup-only"' + attrs + '>';
   });
+  // Keep the guide hidden in delivery HTML even if a guest still has older CSS cached.
+  out = out.replace(/(<section\b[^>]*class="pickup-guide"[^>]*?)\s+hidden(?=>)/, '$1');
   out = out.replace(/(<p[^>]*class="payment-note"[^>]*>)[\s\S]*?(<\/p>)/g,
     '$1Zahlung bei Abholung oder online.$2');
   const opening = /<(p|span|h1|h2|strong|a|summary|title|meta)\b[^>]*\bdata-pickup-de="([^"]*)"[^>]*>/g;
