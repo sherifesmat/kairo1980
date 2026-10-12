@@ -35,7 +35,9 @@
      an old cached page, a Worker that could not reach the database — the site
      publishes the hours it launched with and keeps working. */
   var LIVE = readLiveData();
+  function pickupOnly() { return (LIVE.serviceMode || (CFG.service || {}).mode) === "pickup"; }
   if (LIVE.hours && LIVE.hours.days) CFG.hours = LIVE.hours;
+  else if (pickupOnly() && (CFG.service || {}).pickupHours) CFG.hours = CFG.service.pickupHours;
   /* The holiday the restaurant announced at /admin. config.js deliberately
      ships no default for it — a holiday is never typed by a developer, see the
      note there — so the island is the only source, and it is put onto CFG at
@@ -72,6 +74,7 @@
     try {
       var data = JSON.parse(node.textContent);
       out.hours = data.hours || null;
+      out.serviceMode = data.serviceMode || null;
       out.soldOut = data.soldOut || {};
       out.extension = data.extension || null;
       out.deliveryShift = data.deliveryShift || null;
@@ -221,6 +224,7 @@
       chooserIncluded: 'im Preis enthalten',
       chooserUpTo: 'Bis zu {n}',
       inBasket: '{n} im Warenkorb',
+      waPickup: 'Abholbestellung KAIRO 1980\nGerichte und Mengen: \nGewünschte Abholzeit: \nName und Telefonnummer: \nHinweise: ',
       pickupLabel: 'Abholung', deliveryLabel: 'Lieferung',
       deliveryNotice: 'Abholung während der gesamten Öffnungszeit, Lieferung ab {from} Uhr.',
       deliveryClause: 'Bitte beachten: Lieferungen ab {from} Uhr, davor ausschließlich Abholung.',
@@ -390,6 +394,7 @@
       chooserIncluded: 'included in the price',
       chooserUpTo: 'Up to {n}',
       inBasket: '{n} in basket',
+      waPickup: 'Pickup order KAIRO 1980\nDishes and quantities: \nRequested pickup time: \nName and phone: \nNotes: ',
       pickupLabel: 'Pickup', deliveryLabel: 'Delivery',
       deliveryNotice: 'Collection throughout our opening hours, delivery from {from}.',
       deliveryClause: 'Please note: deliveries from {from} — before that, collection only.',
@@ -544,6 +549,7 @@
       chooserIncluded: 'داخل في السعر',
       chooserUpTo: 'لحد {n}',
       inBasket: '{n} في السلة',
+      waPickup: 'طلب استلام KAIRO 1980\nالأطباق والكميات: \nميعاد الاستلام: \nالاسم والتليفون: \nملاحظات: ',
       pickupLabel: 'الاستلام', deliveryLabel: 'التوصيل',
       deliveryNotice: 'الاستلام من المطعم طول مواعيد الفتح، والتوصيل من الساعة {from}.',
       deliveryClause: 'للعلم: التوصيل من الساعة {from}، وقبل كده الاستلام من المطعم بس.',
@@ -903,6 +909,7 @@
   // A guest scheduling for tomorrow evening therefore meets the ordinary rule.
   // May be null — see deliveryShiftToday: that is "no driver", not "no rule".
   function shiftFor(iso, minutes) {
+    if (pickupOnly()) return null;
     var today = deliveryShiftToday();
     if (today && stamp(iso, minutes) <= today.untilStamp) return today.from;
     return deliveryFrom();
@@ -1196,7 +1203,7 @@
       if (spec.length) data.openingHoursSpecification = spec;
 
       // Every town we deliver to, as a named place rather than a bare string.
-      var cities = areaServedCities();
+      var cities = pickupOnly() ? ['Hockenheim'] : areaServedCities();
       if (cities.length) data.areaServed = cities;
 
       // The menu, read from the page so it cannot drift from what guests see.
@@ -1339,7 +1346,7 @@
       if (lead) data.description = flatten(lead.textContent);
       data.inLanguage = lang();
 
-      var cities = areaServedCities();
+      var cities = pickupOnly() ? ['Hockenheim'] : areaServedCities();
       if (cities.length) data.areaServed = cities;
 
       // Only the formats the page actually describes, in the words it uses.
@@ -2457,7 +2464,7 @@
   // `pay` starts at 'onsite': cash is the one method that is always possible,
   // so a guest who ignores the choice cannot end up with an order that expects
   // a payment they never made.
-  var form = { type: 'delivery', business: false, when: 'asap', pay: 'onsite' };
+  var form = { type: pickupOnly() ? 'pickup' : 'delivery', business: false, when: 'asap', pay: 'onsite' };
 
   /* --- delivery or pickup -------------------------------------------------
      The MOMENT an order will actually be served at decides whether delivery is
@@ -2490,6 +2497,7 @@
   // send. Promising a lunchtime delivery we then have to cancel by phone costs
   // far more than a clearly labelled disabled button.
   function deliveryBlocked() {
+    if (pickupOnly()) return true;
     var at = targetMoment();
     // A moment we cannot place is never blocked: an unknown time is settled in
     // the chat, and withholding the button on a guess is the one thing this
@@ -2577,7 +2585,7 @@
         ? L.cartPickupOnlyToday
         : fill(L.cartDeliveryLater, { from: when }) });
     }
-    var lead = (CFG.business && CFG.business.leadTimeHours) || 0;
+    var lead = pickupOnly() ? 0 : ((CFG.business && CFG.business.leadTimeHours) || 0);
     if (form.business && lead && target - current < lead * 60) {
       out.push({ kind: 'lead', text: fill(L.warnLeadTime, { h: lead }) });
     }
@@ -2727,6 +2735,10 @@
   }
 
   function typesHtml() {
+    if (pickupOnly()) {
+      form.type = "pickup";
+      return '<p class="cart-note">' + escapeHtml(t().pickupLabel) + ' · Rostocker Straße 20a, Hockenheim</p>';
+    }
     var L = t();
     syncType();
     var blocked = deliveryBlocked();
@@ -2863,7 +2875,7 @@
         '</li>';
     }).join('');
 
-    var leadNote = (CFG.business && CFG.business.enabled)
+    var leadNote = (!pickupOnly() && CFG.business && CFG.business.enabled)
       ? '<p class="cart-note" id="cartLeadNote"' + (form.business ? '' : ' hidden') + '>' +
         L.leadTime.replace('{h}', CFG.business.leadTimeHours) + '</p>'
       : '';
@@ -3031,7 +3043,7 @@
     var L = t();
     var seen = {};
     var out = [];
-    ['pickup', 'delivery'].forEach(function (type) {
+    (pickupOnly() ? ['pickup'] : ['pickup', 'delivery']).forEach(function (type) {
       onSiteMethods(type).forEach(function (label) {
         if (!seen[label]) { seen[label] = true; out.push(label); }
       });
@@ -3050,7 +3062,7 @@
   }
 
   function renderPaymentNote() {
-    var text = [payOnSiteText('pickup'), payOnSiteText('delivery')];
+    var text = pickupOnly() ? [payOnSiteText('pickup')] : [payOnSiteText('pickup'), payOnSiteText('delivery')];
     if (onlinePayEnabled()) text.push(t().payOnline);
     [].forEach.call(document.querySelectorAll('.payment-note'), function (el) {
       el.textContent = text.filter(Boolean).join(' ');
@@ -3151,7 +3163,7 @@
     out.push(L.mTime + ': ' + data.time);
     if (data.company) out.push(L.mCompany + ': ' + data.company);
     if (data.notes) out.push(L.mNotes + ': ' + data.notes);
-    if (data.business && CFG.business) {
+    if (!pickupOnly() && data.business && CFG.business) {
       out.push(L.mLead + ': ≥ ' + CFG.business.leadTimeHours + ' ' + L.mHours);
     }
 
@@ -3782,6 +3794,7 @@
      ========================================================================= */
 
   function applyConfig() {
+    document.body.classList.toggle("pickup-only", pickupOnly());
     var b = CFG.business || {};
     var minRule = (CFG.order && CFG.order.minimumOrder) || {};
 
@@ -3850,7 +3863,8 @@
     // changed threshold updates the German and the English wording at once.
     // The markup keeps the current numbers as its no-JavaScript fallback.
     [].forEach.call(document.querySelectorAll('.t[data-de]'), function (el) {
-      var tpl = el.getAttribute('data-' + lang());
+      var tpl = pickupOnly() ? el.getAttribute('data-pickup-' + lang()) : null;
+      if (tpl === null) tpl = el.getAttribute('data-' + lang());
       if (!tpl || tpl.indexOf('{') === -1) return;
       el.textContent = tpl.replace(/\{(\w+)\}/g, function (whole, key) {
         return values[key] !== undefined && values[key] !== null ? values[key] : whole;
@@ -4132,6 +4146,11 @@
   // same row of the spreadsheet, so the page cannot promise one price and
   // invoice another.
   function renderAreas() {
+    if (pickupOnly()) {
+      var saved = document.getElementById("areasList");
+      if (saved) saved.innerHTML = "";
+      return;
+    }
     var host = document.getElementById('areasList');
     if (!host) return;
     var rows = (CFG.delivery && CFG.delivery.zones) || [];
@@ -4224,6 +4243,11 @@
   // section, so this line only adds what the notice does not: that anything
   // outside those hours is still possible, by arrangement.
   function renderBusinessHours() {
+    if (pickupOnly()) {
+      var h = document.getElementById("businessHours");
+      if (h) h.textContent = t().pickupLabel + " · " + slotsFor("tue").map(function(s) { return s.from + "–" + s.to; }).join(", ");
+      return;
+    }
     var host = document.getElementById('businessHours');
     if (!host) return;
     var L = t();
@@ -4233,6 +4257,7 @@
   // The template asks for what actually decides the order — budget and time —
   // and no longer for a head count, which told us nothing we could cook from.
   function businessTemplate(kind) {
+    if (pickupOnly()) return t().waPickup;
     var L = t();
     return kind === 'business' ? L.waBusiness : L.waSimple;
   }

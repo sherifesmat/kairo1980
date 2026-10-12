@@ -88,10 +88,15 @@
   /* --- applying ----------------------------------------------------------- */
 
   function paintElements(lang) {
+      var island = document.getElementById('kairoLive');
+      var live = {};
+      try { live = island ? JSON.parse(island.textContent) : {}; } catch (e) {}
+      var pickup = (live.serviceMode || ((window.KAIRO_CONFIG || {}).service || {}).mode) === 'pickup';
     var nodes = document.querySelectorAll('.t');
     for (var i = 0; i < nodes.length; i++) {
       var el = nodes[i];
-      var value = el.getAttribute('data-' + lang);
+      var value = pickup ? el.getAttribute('data-pickup-' + lang) : null;
+      if (value === null) value = el.getAttribute('data-' + lang);
       if (value !== null) {
         var target = el.getAttribute('data-t');
         if (target === HTML_TARGET) el.innerHTML = value;
@@ -100,7 +105,8 @@
       }
       // A link may also carry a per-language target — the WhatsApp buttons
       // prefill their message in the language the visitor is reading.
-      var href = el.getAttribute('data-' + lang + '-href');
+      var href = pickup ? el.getAttribute('data-pickup-href') : null;
+      if (!href) href = el.getAttribute('data-' + lang + '-href');
       if (href) el.setAttribute('href', href);
     }
   }

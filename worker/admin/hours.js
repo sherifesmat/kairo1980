@@ -19,10 +19,10 @@ const DAYS = [
 ];
 
 export async function page(request, env, url) {
-  const { hours, hoursAreCustom } = await readSettings(env);
+  const { hours, hoursAreCustom, serviceMode } = await readSettings(env);
   const nonce = newNonce();
   return new Response(
-    render({ nonce, hours, hoursAreCustom, saved: url.searchParams.has('saved'),
+    render({ nonce, hours, hoursAreCustom, serviceMode, saved: url.searchParams.has('saved'),
              failed: url.searchParams.has('failed') }),
     { headers: adminHeaders(nonce) }
   );
@@ -30,9 +30,13 @@ export async function page(request, env, url) {
 
 export async function save(request, env, url) {
   const form = await request.formData();
+  const current = await readSettings(env);
+  if (form.get('service_mode') && form.get('service_mode') !== current.serviceMode) {
+    return seeOther('/admin/hours?failed=1');
+  }
 
   if (form.get('reset')) {
-    await resetHours(env);
+    await resetHours(env, form.get('service_mode'));
     return seeOther('/admin/hours?saved=1');
   }
 
@@ -60,7 +64,7 @@ export async function save(request, env, url) {
   const written = await writeHours(env, {
     days,
     deliveryFrom: String(form.get('delivery_from') || '').trim()
-  });
+  }, form.get('service_mode'));
 
   // Refused rather than half-saved: settings.js returns null for anything that
   // is not a complete, valid week, and a partly-understood opening time is
@@ -125,7 +129,7 @@ function times(prefix, label, value) {
   </div>`;
 }
 
-function render({ nonce, hours, hoursAreCustom, saved, failed }) {
+function render({ nonce, hours, hoursAreCustom, serviceMode, saved, failed }) {
   const dayFields = DAYS.map(([key, label]) => {
     const day = hours.days[key] || {};
     return `<fieldset><legend>${label}</legend>
@@ -140,7 +144,7 @@ function render({ nonce, hours, hoursAreCustom, saved, failed }) {
     </fieldset>`;
   }).join('');
 
-  const body = `<h1>Opening hours</h1>
+  const body = `<h1>Opening hours — ${serviceMode === 'pickup' ? 'pickup only' : 'delivery and pickup'}</h1>
 <div class="sub">The regular hours. Live immediately — on the website, in the
 opening hours Google reads, and in the basket.</div>
 
@@ -154,7 +158,8 @@ ${failed ? `<p class="msg bad">Not saved. Every time must be HH:MM, each closing
   : 'Using the default hours from <code>config.js</code>.'}</p>
 
 <form method="post" action="/admin/hours">
-  <fieldset><legend>Deliveries</legend>
+  <input type="hidden" name="service_mode" value="${esc(serviceMode || 'delivery')}">
+  <fieldset ${serviceMode === 'pickup' ? 'style="display:none"' : ''}><legend>Deliveries</legend>
     <div class="day">
       <p class="note full" style="margin:0 0 2px">Collection runs for the whole
       opening below. This is the time a driver starts — before it, the website

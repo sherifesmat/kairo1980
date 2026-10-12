@@ -47,9 +47,13 @@ class Statement {
   }
 }
 
-export function freshDatabase() {
+export function freshDatabase({ serviceMode = 'delivery' } = {}) {
   const db = new DatabaseSync(':memory:');
   for (const name of MIGRATIONS) db.exec(readFileSync(MIGRATIONS_DIR + name, 'utf8'));
+  // Existing delivery regression fixtures explicitly retain that mode. New pickup
+  // cases select pickup; a real empty database uses config.js's current mode.
+  if (serviceMode) db.prepare('INSERT INTO settings (key,value) VALUES (?,?)')
+    .run('service_mode', JSON.stringify(serviceMode));
   return {
     prepare: (sql) => new Statement(db, sql),
     // Not part of D1's surface — the tests use it to look at raw rows.

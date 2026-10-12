@@ -7,6 +7,10 @@ published.
 
 ## Changing the things that change
 
+**Temporary pickup mode:** `/admin` now switches between pickup-only and the saved delivery setup.
+Each mode keeps its own hours; zones, prices and delivery copy are retained. See
+[docs/pickup-mode.md](docs/pickup-mode.md). This switch does not alter platform accounts.
+
 Almost everything the business changes day to day lives in **`config.js`** or
 in the delivery spreadsheet. Neither needs a developer.
 

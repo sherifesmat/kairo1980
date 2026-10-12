@@ -303,7 +303,7 @@ function untilClock(iso) {
   }
 }
 
-export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extension, deliveryShift, holiday, away, holidayError, alert, alertError }) {
+export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extension, deliveryShift, holiday, serviceMode, away, holidayError, alert, alertError }) {
   const closed = !ordering.open;
   const resumesAt = closed ? Date.parse(ordering.resumesAt) : null;
   const today = todayLine(hours);
@@ -366,6 +366,11 @@ export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extensio
     ? 'Not taking orders'
     : 'Taking orders'}</b></div>
   <p class="sched ${today.open ? 'is-open' : ''}">${esc(today.text)}</p>
+<section class="service-mode"><h2>Service mode</h2>
+<p>${serviceMode === 'pickup' ? 'Pickup only — saved delivery setup is inactive.' : 'Delivery and pickup — saved delivery setup is active.'}</p>
+<form method="post" action="/admin/service-mode"><button class="go2" name="mode" value="${serviceMode === 'pickup' ? 'delivery' : 'pickup'}" type="submit">${serviceMode === 'pickup' ? 'Restore saved delivery setup' : 'Switch to pickup only'}</button></form>
+<p class="hint">This does not reopen a closed kitchen or change platform settings. Each mode keeps its own hours.</p></section>
+
   ${closed ? stopped : running}
 </div>
 
@@ -404,7 +409,7 @@ export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extensio
 <!-- Driving out at a different time today. The same idea as the block above,
      applied to the driver instead of the door: it moves the delivery time in
      either direction for today only, and lapses at midnight by itself. -->
-<div class="shift ${deliveryShift ? 'on' : ''}">
+<div class="shift ${deliveryShift ? 'on' : ''}" ${serviceMode === 'pickup' ? 'style="display:none"' : ''}>
   ${deliveryShift ? `<p class="lead">${deliveryShift.from === null
       ? '<b>Collection only today</b> — no driver out.'
       : `Delivering today ${deliveryShift.from

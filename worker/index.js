@@ -136,7 +136,8 @@ async function status(env) {
        during a holiday was told the till was open, because the holiday was a
        second fact nobody joined to the first. */
     ordering: orderingNow(settings),
-    hours: settings.hours
+    hours: settings.hours,
+    serviceMode: settings.serviceMode
   });
 }
 

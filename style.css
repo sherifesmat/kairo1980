@@ -2081,3 +2081,6 @@ a.cart-send-wa {
   background: #fdf0e0; border-bottom: 1px solid #e8c9a0;
   color: #a04a00; font-size: 13.5px; line-height: 1.55;
 }
+
+/* Temporary pickup mode: saved delivery setup remains intact. */
+body.pickup-only #liefergebiet, body.pickup-only a[href="#liefergebiet"], body.pickup-only .bfact:has([data-cfg="leadTimeHours"]), body.pickup-only .bfact:has([data-cfg="freeDeliveryFrom"]), body.pickup-only .delivery-note { display: none !important; }

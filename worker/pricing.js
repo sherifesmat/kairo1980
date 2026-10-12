@@ -53,7 +53,10 @@ export async function quote(env, req) {
      of is not that: the ingredient is not in the building, and taking the money
      would mean ringing the guest back to say so. The browser dims it too, but
      the browser is not to be trusted with the answer. */
-  const { soldOut, prices: overrides, addons, unreadable } = await readSettings(env);
+  const { soldOut, prices: overrides, addons, unreadable, serviceMode } = await readSettings(env);
+  if (serviceMode === "pickup" && req.type !== "pickup") {
+    throw new PricingError("pickup_only", "We currently offer pickup only. Please select pickup.");
+  }
   /* Money is the one thing a settings outage may not paper over. The page may
      have shown a price the restaurant set at /admin; the defaults are not the
      same claim. The guest is offered the way this site always offers when a

@@ -4,9 +4,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { quote, PricingError, toAmount } from '../../worker/pricing.js';
-import { menuStub } from '../helpers/env.js';
+import { workerEnv } from '../helpers/env.js';
 
-const env = menuStub({
+const env = workerEnv({
   hummus: { price: 950, name: 'Hummus' },
   koshari: { price: 1450, name: 'Koshari' }
 });

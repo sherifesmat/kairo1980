@@ -31,6 +31,7 @@
 import { orderingNow } from './settings.js';
 import { parseMenu, effectiveMenu } from './site-data.js';
 import { priceOf } from './pricing.js';
+import { withServiceMode } from './service-mode.js';
 
 const DAYS = [
   ['mon', 'Montag', 'Monday', 'الاثنين'],
@@ -85,6 +86,7 @@ export function slotsFor(hours, key) {
  *  earlier than `deliveryFrom`. A window that ends before the shift starts
  *  drops out entirely — that is the collection-only part of the day. */
 export function deliveryFor(hours, key) {
+  if (hours.pickupOnly) return [];
   const from = hours.deliveryFrom || '';
   return slotsFor(hours, key)
     .filter((s) => !from || from < s.to)
@@ -186,7 +188,7 @@ const SCHEMA_BLOCK = /(<script id="restaurantSchema"[^>]*>)([\s\S]*?)(<\/script>
  */
 export function withLiveData(html, settings) {
   const { hours, ordering, soldOut } = settings;
-  let out = html;
+  let out = withServiceMode(html, settings.serviceMode);
 
   out = withPrices(out, settings.prices);
   out = withAddons(out, settings.addons);
@@ -222,7 +224,7 @@ export function withLiveData(html, settings) {
      ending the element early. */
   const island = `<script type="application/json" id="kairoLive">${
     JSON.stringify({
-      hours, ordering, soldOut: soldOut || {},
+      hours, ordering, serviceMode: settings.serviceMode, soldOut: soldOut || {},
       /* Tonight only, and never merged into `hours` — the JSON-LD below is
          built from `hours` alone, so neither an extension nor a driver out at
          an unusual time can leak into the opening hours Google caches for the

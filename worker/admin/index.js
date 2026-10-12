@@ -20,7 +20,7 @@ import * as pricesView from './prices.js';
 import * as extrasView from './extras.js';
 import * as hoursView from './hours.js';
 import {
-  readSettings, closeOrdering, openOrdering, extendHours, clearExtension,
+  readSettings, writeServiceMode, closeOrdering, openOrdering, extendHours, clearExtension,
   setDeliveryShift, clearDeliveryShift, setHoliday, clearHoliday, holidayClosure
 } from '../settings.js';
 import { timeOf } from '../berlin.js';
@@ -44,10 +44,10 @@ export async function handle(request, env, url) {
 
   if (path === '/admin' && method === 'GET') {
     const nonce = newNonce();
-    const { ordering, hours, hoursAreCustom, extension, deliveryShift, holiday } =
+    const { ordering, hours, hoursAreCustom, extension, deliveryShift, holiday, serviceMode } =
       await readSettings(env);
     return html(dashboardPage({
-      nonce, ordering, hours, hoursAreCustom, extension, deliveryShift, holiday,
+      nonce, ordering, hours, hoursAreCustom, extension, deliveryShift, holiday, serviceMode,
       /* Whether the holiday is standing over TODAY, which is not the same
          question as whether one is announced. The card has to say which: a
          holiday saved for next month changes nothing about tonight's till,
@@ -115,6 +115,11 @@ export async function handle(request, env, url) {
      above and deliberately the same shape: one tap, its own end, and no edit to
      the week — a closing time changed on a Saturday night is a closing time
      still wrong on Tuesday. */
+  if (path === '/admin/service-mode' && method === 'POST') {
+    const form = await request.formData();
+    const ok = await writeServiceMode(env, form.get('mode'));
+    return new Response(null, { status: ok ? 303 : 400, headers: { Location: '/admin', 'Cache-Control': 'no-store' } });
+  }
   if (path === '/admin/extend' && method === 'POST') {
     const form = await request.formData();
     if (form.get('clear')) {

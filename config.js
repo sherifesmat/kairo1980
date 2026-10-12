@@ -13,6 +13,21 @@
 
 window.KAIRO_CONFIG = {
 
+  // Temporary mode. Original delivery hours, pricing and zones below stay intact.
+  // /admin can restore delivery without deleting or rebuilding any configuration.
+  service: {
+    mode: 'pickup',
+    pickupHours: { deliveryFrom: '', days: {
+      mon: { closed: true, lunch: null, evening: null },
+      tue: { closed: false, lunch: ['11:00', '21:00'], evening: null },
+      wed: { closed: false, lunch: ['11:00', '21:00'], evening: null },
+      thu: { closed: false, lunch: ['11:00', '21:00'], evening: null },
+      fri: { closed: false, lunch: ['11:00', '21:00'], evening: null },
+      sat: { closed: false, lunch: ['11:00', '21:00'], evening: null },
+      sun: { closed: false, lunch: ['11:00', '21:00'], evening: null }
+    } }
+  },
+
   /* --- Contact ---------------------------------------------------------- */
   whatsapp: {
     // International format, digits only — no "+", no spaces.

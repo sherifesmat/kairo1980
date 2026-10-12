@@ -36,6 +36,17 @@ import { dayOf, nextMidnight, nextTimeOfDay, instantOf } from './berlin.js';
 
 const ORDERING = 'ordering';
 const HOURS = 'hours';
+const PICKUP_HOURS = 'pickup_hours';
+const SERVICE_MODE = 'service_mode';
+export function serviceMode(value) {
+  return value === 'pickup' || value === 'delivery' ? value : (CONFIG.service?.mode || 'delivery');
+}
+function pickupHours() { return normaliseHours(CONFIG.service?.pickupHours) || defaultHours(); }
+export async function writeServiceMode(env, value) {
+  if (value !== 'pickup' && value !== 'delivery') return false;
+  await put(env, SERVICE_MODE, value);
+  return true;
+}
 const SOLDOUT = 'soldout';
 const EXTENSION = 'extension';
 const SHIFT = 'shift';
@@ -73,7 +84,8 @@ export async function readSettings(env) {
   if (!env || !env.DB) {
     return {
       ordering: normaliseOrdering(null),
-      hours: defaultHours(),
+      serviceMode: serviceMode(null),
+      hours: { ...(serviceMode(null) === "pickup" ? pickupHours() : defaultHours()), pickupOnly: serviceMode(null) === "pickup" },
       hoursAreCustom: false,
       soldOut: {},
       extension: null,
@@ -113,10 +125,13 @@ export async function readSettings(env) {
     try { raw[row.key] = JSON.parse(row.value); } catch { /* ignore a bad row */ }
   }
 
-  const custom = normaliseHours(raw[HOURS]);
+  const mode = serviceMode(raw[SERVICE_MODE]);
+  const hoursKey = mode === "pickup" ? PICKUP_HOURS : HOURS;
+  const custom = normaliseHours(raw[hoursKey]);
   const value = {
     ordering: normaliseOrdering(raw[ORDERING]),
-    hours: custom || defaultHours(),
+    serviceMode: mode,
+    hours: { ...(custom || (mode === "pickup" ? pickupHours() : defaultHours())), pickupOnly: mode === "pickup" },
     /* Dishes the kitchen has run out of. A list of ids and the moment each was
        marked — the time is what stops a dish being sold out for a fortnight
        because somebody flipped it on a Saturday and went home, which is the
@@ -141,7 +156,7 @@ export async function readSettings(env) {
        copy stale at once — and an unchanged one still answers 304. Without it,
        `must-revalidate` would keep revalidating its way to the same stale
        body, because the asset behind it never changed. */
-    hoursVersion: (rows.find((r) => r.key === HOURS) || {}).updated_at || '0',
+    hoursVersion: mode + ':' + ((rows.find((r) => r.key === hoursKey) || {}).updated_at || '0') + ':' + ((rows.find((r) => r.key === SERVICE_MODE) || {}).updated_at || '0'),
     // Pages state which dishes are sold out, so the ETag has to move when the
     // answer does — exactly as it does for the hours.
     soldOutVersion: (rows.find((r) => r.key === SOLDOUT) || {}).updated_at || '0',
@@ -364,17 +379,21 @@ export function normaliseHours(value) {
   return { days, deliveryFrom: from };
 }
 
-export async function writeHours(env, value) {
+export async function writeHours(env, value, requestedMode = null) {
   const hours = normaliseHours(value);
   if (!hours) return null;
-  await put(env, HOURS, hours);
+  const current = await readSettings(env);
+  const mode = requestedMode === 'pickup' || requestedMode === 'delivery' ? requestedMode : current.serviceMode;
+  await put(env, mode === "pickup" ? PICKUP_HOURS : HOURS, hours);
   return hours;
 }
 
 /** Back to what config.js says, by deleting the row rather than copying the
  *  defaults into it — a copy would go stale the day config.js changes. */
-export async function resetHours(env) {
-  await env.DB.prepare('DELETE FROM settings WHERE key = ?1').bind(HOURS).run();
+export async function resetHours(env, requestedMode = null) {
+  const current = await readSettings(env);
+  const mode = requestedMode === 'pickup' || requestedMode === 'delivery' ? requestedMode : current.serviceMode;
+  await env.DB.prepare('DELETE FROM settings WHERE key = ?1').bind(mode === 'pickup' ? PICKUP_HOURS : HOURS).run();
   forgetCache(env);
 }
 
