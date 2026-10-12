@@ -104,3 +104,92 @@ test('pickup copy is served to crawlers, while original delivery copy remains ex
     assert.match(original, /data-de=.*(?:Liefer|liefer)/);
   }
 });
+
+test('pickup regular-hours summary follows the entire saved week, including exceptions and closure', async () => {
+  const { pickupWeekSummary } = await import('../../worker/service-mode.js');
+  const saved = (await readSettings({ DB: freshDatabase({ serviceMode: 'pickup' }) })).hours;
+  assert.equal(pickupWeekSummary(saved, 'de'), 'Dienstag–Sonntag · 11:00–21:00');
+  const changed = structuredClone(saved);
+  changed.days.wed = { closed: false, lunch: ['12:00', '14:00'], evening: ['18:00', '20:00'] };
+  assert.equal(pickupWeekSummary(changed, 'en'), 'Tuesday · 11:00–21:00 | Wednesday · 12:00–14:00 / 18:00–20:00 | Thursday–Sunday · 11:00–21:00');
+  for (const day of Object.values(changed.days)) day.closed = true;
+  assert.equal(pickupWeekSummary(changed, 'en'), 'Closed');
+});
+
+test('pickup story and team-lunch heading have no delivery promise, while delivery wording is retained', async () => {
+  const s = await readSettings({ DB: freshDatabase({ serviceMode: 'pickup' }) });
+  const original = readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
+  const pickup = withServiceMode(original, 'pickup', s.hours);
+  assert.match(pickup, /bereit zum Mitnehmen\.<\/strong>/);
+  assert.match(pickup, /id="pickupWeek"[^>]*data-en="Tuesday–Sunday · 11:00–21:00"/);
+  assert.equal(withServiceMode(original, 'delivery', s.hours), original);
+  const company = withServiceMode(readFileSync(new URL('../../firmencatering.html', import.meta.url), 'utf8'), 'pickup', s.hours);
+  assert.match(company, /Mittagessen fürs Team — zum Abholen in Hockenheim<\/h1>/);
+  assert.match(company, /id="businessHours"[^>]*data-en="Tuesday–Sunday · 11:00–21:00"/);
+});
+
+test('a stale pickup reset cannot erase saved delivery hours, and reset forms identify their mode', async () => {
+  const env = workerEnv(MENU, { ADMIN_USER: 'test-owner', ADMIN_PASSWORD: 'test-only-password' });
+  await writeHours(env, hours, 'delivery');
+  await writeHours(env, { ...hours, deliveryFrom: '', days: { ...hours.days, tue: { closed: false, lunch: ['11:00', '20:00'], evening: null } } }, 'pickup');
+  await writeServiceMode(env, 'pickup');
+  const cookie = (await issueSession(env, new URL('https://kairo1980.de'))).split(';')[0];
+  const headers = { 'Content-Type': 'application/x-www-form-urlencoded', Origin: 'https://kairo1980.de', Cookie: cookie };
+  const page = await worker.fetch(new Request('https://kairo1980.de/admin/hours', { headers }), env, { waitUntil() {} });
+  const html = await page.text();
+  assert.match(html, /name="service_mode" value="pickup"[\s\S]*?name="reset"/);
+  assert.match(html, /<fieldset hidden disabled><legend>Deliveries/);
+  const saved = env.DB._raw.prepare("select value from settings where key='hours'").get().value;
+  await writeServiceMode(env, 'delivery');
+  for (const body of ['service_mode=pickup&reset=1', 'reset=1']) {
+    const response = await worker.fetch(new Request('https://kairo1980.de/admin/hours', { method: 'POST', headers, body }), env, { waitUntil() {} });
+    assert.match(response.headers.get('Location'), /failed=1/);
+    assert.equal(env.DB._raw.prepare("select value from settings where key='hours'").get().value, saved);
+  }
+});
+
+test('pickup rendering closes nested spans safely and keeps dollar text and discount placeholders literal', () => {
+  const source = '<span data-pickup-de="Abholen"><span>icon</span>Old label</span><p>After</p>';
+  assert.equal(withServiceMode(source, 'pickup'), '<span data-pickup-de="Abholen">Abholen</span><p>After</p>');
+  const meta = '<meta content="Old" data-pickup-de="$&amp; {discount} Prozent">';
+  assert.match(withServiceMode(meta, 'pickup'), /content="\$&amp; 10 Prozent"/);
+});
+
+test('the company pickup timing card removes the fixed advance rule in every language, retaining delivery originals', async () => {
+  const original = readFileSync(new URL('../../firmencatering.html', import.meta.url), 'utf8');
+  const pickup = withServiceMode(original, 'pickup');
+  const tag = pickup.match(/<p class="bcard-text t"[^>]*id="businessTiming"[^>]*>([\s\S]*?)<\/p>/);
+  assert.ok(tag);
+  assert.ok(!/2|leadTimeHours/.test(tag[1]));
+  for (const lang of ['de', 'en', 'ar']) {
+    const translated = tag[0].match(new RegExp('data-pickup-' + lang + '="([^"]*)"'));
+    assert.ok(translated);
+    assert.ok(!/2|leadTimeHours/.test(translated[1]));
+  }
+  assert.equal(withServiceMode(original, 'delivery'), original);
+  assert.match(original, /Ab \{leadTimeHours\} Stunden Vorlauf/);
+});
+
+test('generated weekly translations also work on a source element without a class', () => {
+  const h = { days: { tue: { closed: false, lunch: ['11:00', '21:00'] } } };
+  const html = withServiceMode('<p id="pickupWeek"></p>', 'pickup', h);
+  assert.match(html, /class="t"/);
+  assert.match(html, /data-en="Tuesday · 11:00–21:00"/);
+});
+
+test('another worker binding cannot accept delivery using a cached mode after the owner switches to pickup', async () => {
+  const owner = workerEnv(MENU);
+  const guest = { ...owner, DB: { prepare: (...args) => owner.DB.prepare(...args) } };
+  assert.equal((await readSettings(guest)).serviceMode, 'delivery');
+  await writeServiceMode(owner, 'pickup');
+  await assert.rejects(quote(guest, { items: { hummus: 1 }, type: 'delivery', postcode: '69168' }), error => error.code === 'pickup_only');
+  const pickup = await quote(guest, { items: { hummus: 1 }, type: 'pickup' });
+  assert.equal(pickup.fee, 0);
+});
+
+
+test('pickup guide visibility is semantic and does not depend on a freshly downloaded stylesheet', () => {
+  const html = '<section class="pickup-guide" aria-labelledby="pickupGuideTitle" hidden><h2>Guide</h2></section>';
+  assert.equal(withServiceMode(html, 'delivery'), html);
+  assert.ok(!withServiceMode(html, 'pickup').includes(' hidden'));
+});

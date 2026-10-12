@@ -10,7 +10,7 @@ const PORT = 8788;
 /* Specs that write settings shared by the whole run — the ordering switch, the
    hours and the holiday band are all one row in one database. See the `switch`
    project below for why they are kept out of everything else. */
-const SHARED_STATE = /(ordering-switch|holiday-band)\.spec\.js/;
+const SHARED_STATE = /(ordering-switch|holiday-band|pickup-mode)\.spec\.js/;
 
 export default defineConfig({
   testDir: './tests/e2e',

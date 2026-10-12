@@ -16,7 +16,7 @@
      - an unknown postcode charges no fee; that is agreed in the chat instead */
 
 import { CONFIG, menuData, effectiveMenu, zoneFor } from './site-data.js';
-import { readSettings } from './settings.js';
+import { readSettings, forgetCache } from './settings.js';
 
 export const MAX_ITEMS = 200;
 
@@ -53,6 +53,8 @@ export async function quote(env, req) {
      of is not that: the ingredient is not in the building, and taking the money
      would mean ringing the guest back to say so. The browser dims it too, but
      the browser is not to be trusted with the answer. */
+  // An order must honor the current mode, not another isolate's five-second page cache.
+  forgetCache(env);
   const { soldOut, prices: overrides, addons, unreadable, serviceMode } = await readSettings(env);
   if (serviceMode === "pickup" && req.type !== "pickup") {
     throw new PricingError("pickup_only", "We currently offer pickup only. Please select pickup.");

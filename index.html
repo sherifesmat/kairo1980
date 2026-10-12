@@ -274,7 +274,7 @@
          second, worse way of ordering the same food — the basket composes the
          same message with quantities, address and total already in it. -->
     <div class="hero-actions">
-      <a href="#speisekarte" class="btn-primary t" data-de="Speisekarte ansehen" data-en="View the menu" data-ar="شوف المنيو">Speisekarte ansehen</a>
+      <a href="#speisekarte" class="btn-primary t" data-de="Speisekarte ansehen" data-en="View the menu" data-ar="شوف المنيو" data-pickup-de="Bestellen &amp; abholen" data-pickup-en="Order for pickup" data-pickup-ar="اطلب واستلم">Speisekarte ansehen</a>
       <a href="#liefergebiet" class="btn-ghost t" data-de="Liefern wir zu Ihnen?" data-en="Do we deliver to you?" data-ar="بنوصّل لعندك؟" data-pickup-de="Abholung in Hockenheim" data-pickup-en="Pickup in Hockenheim" data-pickup-ar="الاستلام في هوكنهايم" data-pickup-href="#kontakt">Liefern wir zu Ihnen?</a>
     </div>
     <p class="hero-offer">
@@ -282,6 +282,23 @@
       <span class="hero-offer-text t" data-de="Rabatt auf Direktbestellungen" data-en="off on direct orders" data-ar="خصم على الطلب المباشر من موقعنا">Rabatt auf Direktbestellungen</span>
     </p>
   </div>
+</section>
+
+
+<section class="pickup-guide" aria-labelledby="pickupGuideTitle" hidden>
+  <div class="pickup-guide-heading">
+    <span class="pickup-guide-tag t" data-de="Nur Abholung" data-en="Pickup only" data-ar="استلام من المطعم فقط">Nur Abholung</span>
+    <h2 id="pickupGuideTitle" class="t" data-de="Frisch gekocht. Bei uns abholen." data-en="Freshly cooked. Ready to collect." data-ar="أكل طازة. تستلمه من عندنا.">Frisch gekocht. Bei uns abholen.</h2>
+  </div>
+  <div class="pickup-guide-details">
+    <div><span class="pickup-guide-label t" data-de="Reguläre Abholzeiten" data-en="Regular pickup hours" data-ar="مواعيد الاستلام المعتادة">Reguläre Abholzeiten</span>
+      <p id="pickupWeek" class="t" data-de="Zeiten unten ansehen" data-en="See hours below" data-ar="شوف المواعيد تحت">Zeiten unten ansehen</p></div>
+    <div><span class="pickup-guide-label t" data-de="Hier abholen" data-en="Collect here" data-ar="الاستلام من هنا">Hier abholen</span>
+      <a href="#kontakt">Rostocker Straße 20a · Hockenheim</a></div>
+    <div><span class="pickup-guide-label t" data-de="Für Ihr Team" data-en="For your team" data-ar="لفريقك">Für Ihr Team</span>
+      <a class="t" href="/firmencatering" data-de="Mittagessen fürs Büro →" data-en="Office lunch →" data-ar="غدا المكتب ←">Mittagessen fürs Büro →</a></div>
+  </div>
+  <p class="order-off pickup-guide-status" hidden></p>
 </section>
 
 <div class="strip fade-in">
@@ -370,7 +387,7 @@
         <p class="t" data-de="KAIRO 1980 steht für warmes, ehrliches Essen — gemacht für echte Momente: für entspannte Abende zuhause, gemeinsames Essen mit Freunden, nächtliche Cravings und die kleinen Augenblicke, die man wirklich genießt." data-en="KAIRO 1980 stands for warm, honest food — made for real moments: relaxed evenings at home, sharing food with friends, late-night cravings and the small moments you truly enjoy." data-ar="KAIRO 1980 معناه أكل دافي وصادق — متعمول للحظات حقيقية: سهرة هادية في البيت، أكل مع الأصحاب، جوع نص الليل، واللحظات الصغيرة اللي بتستمتع بيها فعلاً.">KAIRO 1980 steht für warmes, ehrliches Essen — gemacht für echte Momente: für entspannte Abende zuhause, gemeinsames Essen mit Freunden, nächtliche Cravings und die kleinen Augenblicke, die man wirklich genießt.</p>
         <p class="t" data-de="Von rauchigem Baba Ganoush über goldene, knusprige Pommes bis hin zu aromatischen Reisgerichten, frischem ägyptischem Brot und langsam gekochten Rezepten voller Gewürze und Nostalgie — jede Bestellung soll vertraut, großzügig und unvergesslich wirken." data-en="From smoky Baba Ganoush to golden crispy fries, aromatic rice dishes, fresh Egyptian bread and slow-cooked recipes full of spices and nostalgia — every order should feel familiar, generous and unforgettable." data-ar="من بابا غنوج مدخّن، لبطاطس دهبي مقرمشة، لأطباق رز مليانة ريحة، وعيش مصري طازة، ووصفات بتتطبخ على نار هادية مليانة بهارات وذكريات — كل طلب المفروض يحسّسك إنك في بيتك، وإنه كريم، وإنه مش هيتنسي.">Von rauchigem Baba Ganoush über goldene, knusprige Pommes bis hin zu aromatischen Reisgerichten, frischem ägyptischem Brot und langsam gekochten Rezepten voller Gewürze und Nostalgie — jede Bestellung soll vertraut, großzügig und unvergesslich wirken.</p>
         <p class="t" data-de="Denn für uns ist Essen etwas Emotionales. Es verbindet Menschen mit Erinnerungen. Mit Kultur. Mit Heimat." data-en="Because for us, food is something emotional. It connects people with memories. With culture. With home." data-ar="لأن الأكل عندنا إحساس. بيوصّل الناس بذكرياتهم. وبثقافتهم. وببلدهم.">Denn für uns ist Essen etwas Emotionales. Es verbindet Menschen mit Erinnerungen. Mit Kultur. Mit Heimat.</p>
-        <p><strong class="t" data-de="KAIRO 1980 ist modernes Kairo-Gefühl — direkt zu dir nach Hause." data-en="KAIRO 1980 is the modern Cairo feeling — delivered straight to your door." data-ar="KAIRO 1980 هو إحساس القاهرة العصرية — لحد باب بيتك.">KAIRO 1980 ist modernes Kairo-Gefühl — direkt zu dir nach Hause.</strong></p>
+        <p><strong class="t" data-de="KAIRO 1980 ist modernes Kairo-Gefühl — direkt zu dir nach Hause." data-en="KAIRO 1980 is the modern Cairo feeling — delivered straight to your door." data-ar="KAIRO 1980 هو إحساس القاهرة العصرية — لحد باب بيتك." data-pickup-de="KAIRO 1980 ist modernes Kairo-Gefühl — frisch gekocht und bereit zum Mitnehmen." data-pickup-en="KAIRO 1980 is the modern Cairo feeling — freshly cooked and ready to take home." data-pickup-ar="KAIRO 1980 هو إحساس القاهرة العصرية — أكل طازة جاهز تاخده معاك.">KAIRO 1980 ist modernes Kairo-Gefühl — direkt zu dir nach Hause.</strong></p>
       </div>
       <button class="mehr-lesen-btn" id="mehrLesenBtn" data-action="toggle-story" aria-expanded="false" aria-controls="mehrLesenContent"><span class="t" data-de="Mehr lesen" data-en="Read more" data-ar="اقرأ المزيد">Mehr lesen</span></button>
     </div>

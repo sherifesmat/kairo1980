@@ -1,0 +1,35 @@
+name: Pickup mode checks
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pickup-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  pickup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - name: Configure disposable local test admin
+        run: |
+          printf 'ADMIN_USER=devuser\nADMIN_PASSWORD=dev-password-not-a-real-one\n' > .dev.vars
+      - name: Initialize disposable local database
+        run: npx wrangler d1 migrations apply kairo1980-payments --local --persist-to ../.kairo1980-dev-state
+      - name: Check pickup and restoration on mobile and desktop in three languages
+        run: npx playwright test tests/e2e/pickup-mode.spec.js --project=switch --no-deps
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: pickup-browser-evidence
+          path: test-results/

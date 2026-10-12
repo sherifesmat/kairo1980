@@ -188,7 +188,7 @@ const SCHEMA_BLOCK = /(<script id="restaurantSchema"[^>]*>)([\s\S]*?)(<\/script>
  */
 export function withLiveData(html, settings) {
   const { hours, ordering, soldOut } = settings;
-  let out = withServiceMode(html, settings.serviceMode);
+  let out = withServiceMode(html, settings.serviceMode, hours);
 
   out = withPrices(out, settings.prices);
   out = withAddons(out, settings.addons);
