@@ -154,3 +154,25 @@ test('pickup rendering closes nested spans safely and keeps dollar text and disc
   const meta = '<meta content="Old" data-pickup-de="$&amp; {discount} Prozent">';
   assert.match(withServiceMode(meta, 'pickup'), /content="\$&amp; 10 Prozent"/);
 });
+
+test('the company pickup timing card removes the fixed advance rule in every language, retaining delivery originals', async () => {
+  const original = readFileSync(new URL('../../firmencatering.html', import.meta.url), 'utf8');
+  const pickup = withServiceMode(original, 'pickup');
+  const tag = pickup.match(/<p class="bcard-text t"[^>]*id="businessTiming"[^>]*>([\s\S]*?)<\/p>/);
+  assert.ok(tag);
+  assert.ok(!/2|leadTimeHours/.test(tag[1]));
+  for (const lang of ['de', 'en', 'ar']) {
+    const translated = tag[0].match(new RegExp('data-pickup-' + lang + '="([^"]*)"'));
+    assert.ok(translated);
+    assert.ok(!/2|leadTimeHours/.test(translated[1]));
+  }
+  assert.equal(withServiceMode(original, 'delivery'), original);
+  assert.match(original, /Ab \{leadTimeHours\} Stunden Vorlauf/);
+});
+
+test('generated weekly translations also work on a source element without a class', () => {
+  const h = { days: { tue: { closed: false, lunch: ['11:00', '21:00'] } } };
+  const html = withServiceMode('<p id="pickupWeek"></p>', 'pickup', h);
+  assert.match(html, /class="t"/);
+  assert.match(html, /data-en="Tuesday · 11:00–21:00"/);
+});
