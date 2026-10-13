@@ -50,8 +50,11 @@
      `data-soldout` attribute on the row says the same thing for a reader with
      no JavaScript at all; this is the copy the basket asks. */
   var SOLD_OUT = (LIVE && LIVE.soldOut) || {};
-  function soldOut(id) {
+  function soldOut(id, seen) {
     if (SOLD_OUT[id]) return true;
+    seen = seen || {};
+    if (seen[id]) return false;
+    seen[id] = true;
     /* The row carries the same fact as an attribute, which is what a reader
        with no JavaScript sees. Asking both means a page cached with one and
        not the other still refuses the dish — and refusing wrongly costs one
@@ -61,7 +64,10 @@
     // A topping is "dish:option" and carries the attribute on its own row.
     var colon = id.indexOf(':');
     if (colon > 0) el = (optionOf(id.slice(0, colon), id.slice(colon + 1)) || {}).el;
-    return !!(el && el.getAttribute('data-soldout') === '1');
+    if (!el) return false;
+    if (el.getAttribute('data-soldout') === '1') return true;
+    return words(el, 'data-unavailable-with').concat(words(el, 'data-contains'))
+      .some(function (ref) { return soldOut(ref, seen); });
   }
 
   function readLiveData() {
