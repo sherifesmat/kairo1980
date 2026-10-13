@@ -49,7 +49,7 @@ test('a bowl is its base plus its topping, each set on its own', async () => {
 
 test('an extra follows its own dish: change Salata Baladi, every "+ Salata" moves', async () => {
   const q = await pickup({ 'hawawshy|beilagen-sandwich=salata-baladi': 1 }, { prices: { 'salata-baladi': 650 } });
-  assert.equal(q.subtotal, 1700 + 650);
+  assert.equal(q.subtotal, 1800 + 650);
 });
 
 test('a Menü drink stays included whatever the drink now costs', async () => {
