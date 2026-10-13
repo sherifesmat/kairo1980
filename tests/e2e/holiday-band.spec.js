@@ -245,6 +245,10 @@ test('a running holiday stops the till, with nothing else to tap', async ({ page
   await page.goto('/');
   await expect(page.locator('html')).toHaveAttribute('data-ordering', 'off');
   await expect(band(page)).toBeVisible();
+  const position = await band(page).boundingBox();
+  expect(position.y).toBeGreaterThanOrEqual(0);
+  expect(position.y + position.height).toBeLessThanOrEqual(page.viewportSize().height);
+  expect(await band(page).evaluate((el) => getComputedStyle(el).position)).toBe('sticky');
 
   // And the guest is told why and until when, not "please look again later".
   const notice = page.locator('.order-off').first();
