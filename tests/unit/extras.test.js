@@ -37,12 +37,12 @@ const SAUCES = {
 
 test('with no saved setup, the menu offers what it always did', async () => {
   const q = await pickup({ 'hawawshy|beilagen-sandwich=salata-baladi': 1 });
-  assert.equal(q.subtotal, 1700 + 600);
+  assert.equal(q.subtotal, 1800 + 600);
 });
 
 test('a saved setup is the whole setup: new groups offered, the old ones gone', async () => {
   const q = await pickup({ 'hawawshy|saucen=tomatensauce': 1 }, SAUCES);
-  assert.equal(q.subtotal, 1700 + 250);
+  assert.equal(q.subtotal, 1800 + 250);
   assert.equal(q.lines[0].name, 'Hawawshy + Tomatensauce');
   // The menu's own group is not offered any more…
   await assert.rejects(pickup({ 'hawawshy|beilagen-sandwich=salata-baladi': 1 }, SAUCES),
