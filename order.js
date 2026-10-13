@@ -50,9 +50,9 @@
      `data-soldout` attribute on the row says the same thing for a reader with
      no JavaScript at all; this is the copy the basket asks. */
   var SOLD_OUT = (LIVE && LIVE.soldOut) || {};
-  function soldOut(id, seen) {
+  function soldOut(id) { return unavailableFrom(id, {}); }
+  function unavailableFrom(id, seen) {
     if (SOLD_OUT[id]) return true;
-    seen = seen || {};
     if (seen[id]) return false;
     seen[id] = true;
     /* The row carries the same fact as an attribute, which is what a reader
@@ -67,7 +67,7 @@
     if (!el) return false;
     if (el.getAttribute('data-soldout') === '1') return true;
     return words(el, 'data-unavailable-with').concat(words(el, 'data-contains'))
-      .some(function (ref) { return soldOut(ref, seen); });
+      .some(function (ref) { return unavailableFrom(ref, seen); });
   }
 
   function readLiveData() {
