@@ -32,7 +32,9 @@ test('a single liver or appetizer switch disables every related choice and resto
   });
   await page.goto('/?lang=de');
   for (const id of ['kebda-eskandarany', 'kebda-eskandarany-menue', 'etwas-von-allem']) {
-    await expect(page.locator('.mitem[data-item="' + id + '"] [data-act="choose"]')).toHaveCount(0);
+    const row = page.locator('.mitem[data-item="' + id + '"]');
+    await expect(row).toHaveClass(/is-soldout/);
+    await expect(row.locator('button.qty-add')).toHaveCount(0);
   }
   let dialog = await openChooser(page, 'kairo-bowl');
   await expect(dialog.locator('input[value="kebda"]')).toBeDisabled();
@@ -42,7 +44,7 @@ test('a single liver or appetizer switch disables every related choice and resto
   dialog = await openChooser(page, 'kairo-bowl');
   await expect(dialog.locator('input[value="kebda"]')).toBeEnabled();
   await dialog.locator('[data-act="chooser-close"]').click();
-  await expect(page.locator('.mitem[data-item="etwas-von-allem"] [data-act="choose"]')).toHaveCount(1);
+  await expect(page.locator('.mitem[data-item="etwas-von-allem"]')).not.toHaveClass(/is-soldout/);
 });
 
 test('a bowl is one dish on the menu, with its toppings priced in its row', async ({ page }) => {
