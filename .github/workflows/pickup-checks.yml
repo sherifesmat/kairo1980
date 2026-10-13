@@ -30,6 +30,8 @@ jobs:
         run: npx playwright test tests/e2e/pickup-mode.spec.js --project=switch --no-deps
       - name: Check shared ingredient availability on mobile and desktop
         run: npx playwright test tests/e2e/choices.spec.js --project=mobile --project=desktop --grep 'single liver'
+      - name: Check holiday closure status and visible banner
+        run: npx playwright test tests/e2e/holiday-band.spec.js --project=switch --no-deps --grep 'a running holiday stops'
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
