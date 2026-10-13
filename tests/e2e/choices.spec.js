@@ -16,6 +16,38 @@ async function openChooser(page, id) {
   return dialog;
 }
 
+test('a single liver or appetizer switch disables every related choice and restores it on reload', async ({ page }) => {
+  let marked = { 'kebda-eskandarany': '2026-10-13T12:00:00Z', 'baba-ghanough': '2026-10-13T12:00:00Z' };
+  // Supply only the manual switches: this also exercises the browser's
+  // dependency handling when markup was cached without derived attributes.
+  await page.route(/\/$|\/\?lang=de$/, async (route) => {
+    const response = await route.fetch();
+    let body = await response.text();
+    body = body.replace(/(id="kairoLive">)([^<]+)/, (_, prefix, json) => {
+      const live = JSON.parse(json);
+      live.soldOut = marked;
+      return prefix + JSON.stringify(live);
+    });
+    await route.fulfill({ response, body });
+  });
+  await page.goto('/?lang=de');
+  for (const id of ['kebda-eskandarany', 'kebda-eskandarany-menue', 'etwas-von-allem']) {
+    const row = page.locator('.mitem[data-item="' + id + '"]');
+    await expect(row).toHaveClass(/is-soldout/);
+    await expect(row.locator('button.qty-add')).toHaveCount(0);
+  }
+  let dialog = await openChooser(page, 'kairo-bowl');
+  await expect(dialog.locator('input[value="kebda"]')).toHaveCount(0);
+  await expect(dialog.locator('.chooser-opt.is-soldout', { hasText: 'Kebda' })).toContainText('Ausverkauft');
+  await expect(dialog.locator('input[value="haehnchen"]')).toBeEnabled();
+  marked = {};
+  await page.reload();
+  dialog = await openChooser(page, 'kairo-bowl');
+  await expect(dialog.locator('input[value="kebda"]')).toBeEnabled();
+  await dialog.locator('[data-act="chooser-close"]').click();
+  await expect(page.locator('.mitem[data-item="etwas-von-allem"]')).not.toHaveClass(/is-soldout/);
+});
+
 test('a bowl is one dish on the menu, with its toppings priced in its row', async ({ page }) => {
   await page.goto('/?lang=de');
   const bowl = page.locator('.mitem[data-item="kairo-bowl"]');

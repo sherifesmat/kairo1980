@@ -20,7 +20,7 @@
 
 import { layout, esc, newNonce, adminHeaders } from './pages.js';
 import { readSettings, writeSoldOut } from '../settings.js';
-import { menu } from '../site-data.js';
+import { menu, effectiveSoldOut } from '../site-data.js';
 
 export async function page(request, env, url) {
   const [{ soldOut }, dishes] = await Promise.all([readSettings(env), menu(env)]);
@@ -47,7 +47,7 @@ export async function page(request, env, url) {
   }
 
   return new Response(
-    render({ nonce, soldOut, groups, saved: url.searchParams.has('saved') }),
+    render({ nonce, soldOut, unavailable: effectiveSoldOut(dishes, soldOut), groups, saved: url.searchParams.has('saved') }),
     { headers: adminHeaders(nonce) }
   );
 }
@@ -116,18 +116,20 @@ const CSS = `
                  background:#1c1409;color:#f5e8cc;cursor:pointer}
 `;
 
-export function render({ nonce, groups, soldOut, saved }) {
+export function render({ nonce, groups, soldOut, unavailable = soldOut, saved }) {
   const dishes = groups.reduce((all, g) => all.concat(g.dishes), []);
-  const off = dishes.filter((d) => soldOut[d.id]);
+  const off = dishes.filter((d) => unavailable[d.id]);
   const stale = off.filter((d) => hoursOff(soldOut[d.id]) > 24);
 
   const rowFor = (d) => {
     const markedAt = soldOut[d.id];
-    return `<li class="dish ${markedAt ? 'off' : ''} ${d.sub ? 'sub' : ''}">
+    const automatic = !markedAt && unavailable[d.id];
+    return `<li class="dish ${unavailable[d.id] ? 'off' : ''} ${d.sub ? 'sub' : ''}">
       <label class="row">
         <input type="checkbox" name="soldout" value="${esc(d.id)}" ${markedAt ? 'checked' : ''}>
         <span class="nm">${esc(d.name)}
           ${markedAt ? `<span class="when">ausverkauft seit ${esc(since(markedAt))}</span>` : ''}
+          ${automatic ? '<span class="when">Automatisch ausverkauft: Bestandteil nicht verfügbar.</span>' : ''}
         </span>
         ${d.price ? `<span class="pr">${(d.price / 100).toFixed(2).replace('.', ',')} €</span>` : ''}
       </label>
@@ -135,7 +137,7 @@ export function render({ nonce, groups, soldOut, saved }) {
   };
 
   const sections = groups.map((g) => {
-    const offHere = g.dishes.filter((d) => soldOut[d.id]).length;
+    const offHere = g.dishes.filter((d) => unavailable[d.id]).length;
     return `<h2 class="cat">${esc(g.name)}
       ${offHere ? `<span class="cat-off">${offHere} off</span>` : ''}</h2>
       <ul class="dishes">${g.dishes.map(rowFor).join('')}</ul>`;
@@ -143,7 +145,10 @@ export function render({ nonce, groups, soldOut, saved }) {
 
   const body = `<h1>Sold out</h1>
 <div class="sub">Tick anything the kitchen has run out of. It cannot be ordered
-or paid for until you untick it.</div>
+or paid for until you untick it. Related dishes and toppings switch off
+automatically. Liver and Soguk are linked across sandwiches, Menüs and Bowls;
+Etwas von allem needs all three appetizers. Untick the original item to restore
+its related dishes. Items you ticked separately stay off.</div>
 
 ${saved ? '<p class="msg">Saved. Live now.</p>' : ''}
 

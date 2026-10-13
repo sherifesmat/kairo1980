@@ -101,6 +101,31 @@ export async function menu(env) {
   return (await menuData(env)).dishes;
 }
 
+/** Derive availability without storing dependent switches. Unchecking a source
+ * restores its dependents, while independently marked dishes remain off.
+ * The fixed point also handles shared ingredients (mutual links) and chains. */
+export function effectiveSoldOut(dishes, marked = {}) {
+  const off = { ...marked };
+  let changed;
+  do {
+    changed = false;
+    const inherit = (id, refs) => {
+      if (off[id]) return;
+      const source = refs.find((ref) => off[ref]);
+      if (source) { off[id] = off[source]; changed = true; }
+    };
+    for (const [id, dish] of dishes) {
+      inherit(id, [...(dish.contains || []), ...(dish.unavailableWith || [])]);
+      for (const group of dish.groups || []) {
+        for (const option of group.options) {
+          inherit(id + ':' + option.id, option.unavailableWith || []);
+        }
+      }
+    }
+  } while (changed);
+  return off;
+}
+
 export function parseMenu(html) {
   /* Where each category heading starts, so a dish can be told which one it
      falls under by position — the markup nests nothing, the heading simply
@@ -232,7 +257,8 @@ function parseDish(tag, block) {
     groups: [],
     addons: words(attr(tag, 'data-addons')),
     includes: words(attr(tag, 'data-includes')),
-    contains: words(attr(tag, 'data-contains'))
+    contains: words(attr(tag, 'data-contains')),
+    unavailableWith: words(attr(tag, 'data-unavailable-with'))
   };
 
   let group = null;
@@ -259,6 +285,8 @@ function parseDish(tag, block) {
     if (o && group) {
       if (group.options.some((x) => x.id === o)) malformed('option "' + o + '" appears twice in "' + group.id + '"');
       option = { id: o, name: o, price: cents(attr(t, 'data-price')) };
+      const refs = words(attr(t, 'data-unavailable-with'));
+      if (refs.length) option.unavailableWith = refs;
       group.options.push(option);
       continue;
     }

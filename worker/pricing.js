@@ -15,7 +15,7 @@
        driven out; pickup and company orders are never held to it
      - an unknown postcode charges no fee; that is agreed in the chat instead */
 
-import { CONFIG, menuData, effectiveMenu, zoneFor } from './site-data.js';
+import { CONFIG, menuData, effectiveMenu, effectiveSoldOut, zoneFor } from './site-data.js';
 import { readSettings, forgetCache } from './settings.js';
 
 export const MAX_ITEMS = 200;
@@ -68,6 +68,7 @@ export async function quote(env, req) {
   }
   // The extras offered today — the menu's, or the setup saved at /admin/extras.
   const { dishes, addonGroups } = effectiveMenu(published, addons);
+  const unavailable = effectiveSoldOut(dishes, soldOut);
   const price = (id) => priceOf(dishes, overrides, id);
   const type = req.type === 'pickup' ? 'pickup' : 'delivery';
   const business = !!req.business;
@@ -79,7 +80,7 @@ export async function quote(env, req) {
   for (const [key, rawQty] of Object.entries(req.items || {})) {
     const qty = Math.floor(Number(rawQty));
     if (!Number.isFinite(qty) || qty <= 0) continue;
-    const line = resolveLine(key, dishes, addonGroups, soldOut || {}, price);
+    const line = resolveLine(key, dishes, addonGroups, unavailable, price);
     units += qty;
     if (units > MAX_ITEMS) throw new PricingError('too_many_items', 'Order exceeds ' + MAX_ITEMS + ' items');
     const amount = line.unit * qty;

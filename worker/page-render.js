@@ -29,7 +29,7 @@
    page stating last week's hours beats a page with its markup torn open. */
 
 import { orderingNow } from './settings.js';
-import { parseMenu, effectiveMenu } from './site-data.js';
+import { parseMenu, effectiveMenu, effectiveSoldOut } from './site-data.js';
 import { priceOf } from './pricing.js';
 import { withServiceMode } from './service-mode.js';
 
@@ -187,7 +187,8 @@ const SCHEMA_BLOCK = /(<script id="restaurantSchema"[^>]*>)([\s\S]*?)(<\/script>
  * @param {object} settings from readSettings()
  */
 export function withLiveData(html, settings) {
-  const { hours, ordering, soldOut } = settings;
+  const { hours, ordering } = settings;
+  const soldOut = effectiveSoldOut(parseMenu(html).dishes, settings.soldOut);
   let out = withServiceMode(html, settings.serviceMode, hours);
 
   out = withPrices(out, settings.prices);
