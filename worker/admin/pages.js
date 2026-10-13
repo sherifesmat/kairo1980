@@ -10,6 +10,7 @@
    nothing that has to load before it works. */
 
 import { slotsFor } from '../page-render.js';
+import { orderingNow, holidayClosure } from '../settings.js';
 
 const ESCAPE = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ESCAPE[c]);
@@ -304,6 +305,8 @@ function untilClock(iso) {
 }
 
 export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extension, deliveryShift, holiday, serviceMode, away, holidayError, alert, alertError }) {
+  ordering = orderingNow({ ordering, holiday });
+  away = !!holidayClosure(holiday);
   const closed = !ordering.open;
   const resumesAt = closed ? Date.parse(ordering.resumesAt) : null;
   const today = todayLine(hours);
@@ -365,13 +368,17 @@ export function dashboardPage({ nonce, ordering, hours, hoursAreCustom, extensio
   <div class="state"><span class="dot"></span><b>${closed
     ? 'Not taking orders'
     : 'Taking orders'}</b></div>
-  <p class="sched ${today.open ? 'is-open' : ''}">${esc(today.text)}</p>
+  <p class="sched ${!closed && today.open ? 'is-open' : ''}">${closed ? 'Regular hours: ' : ''}${esc(today.text.replace(closed ? 'Open now · ' : '', ''))}</p>
 <section class="service-mode"><h2>Service mode</h2>
 <p>${serviceMode === 'pickup' ? 'Pickup only — saved delivery setup is inactive.' : 'Delivery and pickup — saved delivery setup is active.'}</p>
 <form method="post" action="/admin/service-mode"><button class="go2" name="mode" value="${serviceMode === 'pickup' ? 'delivery' : 'pickup'}" type="submit">${serviceMode === 'pickup' ? 'Restore saved delivery setup' : 'Switch to pickup only'}</button></form>
 <p class="hint">This does not reopen a closed kitchen or change platform settings. Each mode keeps its own hours.</p></section>
 
-  ${closed ? stopped : running}
+  ${away ? `<p class="lead"><b>Closed for holiday.</b> Orders for the holiday dates are stopped.</p>
+    <p class="until">Holiday ends ${esc(dateWords(holiday.until))}.
+    Orders resume ${esc(whenText(resumesAt))}, during the regular opening hours.</p>
+    <p class="hint">To reopen early, change or clear the holiday below.
+    The manual ordering switch cannot override the holiday.</p>` : closed ? stopped : running}
 </div>
 
 <!-- Staying open later tonight. Deliberately below the switch and above the
