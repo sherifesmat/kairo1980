@@ -37,7 +37,8 @@ test('a single liver or appetizer switch disables every related choice and resto
     await expect(row.locator('button.qty-add')).toHaveCount(0);
   }
   let dialog = await openChooser(page, 'kairo-bowl');
-  await expect(dialog.locator('input[value="kebda"]')).toBeDisabled();
+  await expect(dialog.locator('input[value="kebda"]')).toHaveCount(0);
+  await expect(dialog.locator('.chooser-opt.is-soldout', { hasText: 'Kebda' })).toContainText('Ausverkauft');
   await expect(dialog.locator('input[value="haehnchen"]')).toBeEnabled();
   marked = {};
   await page.reload();
