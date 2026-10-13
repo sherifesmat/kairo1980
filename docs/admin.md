@@ -80,8 +80,26 @@ otherwise fall through to the 404 asset; `worker/index.js` claims it explicitly.
 | --- | --- |
 | `/admin` | The list. |
 | `/admin/orders` | Settled payments for a day, and — highlighted — every paid order that never reached the chat. Never a name, phone number or address: those never reach this server. |
-| `/admin/dishes` | Sold out: a dish, or a single bowl topping or base, off the menu until unticked. |
+| `/admin/dishes` | Sold out: mark one dish or Bowl option; related dishes follow automatically until the source is unticked. |
 | `/admin/prices` | What a dish or a bowl topping costs. Live on the page, in the basket and at the till on save. The figure in `index.html` is only the starting price; what is set here is the price. Extras cost what their own dish costs, so there is nothing separate to set. Lieferando and Uber Eats are priced in their own portals. |
+
+## Related sold-out dishes
+
+Tick one item on `/admin/dishes` and save. Kebda/liver and Soguk link the
+sandwich, its Menü and the corresponding Bowl topping. Either the sandwich or
+the topping can be used as the source switch. A missing Hummus, Baba Ghanough
+or eingelegte Auberginen also takes Etwas von allem off the menu.
+
+Affected rows say “Automatisch ausverkauft” and need no extra tick. Untick the
+original source and save to restore the related items. Anything explicitly
+ticked separately remains unavailable. These dependencies also apply in the
+guest's basket and the server's payment validation.
+
+Declare components with `data-contains` on a dish. Shared availability links
+use `data-unavailable-with` on a dish or choice option; use reciprocal links
+when either item should switch off the other. IDs are the menu's existing IDs,
+including `kairo-bowl:kebda` for a choice. This does not change prices,
+allergens or the available recipes.
 
 ## The holiday band
 
@@ -146,3 +164,4 @@ URL anybody can fetch; everything here is behind the session. Each response
 carries its own `Content-Security-Policy` with `default-src 'none'` — there is
 no JavaScript in the admin area at all, and the policy says so rather than
 trusting it.
+
