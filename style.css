@@ -899,6 +899,22 @@ summary:focus-visible {
 .announce-holiday .announce-tag { background: #c8a55a; color: #1c1409; }
 .announce-event .announce-arrow { color: #c8a55a; }
 
+/* The closure is the first message, visible above the hero and while scrolling. */
+.announce.announce-holiday {
+  position: sticky; top: 96px; z-index: 19;
+  flex-direction: column; gap: 10px; padding: 20px 24px;
+  text-align: center; border-bottom: 3px solid #c8a55a;
+  box-shadow: 0 5px 16px rgba(28,20,9,0.18);
+}
+.announce-holiday .announce-tag { font-size: 11px; padding: 6px 14px; }
+.announce-holiday .announce-text {
+  max-width: 920px; font-size: 18px; line-height: 1.5; font-weight: 600;
+}
+@media (max-width: 900px) {
+  .announce.announce-holiday { top: 70px; padding: 14px 18px; gap: 8px; }
+  .announce-holiday .announce-text { font-size: 15px; line-height: 1.45; }
+}
+
 /* ===========================================================================
    BUSINESS / FIRMENBESTELLUNGEN
    =========================================================================== */
