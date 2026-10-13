@@ -251,10 +251,11 @@ test('a running holiday stops the till, with nothing else to tap', async ({ page
   await expect(notice).toContainText('Betriebsferien');
   await expect(notice).toContainText('wieder für Sie da');
 
-  /* The switch at the top of /admin is untouched — two facts, neither inferred
-     from the other, so releasing one does not release the other. */
+  // The dashboard must report the actual closure, including the holiday.
   await goAdmin(page);
-  await expect(page.locator('.switch.off')).toHaveCount(0);
+  await expect(page.locator('.switch.off')).toHaveCount(1);
+  await expect(page.locator('.switch')).toContainText('Not taking orders');
+  await expect(page.locator('.switch')).toContainText('Closed for holiday');
   await expect(page.locator('.holiday.on')).toContainText('Orders are stopped');
 });
 
