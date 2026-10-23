@@ -181,8 +181,10 @@ are only the no-JavaScript fallback — update both or neither.
 - **The two delivery rules are asked by name, never re-derived.**
   Free delivery is one threshold for every order — company and private are the
   same trip to a driver, so there is no switch to narrow it. The minimum order
-  value is asked only of a private order that has to be driven out: never of a
-  collection, never of a company. Both live in `config.js`
+  value is asked of every order that has to be driven out, private or company
+  (owner, 23.10.2026), and never of a collection; it is advisory (the order is
+  flagged, never refused). A pickup is decided by the pickup rule alone, so
+  `minimumOrder.business` only ever reaches deliveries. Both live in `config.js`
   (`business.freeDeliveryFrom`, `order.minimumOrder`) and are asked through
   `freeDeliveryQualifies()` / `minimumApplies()` — the same two names in
   `order.js` and in `worker/pricing.js`. The server cannot trust the browser's

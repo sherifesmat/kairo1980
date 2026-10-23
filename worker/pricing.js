@@ -11,8 +11,9 @@
      - the delivery fee sits outside the discount
      - the fee is waived from `business.freeDeliveryFrom` on the food subtotal,
        for every order alike — company and private are the same trip
-     - the per-zone minimum is asked only of a private order that has to be
-       driven out; pickup and company orders are never held to it
+     - the per-zone minimum is asked of every order that has to be driven out,
+       private or company (owner, 23.10.2026); a pickup is never held to it.
+       It is advisory: a sub-minimum order is flagged, never refused
      - an unknown postcode charges no fee; that is agreed in the chat instead */
 
 import { CONFIG, menuData, effectiveMenu, effectiveSoldOut, zoneFor } from './site-data.js';
