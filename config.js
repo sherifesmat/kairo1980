@@ -56,10 +56,9 @@ window.KAIRO_CONFIG = {
     /* Who the per-zone minimum order value applies to.
        -----------------------------------------------------------------------
        The minimum exists for one reason: to make a driver's trip worth making.
-       So it applies to exactly one case — a private order that has to be
-       driven out. Nobody who collects their own order pays it, because there
-       is no trip to pay for; and a company order is never held to it, whatever
-       it is worth, because that is the relationship we want with an office.
+       So it applies to every order that has to be driven out, private or
+       company, at its zone's amount (owner, 23.10.2026). Nobody who collects
+       their own order pays it, because there is no trip to pay for.
 
        The AMOUNTS live per postcode in data/delivery_zones.xlsx. This is only
        the rule about who they are asked of, and it is read by the basket, by
@@ -70,7 +69,7 @@ window.KAIRO_CONFIG = {
     minimumOrder: {
       pickup: false,      // collected in person — no trip to pay for
       delivery: true,     // the ordinary case: a private order, driven out
-      business: false     // a company order is never held to it
+      business: true      // a company delivery pays its zone's minimum like any other
     },
 
     // How long a basket survives after the last change, in minutes.
@@ -145,8 +144,10 @@ window.KAIRO_CONFIG = {
        instead of leaving it as small print in the corporate section. */
     freeDeliveryFrom: 100,
 
-    // Minimum lead time for large / corporate orders, in hours.
-    leadTimeHours: 2
+    // Minimum lead time for large / corporate orders, in hours. 0 = none is asked:
+    // no notice is printed, warned about or put in the WhatsApp message (owner,
+    // 23.10.2026: the kitchen takes company orders like any other).
+    leadTimeHours: 0
   },
 
   /* --- Delivery area ------------------------------------------------------

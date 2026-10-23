@@ -31,11 +31,13 @@ function freeDeliveryQualifies(subtotalCents) {
   return from != null && subtotalCents >= from * 100;
 }
 
-// The minimum order value is asked of a private order that has to be driven
-// out, and of nothing else.
+// The minimum order value is asked of an order that has to be driven out. A
+// collected order is decided by the pickup rule alone, company or not: there
+// is no trip and no zone (23.10.2026, when company deliveries joined the rule).
 function minimumApplies(type, business) {
   const rule = (CONFIG.order || {}).minimumOrder || {};
-  return business ? rule.business === true : rule[type] === true;
+  if (type !== 'delivery') return rule[type] === true;
+  return business ? rule.business === true : rule.delivery === true;
 }
 
 /**

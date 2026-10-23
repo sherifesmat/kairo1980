@@ -273,6 +273,7 @@
       // Who the minimum is asked of, written from config.order.minimumOrder so
       // the pages state the rule the basket applies.
       minimumClause: 'Der Mindestbestellwert gilt nur für private Lieferbestellungen — bei Abholung und bei Firmenbestellungen entfällt er.',
+      minimumClauseAll: 'Der Mindestbestellwert gilt für jede Lieferbestellung, privat wie geschäftlich — bei Abholung entfällt er.',
       freeDeliveryAll: 'Ab {freeDeliveryFrom} € Bestellwert liefern wir kostenfrei — für jede Bestellung, privat wie geschäftlich.',
       zoneUnknown: 'Diese Postleitzahl liegt außerhalb unseres Liefergebiets. Sie können uns trotzdem eine unverbindliche Anfrage senden — das ist noch keine Bestellung. Wir prüfen, ob wir zu Ihnen liefern können, und antworten direkt im Chat.',
       when: 'Wunschtermin', asap: 'So schnell wie möglich', scheduled: 'Für später planen',
@@ -436,6 +437,7 @@
       zoneFreeReached: 'Delivery to {city} — free, saving you {saved}.',
       zoneBelowMin: '{missing} to go until the minimum order in {city} (€{min}).',
       minimumClause: 'The minimum order value applies to private delivery orders only — it does not apply to collection or to company orders.',
+      minimumClauseAll: 'The minimum order value applies to every delivery order, private or corporate — it does not apply to collection.',
       freeDeliveryAll: 'From €{freeDeliveryFrom} we deliver free of charge — on every order, private or corporate.',
       zoneUnknown: 'This postcode is outside our delivery area. You can still send us a non-binding enquiry — this is not an order yet. We will check whether we can deliver to you and reply in the chat.',
       when: 'Preferred time', asap: 'As soon as possible', scheduled: 'Schedule for later',
@@ -591,6 +593,7 @@
       zoneFreeReached: 'التوصيل لـ {city} — مجاني، ووفّرت {saved}.',
       zoneBelowMin: 'فاضل {missing} على الحد الأدنى للطلب في {city} ({min} €).',
       minimumClause: 'الحد الأدنى للطلب بينطبق على طلبات التوصيل للأفراد بس — مش بينطبق على الاستلام ولا على طلبات الشركات.',
+      minimumClauseAll: 'الحد الأدنى للطلب بينطبق على كل طلب توصيل، فرد أو شركة — ومش بينطبق على الاستلام.',
       freeDeliveryAll: 'من {freeDeliveryFrom} € وفوق التوصيل مجاني — على أي طلب، فرد أو شركة.',
       zoneUnknown: 'الرمز البريدي ده برة منطقة التوصيل بتاعتنا. تقدر تبعتلنا استفسار من غير أي التزام — ده لسه مش طلب. هنشوف نقدر نوصّلك ولا لأ ونرد عليك في الشات.',
       when: 'الموعد المطلوب', asap: 'في أقرب وقت', scheduled: 'حدد موعد بعدين',
@@ -1637,11 +1640,13 @@
     return from != null && subtotal >= from;
   }
 
-  // The minimum order value is asked of a private order that has to be driven
-  // out, and of nothing else.
+  // The minimum order value is asked of an order that has to be driven out. A
+  // collected order is decided by the pickup rule alone, company or not: there
+  // is no trip and no zone (23.10.2026, when company deliveries joined the rule).
   function minimumApplies(type, business) {
     var rule = (CFG.order && CFG.order.minimumOrder) || {};
-    return business ? rule.business === true : rule[type] === true;
+    if (type !== 'delivery') return rule[type] === true;
+    return business ? rule.business === true : rule.delivery === true;
   }
 
   function totals() {
@@ -2881,7 +2886,8 @@
         '</li>';
     }).join('');
 
-    var leadNote = (!pickupOnly() && CFG.business && CFG.business.enabled)
+    // No sentence about notice when there is none to ask for (owner, 23.10.2026).
+    var leadNote = (!pickupOnly() && CFG.business && CFG.business.enabled && CFG.business.leadTimeHours > 0)
       ? '<p class="cart-note" id="cartLeadNote"' + (form.business ? '' : ' hidden') + '>' +
         L.leadTime.replace('{h}', CFG.business.leadTimeHours) + '</p>'
       : '';
@@ -3169,7 +3175,7 @@
     out.push(L.mTime + ': ' + data.time);
     if (data.company) out.push(L.mCompany + ': ' + data.company);
     if (data.notes) out.push(L.mNotes + ': ' + data.notes);
-    if (!pickupOnly() && data.business && CFG.business) {
+    if (!pickupOnly() && data.business && CFG.business && CFG.business.leadTimeHours > 0) {
       out.push(L.mLead + ': ≥ ' + CFG.business.leadTimeHours + ' ' + L.mHours);
     }
 
@@ -3855,8 +3861,9 @@
       // Printed only while it is exactly true: a minimum asked of a private
       // delivery and of nothing else. Widen or drop the rule in config and
       // the sentence stops being written, rather than becoming a small lie.
-      minimumClause: (minRule.delivery === true && minRule.pickup !== true &&
-                      minRule.business !== true) ? t().minimumClause : '',
+      // Since 23.10.2026 company deliveries pay it too, and the sentence says so.
+      minimumClause: (minRule.delivery === true && minRule.pickup !== true)
+        ? (minRule.business === true ? t().minimumClauseAll : t().minimumClause) : '',
       freeDeliveryAll: b.freeDeliveryFrom != null
         ? fill(t().freeDeliveryAll, { freeDeliveryFrom: b.freeDeliveryFrom })
         : ''
