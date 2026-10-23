@@ -78,14 +78,32 @@ test('a sub-minimum private delivery is flagged but still priced', async () => {
   assert.ok(q.total > 0);
 });
 
-test('a company order is never held to the minimum', async () => {
-  // The minimum pays for a driver's trip. We make that trip for an office
-  // whatever the order is worth, so it is not asked of them at all.
+test('a company delivery is held to its zone minimum like any other', async () => {
+  // Owner, 23.10.2026: the minimum pays for a driver's trip, and a trip to an
+  // office costs what a trip to a home costs.
   const q = await quote(env, {
     items: { hummus: 1 }, type: 'delivery', postcode: '76661', business: true
   });
-  assert.equal(q.belowMinimum, false);
+  assert.equal(q.belowMinimum, true);
   assert.ok(q.total > 0);
+});
+
+test('a company pickup is never held to the minimum — there is no trip', async () => {
+  const q = await quote(env, {
+    items: { hummus: 1 }, type: 'pickup', postcode: '76661', business: true
+  });
+  assert.equal(q.belowMinimum, false);
+});
+
+test('the fees raised on 23.10.2026: 0 € zones pay 1 €, 1 € zones pay 2 €, the rest unchanged', async () => {
+  const items = { hummus: 1 };
+  const fee = async (postcode) => (await quote(env, { items, type: 'delivery', postcode })).fee;
+  assert.equal(await fee('68766'), 100);   // Hockenheim, was 0
+  assert.equal(await fee('68775'), 100);   // Ketsch, was 0
+  assert.equal(await fee('69190'), 200);   // Walldorf, was 1
+  assert.equal(await fee('69214'), 200);   // Eppelheim, was 1
+  assert.equal(await fee('69168'), 200);   // Wiesloch, was 2: unchanged
+  assert.equal(await fee('76661'), 300);   // Philippsburg, was 3: unchanged
 });
 
 test('pickup is never held to the minimum — there is no trip to pay for', async () => {

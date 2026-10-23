@@ -40,7 +40,7 @@ test('switching and editing pickup hours leaves the complete delivery setup inta
   assert.deepEqual((await readSettings(env)).hours.days.tue.lunch, ['14:00', '23:00']);
   assert.equal(env.DB._raw.prepare("select value from settings where key='hours'").get().value, before);
   assert.equal(JSON.stringify(CONFIG.delivery.zones), originalZones);
-  assert.equal(CONFIG.business.leadTimeHours, 2); // saved delivery policy, not applied in pickup mode
+  assert.equal(CONFIG.business.leadTimeHours, 0); // no notice is asked (owner, 23.10.2026)
   await writeServiceMode(env, 'pickup');
   assert.deepEqual((await readSettings(env)).hours.days.tue.lunch, ['11:30', '20:30']);
 });
@@ -167,7 +167,11 @@ test('the company pickup timing card removes the fixed advance rule in every lan
     assert.ok(!/2|leadTimeHours/.test(translated[1]));
   }
   assert.equal(withServiceMode(original, 'delivery'), original);
-  assert.match(original, /Ab \{leadTimeHours\} Stunden Vorlauf/);
+  // Owner, 23.10.2026: no page asks a company for notice, in any language.
+  for (const page of ['../../firmencatering.html', '../../index.html']) {
+    const html = readFileSync(new URL(page, import.meta.url), 'utf8').replace(/<!--[\s\S]*?-->/g, '');  // what a reader can see
+    assert.doesNotMatch(html, /Vorlauf|\{leadTimeHours\}|hours' notice|lead time|ساعات تحضير/, page);
+  }
 });
 
 test('generated weekly translations also work on a source element without a class', () => {

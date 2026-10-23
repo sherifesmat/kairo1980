@@ -2099,7 +2099,7 @@ a.cart-send-wa {
 }
 
 /* Temporary pickup mode: saved delivery setup remains intact. */
-body.pickup-only #liefergebiet, body.pickup-only a[href="#liefergebiet"], body.pickup-only .bfact:has([data-cfg="leadTimeHours"]), body.pickup-only .bfact:has([data-cfg="freeDeliveryFrom"]), body.pickup-only .delivery-note { display: none !important; }
+body.pickup-only #liefergebiet, body.pickup-only a[href="#liefergebiet"], body.pickup-only .bfact:has([data-fact="direct-discount"]), body.pickup-only .bfact:has([data-cfg="freeDeliveryFrom"]), body.pickup-only .delivery-note { display: none !important; }
 
 /* The temporary pickup guide uses the same warm palette as the restaurant. */
 .pickup-guide { display:none; max-width:1160px; margin:0 auto; padding:32px 40px; }

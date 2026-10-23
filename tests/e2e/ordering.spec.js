@@ -304,8 +304,9 @@ test('below the threshold the basket says how much is missing', async ({ page })
   await expect(page.locator('#cartBody')).toContainText('81,00');
 });
 
-test('a company order is not asked for a minimum, on screen or in the chat',
+test('a company delivery is held to its zone minimum, on screen and in the chat',
   async ({ page }) => {
+    // Owner, 23.10.2026: the minimum is the zone's, for private and company alike.
     const whatsapp = await captureWhatsApp(page);
     await page.goto('/?lang=de');
     await addItem(page, 'hummus', 1);         // 9.50, far under Wiesloch's 20 €
@@ -316,17 +317,25 @@ test('a company order is not asked for a minimum, on screen or in the chat',
     const zone = page.locator('.cart-zone');
     await expect(zone).toContainText('Mindestbestellwert');
 
-    // Ticking "Firmenbestellung" is what removes it — the same order, a
-    // different customer.
+    // Ticking "Firmenbestellung" changes nothing about it.
     await page.locator('#fBusiness').check();
-    await expect(zone).not.toContainText('Mindestbestellwert');
-    await expect(page.locator('.cart-zone.is-below-min')).toHaveCount(0);
+    await expect(zone).toContainText('Mindestbestellwert');
+    await expect(page.locator('.cart-zone.is-below-min')).toHaveCount(1);
 
     await fillContact(page, { address: 'Hauptstraße 1', postcode: '69168' });
     await page.locator('#cartSend').click();
     const sent = decodeURIComponent((await whatsapp()).split('?text=')[1]);
-    expect(sent).not.toContain('Mindestbestellwert');
+    expect(sent).toContain('Mindestbestellwert');
   });
+
+test('a company pickup is never held to a minimum', async ({ page }) => {
+  await page.goto('/');
+  await addItem(page, 'hummus', 1);
+  await openBasket(page);
+  await choosePickup(page);
+  await page.locator('#fBusiness').check();
+  await expect(page.locator('#cartBody')).not.toContainText('Mindestbestellwert');
+});
 
 test('a collected order is never held to a delivery minimum', async ({ page }) => {
   await page.goto('/');

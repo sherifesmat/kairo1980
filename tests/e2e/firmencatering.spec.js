@@ -30,8 +30,10 @@ test('the page is served on its own URL and says what it is', async ({ page }) =
   const cfg = await page.evaluate(() => window.KAIRO_CONFIG);
   await expect(page.locator('[data-cfg="freeDeliveryFrom"]'))
     .toHaveText(String(cfg.business.freeDeliveryFrom));
-  await expect(page.locator('[data-cfg="leadTimeHours"]'))
-    .toHaveText(String(cfg.business.leadTimeHours));
+  await expect(page.locator('[data-fact="direct-discount"] [data-cfg="discount"]'))
+    .toHaveText(String(cfg.order.directDiscountPercent));
+  // Owner, 23.10.2026: no notice is asked of a company, so none is shown.
+  await expect(page.locator('body')).not.toContainText('Vorlauf');
 });
 
 test('it carries every legal statement a standalone page needs', async ({ page }) => {
@@ -205,7 +207,7 @@ test('the homepage teaser hands over instead of repeating the page', async ({ pa
   // What a teaser keeps: the heading, the lead, the two figures, one way on.
   await expect(teaser).toBeVisible();
   await expect(teaser.locator('[data-cfg="freeDeliveryFrom"]')).toHaveCount(1);
-  await expect(teaser.locator('[data-cfg="leadTimeHours"]')).toHaveCount(1);
+  await expect(teaser.locator('[data-fact="direct-discount"]')).toHaveCount(1);
 
   // What it must not keep: the detail that now has one authoritative address.
   await expect(teaser).not.toContainText('LMIV');
@@ -235,7 +237,7 @@ test('both pages state the delivery rules in the words config writes',
     for (const path of ['/', URL]) {
       await page.goto(path);
       const areas = page.locator('#liefergebiet');
-      await expect(areas).toContainText('nur für private Lieferbestellungen');
+      await expect(areas).toContainText('für jede Lieferbestellung, privat wie geschäftlich');
       await expect(areas).toContainText('privat wie geschäftlich');
       // The old framing, in which free delivery was a corporate perk.
       await expect(page.locator('body')).not.toContainText('Firmen- und Büro-Bestellungen ab');
@@ -253,5 +255,5 @@ test('the minimum sentence disappears by itself if the rule ever changes',
       document.dispatchEvent(new CustomEvent('kairo:lang', { detail: 'de' }));
       return document.querySelector('.areas-lead').textContent;
     });
-    expect(shown).not.toContain('nur für private Lieferbestellungen');
+    expect(shown).not.toContain('für jede Lieferbestellung');
   });
