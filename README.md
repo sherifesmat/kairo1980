@@ -20,7 +20,7 @@ in the delivery spreadsheet. Neither needs a developer.
 | When a driver starts delivering | `/admin` → Opening hours, or `config.js` → `hours.deliveryFrom` | live at once / commit |
 | Free-delivery threshold (every order) | `config.js` → `business.freeDeliveryFrom` | commit |
 | Who the minimum order applies to | `config.js` → `order.minimumOrder` | commit |
-| Lead time for large orders | `config.js` → `business.leadTimeHours` | commit |
+| Lead time for company orders (0 = none is asked, nothing about notice is shown) | `config.js` → `business.leadTimeHours` | commit |
 | Direct-order discount | `config.js` → `order.directDiscountPercent` | commit |
 | How long a basket is remembered | `config.js` → `order.cartLifetimeMinutes` | commit |
 | Show the PayPal buttons | `config.js` → `payment.paypalMe` | commit |

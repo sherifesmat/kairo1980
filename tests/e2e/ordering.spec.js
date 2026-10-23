@@ -470,3 +470,42 @@ test('a Menü shows its allergens on the first load, before any language switch'
     await expect(codes(menu)).toHaveText('a,g,k');
   }
 });
+
+/* --- No notice is asked of a company (owner, 23.10.2026) -----------------
+   leadTimeHours is 0: the basket, its warnings and the message the restaurant
+   reads must say nothing about notice, in every language. */
+const NOTICE = {
+  de: /Vorlauf|im Voraus/,
+  en: /lead time|in advance|notice/i,
+  ar: /تحضير|قبلها بـ/
+};
+for (const lang of ['de', 'en', 'ar']) {
+  test(`a company delivery asks for no notice, on screen or in the chat (${lang})`, async ({ page }) => {
+    const whatsapp = await captureWhatsApp(page);
+    await page.goto(`/?lang=${lang}`);
+    await addItem(page, 'hummus', 2);
+    await openBasket(page);
+    await chooseDelivery(page);
+    await page.locator('#fPlz').fill('68766');
+    await page.locator('#fBusiness').check();
+    await expect(page.locator('#cartBody')).not.toContainText(NOTICE[lang]);
+    await expect(page.locator('#cartLeadNote')).toHaveCount(0);
+    await fillContact(page, { address: 'Hauptstraße 1', postcode: '68766' });
+    await page.locator('#cartSend').click();
+    const sent = decodeURIComponent((await whatsapp()).split('?text=')[1]);
+    expect(sent).not.toMatch(NOTICE[lang]);
+  });
+}
+
+test('a company pickup sends no minimum in the chat either', async ({ page }) => {
+  const whatsapp = await captureWhatsApp(page);
+  await page.goto('/?lang=de');
+  await addItem(page, 'hummus', 1);
+  await openBasket(page);
+  await choosePickup(page);
+  await page.locator('#fBusiness').check();
+  await fillContact(page, {});
+  await page.locator('#cartSend').click();
+  const sent = decodeURIComponent((await whatsapp()).split('?text=')[1]);
+  expect(sent).not.toContain('Mindestbestellwert');
+});

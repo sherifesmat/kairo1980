@@ -3858,10 +3858,11 @@
       // print the rule with it, and neither can be edited into disagreeing
       // with what the basket actually charges. Both fall silent by themselves:
       // a minimum asked of everyone, or no threshold at all, needs no caveat.
-      // Printed only while it is exactly true: a minimum asked of a private
-      // delivery and of nothing else. Widen or drop the rule in config and
-      // the sentence stops being written, rather than becoming a small lie.
-      // Since 23.10.2026 company deliveries pay it too, and the sentence says so.
+      // Printed only while it is exactly true: a minimum asked of deliveries
+      // and never of a pickup — of private deliveries only (minimumClause) or,
+      // since 23.10.2026, of every delivery, private or company
+      // (minimumClauseAll). Change the rule in config and the sentence follows,
+      // or stops being written, rather than becoming a small lie.
       minimumClause: (minRule.delivery === true && minRule.pickup !== true)
         ? (minRule.business === true ? t().minimumClauseAll : t().minimumClause) : '',
       freeDeliveryAll: b.freeDeliveryFrom != null
