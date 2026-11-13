@@ -303,7 +303,7 @@
       pay: { cash: 'Bargeld', giro: 'EC-/Girocard', card: 'Kreditkarte' },
       // Kennzeichnungspflichtige Allergene nach LMIV (EU) Nr. 1169/2011.
       allergen: {
-        gluten: 'Gluten', eggs: 'Eier', soy: 'Soja', milk: 'Milch', sesame: 'Sesam',
+        gluten: 'Weizen', eggs: 'Eier', soy: 'Soja', milk: 'Milch', sesame: 'Sesam',
         nuts: 'Schalenfrüchte', walnuts: 'Schalenfrüchte (Walnüsse)',
         // Only ever named as traces a supplier warns of, never declared on a dish here.
         celery: 'Sellerie', crustaceans: 'Krebstiere', mustard: 'Senf', fish: 'Fisch',
@@ -315,6 +315,9 @@
       allergenPending: 'Allergene bitte erfragen',
       allergenLegendTitle: 'Allergenkennzeichnung',
       allergenLegendNote: 'Die Buchstaben hinter einem Gericht nennen die enthaltenen kennzeichnungspflichtigen Allergene nach LMIV (EU) Nr. 1169/2011. Gerichte ohne Buchstaben und ohne * enthalten keine kennzeichnungspflichtigen Allergene. Ein * heißt: Die Angaben liegen uns noch nicht vor — bitte fragen Sie uns vor der Bestellung. Bei Gerichten mit Auswahl nennen die Buchstaben am Gericht die Möglichkeiten für Basis und Topping zusammen. Jede Option und jedes Extra zeigt seine eigenen Allergene; was Sie zusammen wählen, bestimmt Ihr Gericht. Bei Fragen sprechen Sie uns bitte an — auch zu Spuren, die sich in einer offenen Küche nie ganz ausschließen lassen.',
+      // Zusatzstoffe, Wortlaut nach § 5 LMZDV; die Lebensmittel selbst enthalten keine.
+      additive: { colour: 'mit Farbstoff', sweeteners: 'mit Süßungsmitteln', phenylalanine: 'enthält eine Phenylalaninquelle' },
+      additivesNote: 'Zusatzstoffe: Unsere Speisen enthalten keine kennzeichnungspflichtigen Zusatzstoffe. Getränke werden in der verschlossenen Originalflasche abgegeben; die Zusatzstoffe stehen am Getränk, maßgeblich ist das Etikett. Glutenhaltiges Getreide ist bei uns ausschließlich Weizen.',
       // Wortlaut gesetzlich vorgegeben (LMIV Anhang III Nr. 4.1).
       caffeineNotice: 'Erhöhter Koffeingehalt. Für Kinder und schwangere oder stillende Frauen nicht empfohlen.',
       payOnSite: 'Zahlung bei {type}: {methods}.',
@@ -465,7 +468,7 @@
       or: 'or',
       pay: { cash: 'cash', giro: 'girocard', card: 'credit card' },
       allergen: {
-        gluten: 'gluten', eggs: 'eggs', soy: 'soy', milk: 'milk', sesame: 'sesame',
+        gluten: 'wheat', eggs: 'eggs', soy: 'soy', milk: 'milk', sesame: 'sesame',
         nuts: 'tree nuts', walnuts: 'Tree nuts (walnuts)',
         celery: 'celery', crustaceans: 'crustaceans', mustard: 'mustard', fish: 'fish',
         sulphites: 'sulphites', molluscs: 'molluscs', lupin: 'lupin', peanuts: 'peanuts'
@@ -476,6 +479,8 @@
       allergenPending: 'Please ask us about allergens',
       allergenLegendTitle: 'Allergen information',
       allergenLegendNote: 'The letters after a dish name list the allergens requiring declaration under LMIV (EU) 1169/2011. Dishes with neither letters nor * contain none. A * means we do not have the information yet — please ask us before you order. For dishes with choices, the letters on the dish cover the base and topping alternatives. Each option and optional extra shows its own allergens; the components you select together determine your dish. Please ask us about anything else — including traces, which an open kitchen can never fully rule out.',
+      additive: { colour: 'with colouring', sweeteners: 'with sweeteners', phenylalanine: 'contains a source of phenylalanine' },
+      additivesNote: 'Additives: our food contains no additives requiring declaration. Drinks are served in the sealed original bottle; their additives are shown on the drink, and the bottle label is authoritative. The only gluten-containing cereal we use is wheat.',
       caffeineNotice: 'High caffeine content. Not recommended for children or pregnant or breastfeeding women.',
       payOnSite: 'Payment on {type}: {methods}.',
       payOnline: 'Or pay online right away — with Apple Pay, Google Pay, card or PayPal.',
@@ -621,7 +626,7 @@
       or: 'أو',
       pay: { cash: 'كاش', giro: 'كارت EC/Giro', card: 'كارت ائتمان' },
       allergen: {
-        gluten: 'جلوتين', eggs: 'بيض', soy: 'صويا', milk: 'لبن', sesame: 'سمسم',
+        gluten: 'قمح', eggs: 'بيض', soy: 'صويا', milk: 'لبن', sesame: 'سمسم',
         nuts: 'مكسرات قشرية', walnuts: 'مكسرات قشرية (عين جمل)',
         celery: 'كرفس', crustaceans: 'قشريات', mustard: 'مستردة', fish: 'سمك',
         sulphites: 'كبريتيت', molluscs: 'رخويات', lupin: 'ترمس', peanuts: 'فول سوداني'
@@ -632,6 +637,8 @@
       allergenPending: 'برجاء السؤال عن مسببات الحساسية',
       allergenLegendTitle: 'بيان مسببات الحساسية',
       allergenLegendNote: 'الحروف اللي جنب اسم الطبق بتوضّح مسببات الحساسية الواجب الإعلان عنها حسب لائحة LMIV (EU) 1169/2011. والأطباق اللي من غير حروف ومن غير * مفيهاش مسببات واجبة الإعلان. والنجمة * معناها إن البيانات لسه مش عندنا — اسألنا قبل ما تطلب. وفي الأطباق اللي فيها اختيارات، الحروف اللي جنب الطبق بتجمع اختيارات القاعدة واللي فوقه. وكل اختيار وكل إضافة مكتوب جنبه مسببات الحساسية بتاعته؛ واللي بتختاره كله مع بعض هو اللي بيحدد طبقك. ولو عندك أي سؤال كلّمنا — كمان بخصوص الآثار البسيطة اللي مطبخ مفتوح عمره ما يقدر يمنعها تماماً.',
+      additive: { colour: 'فيه مادة ملوّنة', sweeteners: 'فيه مُحلّيات', phenylalanine: 'فيه مصدر للفينيل ألانين' },
+      additivesNote: 'المواد المضافة: أكلنا مفيهوش مواد مضافة واجبة الإعلان. المشروبات بتتقدّم في إزازتها الأصلية المقفولة؛ المواد المضافة مكتوبة جنب المشروب، والمرجع هو الملصق اللي على الإزازة. والحبوب اللي فيها جلوتين عندنا هي القمح بس.',
       caffeineNotice: 'نسبة كافيين عالية. غير مناسب للأطفال ولا للحوامل أو المرضعات.',
       payOnSite: 'الدفع عند ال{type}: {methods}.',
       payOnline: 'أو ادفع أونلاين على طول — بـ Apple Pay أو Google Pay أو الكارت أو PayPal.',
@@ -1869,7 +1876,7 @@
   ------------------------------------------------------------------------- */
 
   /* The letters are the German trade convention, and they are not arbitrary:
-     a = Glutenhaltiges Getreide, g = Milch, h = Schalenfrüchte, k = Sesam,
+     a = Glutenhaltiges Getreide (bei uns: Weizen), g = Milch, h = Schalenfrüchte, k = Sesam,
      in the order LMIV Annex II lists them. Every printed menu in the country
      uses them, which is exactly why they work — a guest with an allergy knows
      to look for the legend without being told.
@@ -1927,6 +1934,7 @@
 
       if (el.getAttribute('data-caffeine')) anyCaffeine = true;
       renderCaffeine(el, L);
+      renderAdditives(el, L);
     });
 
     /* A dish with choices carries the letters of its base and topping
@@ -1984,6 +1992,21 @@
     if (host) host.textContent = L.caffeineNotice;
   }
 
+  /* Additives are declared the same way and on the same page as the allergens
+     (Merkblatt CVUA BW, Feb 2022): on the drink itself, in the prescribed words. */
+  function renderAdditives(el, L) {
+    var declared = (el.getAttribute('data-additives') || '').trim();
+    if (!declared) return;
+    var host = el.querySelector('.madditives');
+    if (!host) {
+      host = document.createElement('p');
+      host.className = 'madditives';
+      var anchor = el.querySelector('.mtags') || el.querySelector('.mdesc') || el.querySelector('.mname');
+      if (anchor && anchor.parentNode) anchor.parentNode.appendChild(host);
+    }
+    host.textContent = declared.split(/\s+/).map(function (key) { return L.additive[key] || key; }).join(', ') + '.';
+  }
+
   function renderLegend(L, used, anyPending, anyCaffeine) {
     var section = document.querySelector('#speisekarte .menu-section');
     if (!section) return;
@@ -2013,7 +2036,8 @@
       '<h3 class="legend-title">' + escapeHtml(L.allergenLegendTitle) + '</h3>' +
       '<div class="legend-items">' + parts.join('') + '</div>' +
       tracesHtml(L) +
-      '<p class="legend-note">' + escapeHtml(L.allergenLegendNote) + '</p>';
+      '<p class="legend-note">' + escapeHtml(L.allergenLegendNote) + '</p>' +
+      '<p class="legend-additives">' + escapeHtml(L.additivesNote) + '</p>';
   }
 
   /* What a bought-in product's maker warns it may contain, on the product's
