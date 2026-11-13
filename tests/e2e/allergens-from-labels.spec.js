@@ -15,7 +15,7 @@ const switchTo = (page, label) => page.evaluate((text) => {
 test('the chocolate cake is declared from its label: gluten, egg, milk', async ({ page }) => {
   await page.goto('/?lang=de');
   await expect(codes(page, 'schokoladentoertchen')).toHaveText('a,c,g');
-  await expect(codes(page, 'schokoladentoertchen')).toHaveAttribute('aria-label', 'Allergene: Gluten, Eier, Milch');
+  await expect(codes(page, 'schokoladentoertchen')).toHaveAttribute('aria-label', 'Allergene: Weizen, Eier, Milch');
   await expect(legendItem(page, 'c')).toHaveText('c Eier');
 });
 
@@ -64,4 +64,18 @@ test('the cake maker\'s trace warning is in the legend, under the clean dish nam
 
   // The open-kitchen note is a different statement and stays as it was.
   await expect(page.locator('#allergenLegend .legend-note')).toContainText('open kitchen');
+});
+
+/* Kontrollbericht 08.10.2026 / Anordnung Nr. 31: the cereal is named (Weizen, not "Gluten"),
+   and additives are declared on the same page, in the § 5 LMZDV wording. */
+test('the gluten cereal is named as wheat, and the drinks declare their additives', async ({ page }) => {
+  await page.goto('/');
+  const legend = page.locator('#allergenLegend');
+  await expect(legend.locator('.legend-item', { hasText: /^a / })).toHaveText('a Weizen');
+  await expect(legend).not.toContainText('a Gluten');
+  await expect(legend.locator('.legend-additives')).toContainText('keine kennzeichnungspflichtigen Zusatzstoffe');
+  await expect(page.locator('.mitem[data-item="fritz-kola-0-33-l"] .madditives')).toHaveText('mit Farbstoff.');
+  await expect(page.locator('.mitem[data-item="fritz-zero-kola-0-33-l"] .madditives'))
+    .toHaveText('mit Farbstoff, mit Süßungsmitteln, enthält eine Phenylalaninquelle.');
+  await expect(page.locator('#speisekarte')).not.toContainText('Sesam, Nüsse, Gluten');
 });
