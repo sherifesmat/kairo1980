@@ -685,3 +685,70 @@ test('R5-03: a correction to yesterday\'s order links to yesterday\'s page, at t
   const today = await (await worker.fetch(new Request('https://kairo1980.de/admin/orders', { headers: { cookie } }), env, c)).text();
   assert.ok(!today.includes(`id="o-${first.body.reference}"`), 'the plain link would not have found it');
 });
+
+/* --- round 6 of the loop: the edges of a correction ---
+   Loop WEBSITE_ORDERING, R6-01 .. R6-03. Each of these got through on 3e3ca1a. */
+
+/** Run `before` just ahead of every correction's guarded update, then the
+ *  update itself, exactly as the Worker wrote it. */
+function aheadOfEachCorrection(env, before) {
+  const prepare = env.DB.prepare.bind(env.DB);
+  let n = 0;
+  env.DB.prepare = (sql) => {
+    const stmt = prepare(sql);
+    if (!/^\s*UPDATE orders SET (requested_time|customer_address|customer_phone|notes) = \?2/.test(sql)) return stmt;
+    return { bind: (...args) => ({ run: async () => { await before(++n, args); return stmt.bind(...args).run(); } }) };
+  };
+}
+
+test('R6-01: a retention sweep landing between the read and the write is not undone', async (t) => {
+  const { env, c, alerts } = reportWorld(t);
+  const payment = await paymentIn(env, c, 'captured');
+  const first = await announce(env, c, { ...HANDOVER, phone: null, paymentId: payment.id });
+  // Old enough to be swept, but not swept yet when the correction reads it.
+  env.DB._raw.prepare(`UPDATE orders SET created_at = datetime('now', '-4 years')`).run();
+  aheadOfEachCorrection(env, () => scrubExpiredIdentities(env));
+
+  const again = await announce(env, c, { ...HANDOVER, phone: '+49 170 9999999', paymentId: payment.id });
+  assert.equal(again.status, 200);
+  assert.equal(again.body.reference, first.body.reference);
+  const [row] = orders(env);
+  assert.ok(row.details_purged_at, 'the sweep ran');
+  assert.equal(row.customer_phone, null, 'and the phone was not written back into the swept row');
+  assert.equal(row.amendments, null);
+  assert.equal(alerts().length, 0);
+});
+
+test('R6-02: a competitor that wrote exactly what was asked, just before the last try, is not a conflict', async (t) => {
+  const { env, c, alerts } = reportWorld(t);
+  const payment = await paymentIn(env, c, 'captured');
+  await announce(env, c, { ...HANDOVER, time: 'Mi, 25.11. 18:00', paymentId: payment.id });
+  aheadOfEachCorrection(env, (n, args) => {
+    // Tries 1 and 2: someone else moves it elsewhere. Try 3: someone else
+    // writes exactly what this guest asked for.
+    const time = n < 3 ? `elsewhere ${n}` : 'Do, 26.11. 19:30';
+    env.DB._raw.prepare('UPDATE orders SET requested_time = ? WHERE id = ?').run(time, args[0]);
+  });
+
+  const res = await announce(env, c, { ...HANDOVER, time: 'Do, 26.11. 19:30', paymentId: payment.id });
+  assert.equal(res.status, 200, 'what was asked is what is stored');
+  assert.equal(res.body.recorded, true);
+  assert.equal(orders(env)[0].requested_time, 'Do, 26.11. 19:30');
+  assert.ok(!alerts().some((m) => /NICHT GESPEICHERT/.test(m)), 'and nobody is told it was not saved');
+});
+
+test('R6-03: a correction that was not saved never calls the stored time new', async (t) => {
+  const { env, c, alerts } = reportWorld(t);
+  const payment = await paymentIn(env, c, 'captured');
+  await announce(env, c, { ...HANDOVER, time: 'Mi, 25.11. 18:00', paymentId: payment.id });
+  aheadOfEachCorrection(env, (n, args) => {
+    env.DB._raw.prepare('UPDATE orders SET requested_time = ? WHERE id = ?').run(`competing ${n}`, args[0]);
+  });
+
+  const res = await announce(env, c, { ...HANDOVER, time: 'Do, 26.11. 19:30', paymentId: payment.id });
+  assert.equal(res.status, 409);
+  const message = alerts().at(-1);
+  assert.match(message, /NICHT GESPEICHERT, BITTE WHATSAPP PRÜFEN/);
+  assert.doesNotMatch(message, /Neuer Termin/);
+  assert.match(message, new RegExp(`Aktuell gespeichert: ${orders(env)[0].requested_time}`));
+});

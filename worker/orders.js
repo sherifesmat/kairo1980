@@ -231,7 +231,7 @@ async function amend(env, row, changes) {
   const result = await env.DB.prepare(
     `UPDATE orders SET ${sets}, amended_at = datetime('now'),
             amendments = COALESCE(amendments, 0) + 1
-      WHERE id = ?1 AND ${guards}`
+      WHERE id = ?1 AND details_purged_at IS NULL AND ${guards}`
   ).bind(row.id, ...changes.map((c) => c.after), ...changes.map((c) => c.before)).run();
   return Number(result?.meta?.changes || 0) > 0;
 }
@@ -269,15 +269,20 @@ async function correctOrder(env, stored, body, ip) {
 
   let current = stored;
   let labels = corrections(stored, body).map((c) => c.label);
-  for (let attempt = 0; attempt < CORRECTION_ATTEMPTS; attempt++) {
-    if (current.details_purged_at) return answer;
+  /* Every pass, including the one after the last failed try, asks the row as
+     it now stands: purged, or already holding what was asked, ends it as a
+     plain replay. Only a row that still differs after the last try is a
+     conflict (R6-02). The update itself also refuses a purged row, so a sweep
+     landing between the read and the write cannot be undone by it (R6-01). */
+  for (let attempt = 0; ; attempt++) {
+    if (!current || current.details_purged_at) return answer;
     const changes = corrections(current, body);
     if (!changes.length) return answer;
+    if (attempt === CORRECTION_ATTEMPTS) break;
     labels = changes.map((c) => c.label);
-    if (await amend(env, current, changes)) return { ...answer, amended: changes.map((c) => c.label) };
+    if (await amend(env, current, changes)) return { ...answer, amended: labels };
     current = await env.DB.prepare(`SELECT ${REPEAT_COLUMNS} FROM orders WHERE id = ?1`)
       .bind(stored.id).first();
-    if (!current) break;
   }
   return { ...answer, conflict: true, amended: labels };
 }

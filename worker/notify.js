@@ -177,7 +177,12 @@ export function composeOrderCorrectionMessage(order, changed, { saved = true } =
     (saved ? '' : ' — NICHT GESPEICHERT, BITTE WHATSAPP PRÜFEN'));
   lines.push('');
   lines.push('Geändert: ' + changed.join(', '));
-  if (changed.includes('Termin') && order.requested_time) lines.push('Neuer Termin: ' + order.requested_time);
+  /* `order` is the row as stored. After a correction that was saved, its time
+     IS the new one. After one that was not, it is the old or a competing time,
+     and must not be called new (R6-03). */
+  if (changed.includes('Termin') && order.requested_time) {
+    lines.push((saved ? 'Neuer Termin: ' : 'Aktuell gespeichert: ') + order.requested_time);
+  }
   lines.push('');
   lines.push('Aktuelle Angaben: ' + correctionLink(order));
   return lines.join('\n');
