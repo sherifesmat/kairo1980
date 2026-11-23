@@ -2638,6 +2638,18 @@
     host.textContent = warnings.map(function (w) { return w.text; }).join(' ');
   }
 
+  /* The chosen moment as the server reads it: {date, time} for a scheduled
+     order, null for "as soon as possible". Never a price — only a wish. The
+     payment path and the pay-on-arrival announce send exactly this, so the
+     Worker applies one closure rule to both. Loop WEBSITE_ORDERING, W01-02:
+     the announce used to send only the display text, so an order placed during
+     a closure for after reopening reached WhatsApp but was refused for the books. */
+  function requestedWhen() {
+    return form.when === 'scheduled' && draft.fDate && draft.fTime
+      ? { date: String(draft.fDate), time: String(draft.fTime) }
+      : null;
+  }
+
   // Human-readable version of the chosen moment, for the WhatsApp message.
   function whenText() {
     var L = t();
@@ -2772,7 +2784,12 @@
   function typesHtml() {
     if (pickupOnly()) {
       form.type = "pickup";
-      return '<p class="cart-note">' + escapeHtml(t().pickupLabel) + ' · Rostocker Straße 20a, Hockenheim</p>';
+      /* The payment choice belongs to the order, not to the delivery switch.
+         This branch used to return the pickup line alone, so from the moment
+         /admin set pickup-only the basket offered no way to pay online at all —
+         the last online payment was 25.10.2026. Loop WEBSITE_ORDERING, D. */
+      return '<p class="cart-note">' + escapeHtml(t().pickupLabel) + ' · Rostocker Straße 20a, Hockenheim</p>' +
+        payHtml();
     }
     var L = t();
     syncType();
@@ -3352,7 +3369,8 @@
       pay: form.pay,
       business: !!document.getElementById('fBusiness') && document.getElementById('fBusiness').checked,
       name: val('fName'), phone: val('fPhone'), address: val('fAddress'),
-      plz: val('fPlz'), time: whenText(), company: val('fCompany'), notes: val('fNotes')
+      plz: val('fPlz'), time: whenText(), when: requestedWhen(),
+      company: val('fCompany'), notes: val('fNotes')
     };
 
     var required = ['fName', 'fPhone'];
@@ -3428,9 +3446,7 @@
           postcode: pending.data.plz,
           // Which moment this order is for, so the server can apply the same
           // closure rule the basket did. Never a price — only a wish.
-          when: form.when === 'scheduled' && draft.fDate && draft.fTime
-            ? { date: String(draft.fDate), time: String(draft.fTime) }
-            : null,
+          when: requestedWhen(),
           lang: lang()
         },
         // In cents, and only so the wallet sheet can show the guest the same
@@ -3520,6 +3536,7 @@
           business: !!data.business,
           postcode: data.plz,
           time: data.time,
+          when: data.when || null,
           name: data.name,
           phone: data.phone,
           address: data.address,
@@ -3695,7 +3712,8 @@
       business: form.business,
       name: draft.fName || val('fName'), phone: draft.fPhone || val('fPhone'),
       address: draft.fAddress || val('fAddress'), plz: draft.fPlz || val('fPlz'),
-      time: whenText(), company: draft.fCompany || '', notes: draft.fNotes || ''
+      time: whenText(), when: requestedWhen(),
+      company: draft.fCompany || '', notes: draft.fNotes || ''
     };
   }
 
