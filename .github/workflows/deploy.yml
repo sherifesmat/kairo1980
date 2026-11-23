@@ -64,6 +64,7 @@ jobs:
         env:
           KAIRO_GATE: '1'
           PLAYWRIGHT_JSON_OUTPUT_NAME: gate-results.json
+          KAIRO_PW_OUT: ${{ runner.temp }}/test-results
         run: npx playwright test --project=gate --reporter=list,json
 
       - name: The gate held only if all four ran and passed
@@ -75,7 +76,7 @@ jobs:
         with:
           name: gate-browser-evidence
           path: |
-            test-results/
+            ${{ runner.temp }}/test-results/
             gate-results.json
 
   deploy:
@@ -148,6 +149,35 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "no schema change — skipping"
           fi
+
+      # Migration 0006 makes one payment pay for at most one order, with a
+      # unique index. Should production already hold a payment linked to two
+      # orders, the index cannot be built. So this is asked first, and it says
+      # why in plain words instead of leaving a half-applied migration. Only
+      # counts are printed, never an order. Loop WEBSITE_ORDERING (KBOSS), B4.
+      - name: No payment is already linked to two orders
+        id: preflight
+        if: steps.schema.outputs.changed == 'true'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: '4.114.0'
+          command: 'd1 execute kairo1980-payments --remote --json --command "SELECT COUNT(*) AS duplicated FROM (SELECT payment_id FROM orders WHERE payment_id IS NOT NULL GROUP BY payment_id HAVING COUNT(*) > 1)"'
+
+      - name: The preflight found none
+        if: steps.schema.outputs.changed == 'true'
+        env:
+          OUT: ${{ steps.preflight.outputs.command-output }}
+        run: |
+          printf '%s' "$OUT" | python3 -c '
+          import json, sys
+          text = sys.stdin.read()
+          rows = json.loads(text[text.index("["):])[0]["results"]
+          n = int(rows[0]["duplicated"])
+          print(f"payments linked to more than one order: {n}")
+          sys.exit(1 if n else 0)
+          '
 
       # The schema has to exist before the Worker that writes to it goes live.
       # Applying migrations is idempotent: already-applied ones are skipped.

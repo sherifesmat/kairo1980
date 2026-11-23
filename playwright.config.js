@@ -3,9 +3,19 @@
    exercise the same code that gets deployed — not a dev server standing in
    for it. Mobile first: most people order dinner from a phone. */
 
+import os from 'node:os';
+import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
 const PORT = 8788;
+
+/* Where Playwright writes traces and screenshots: OUTSIDE the repository.
+   `wrangler dev` serves the repo root and reloads on every file written there,
+   and a run writes into its output folder for every single test. Inside the
+   repo that was some 350 reloads a run, and on Windows one of them eventually
+   killed the runtime (`std::terminate`) mid-run, failing whichever test came
+   next with ERR_CONNECTION_REFUSED. CI names the folder so it can upload it. */
+const OUTPUT = process.env.KAIRO_PW_OUT || path.join(os.tmpdir(), 'kairo1980-test-results');
 
 /* Specs that write settings shared by the whole run — the ordering switch, the
    hours and the holiday band are all one row in one database. See the `switch`
@@ -27,6 +37,7 @@ export default defineConfig({
   workers: process.env.CI ? 2 : 4,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
+  outputDir: OUTPUT,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],
 
   use: {

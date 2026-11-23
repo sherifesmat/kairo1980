@@ -926,9 +926,13 @@ async function ordersReport(request, env, url) {
             o.customer_name, o.customer_phone, o.customer_address,
             o.customer_company, o.details_purged_at,
             p.provider, p.status AS payment_status, p.refunded_amount,
-            p.captured_at, p.payment_source
+            p.captured_at, p.payment_source,
+            o.payment_check, o.claimed_payment_id,
+            cp.status AS claimed_status, cp.amount AS claimed_amount,
+            cp.captured_at AS claimed_captured_at
        FROM orders o
        LEFT JOIN payments p ON p.id = o.payment_id
+       LEFT JOIN payments cp ON cp.id = o.claimed_payment_id
       WHERE o.created_at >= ?1 AND o.created_at < ?2
       ORDER BY o.created_at ASC
       LIMIT ?3`
@@ -1021,6 +1025,23 @@ async function ordersReport(request, env, url) {
               status: o.payment_status,
               source: o.payment_source,
               capturedAt: asInstant(o.captured_at)
+            }
+          : null,
+        /* Additive, so `payMethod` keeps its two documented values. An order
+           whose browser named a payment that did not check out is reported as
+           `onsite`, but it is NOT an ordinary cash receivable: the named
+           payment may have taken the money (`claimedPayment.status` is
+           `captured`), in which case the guest has paid online for an order the
+           site could not tie to it. A reader of the books must hold such an
+           order apart until a person resolves it, and must neither count it as
+           cash taken nor chase the guest for it. Loop WEBSITE_ORDERING, R3-04. */
+        paymentCheck: o.payment_check || null,
+        claimedPayment: o.payment_check === 'unverified'
+          ? {
+              id: o.claimed_payment_id,
+              status: o.claimed_status || 'unknown',
+              amount: o.claimed_amount == null ? null : o.claimed_amount,
+              capturedAt: asInstant(o.claimed_captured_at)
             }
           : null
       };

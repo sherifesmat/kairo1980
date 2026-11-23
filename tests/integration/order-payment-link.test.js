@@ -234,3 +234,173 @@ test('/admin flags a captured payment that does not match its order, and never a
   assert.equal(/class="tag paid">\s*PAID ONLINE/.test(html), false, 'nowhere on the page is it called paid');
   assert.equal(html.includes('Started, never finished'), false, 'its payment is accounted for by the claim');
 });
+
+/* --- round 3 of the loop: a replay is a replay only when it is the same order ---
+   Loop WEBSITE_ORDERING, R3-01 .. R3-04. On a3041508 each of these got through
+   silently, because the payment id alone decided what an announce was. */
+
+const DELIVERY_PAID = { items: { koshari: 2 }, type: 'delivery', postcode: '68766', business: false, method: 'paypal' };
+const DELIVERY_HANDOVER = { ...HANDOVER, type: 'delivery', postcode: '68766', address: 'Hauptstraße 1' };
+
+test('R3-01: a different basket under a paid order payment id is a new, flagged order, never swallowed', async (t) => {
+  const { env, c, alerts } = world(t);
+  const payment = await paymentIn(env, c, 'captured');
+  const first = await announce(env, c, { ...HANDOVER, paymentId: payment.id });
+
+  const other = await announce(env, c, {
+    ...HANDOVER, items: { koshari: 2, hummus: 1 }, name: 'Someone Else', paymentId: payment.id
+  });
+  assert.equal(other.status, 200);
+  assert.equal(other.body.recorded, true);
+  assert.notEqual(other.body.reference, first.body.reference, 'it does not inherit the paid order code');
+
+  const rows = orders(env);
+  assert.equal(rows.length, 2, 'both orders are in the books');
+  const second = rows.find((r) => r.reference === other.body.reference);
+  assert.equal(second.pay_method, 'onsite');
+  assert.equal(second.payment_id, null);
+  assert.equal(second.payment_check, 'unverified');
+  assert.equal(second.claimed_payment_id, payment.id);
+  assert.equal(alerts().length, 1, 'and the kitchen is told about the new one');
+  assert.match(alerts()[0], /NICHT BESTÄTIGT/);
+});
+
+test('R3-01: the same payment id with a changed order type is a new order', async (t) => {
+  const { env, c, alerts } = world(t);
+  const payment = await paymentIn(env, c, 'captured');
+  await announce(env, c, { ...HANDOVER, paymentId: payment.id });
+  const changed = await announce(env, c, { ...DELIVERY_HANDOVER, paymentId: payment.id });
+  assert.equal(changed.body.recorded, true);
+  assert.equal(orders(env).length, 2);
+  assert.equal(alerts().length, 1);
+});
+
+test('R3-01: the same payment id with a changed delivery postcode is a new order', async (t) => {
+  const { env, c, alerts } = world(t);
+  const payment = await paymentIn(env, c, 'captured', DELIVERY_PAID);
+  const first = await announce(env, c, { ...DELIVERY_HANDOVER, paymentId: payment.id });
+  assert.equal(first.body.reference, payment.reference, 'the paid delivery links');
+  const moved = await announce(env, c, { ...DELIVERY_HANDOVER, postcode: '68799', paymentId: payment.id });
+  assert.notEqual(moved.body.reference, payment.reference);
+  assert.equal(orders(env).length, 2);
+  assert.equal(alerts().length, 1);
+});
+
+test('R3-01: a true replay of a claim at the throttle limit is still the stored order', async (t) => {
+  const { env, c } = world(t);
+  const from = { 'CF-Connecting-IP': '203.0.113.78' };
+  const payment = await paymentIn(env, c, 'created');
+  const first = await announce(env, c, { ...HANDOVER, paymentId: payment.id }, from);
+  let throttled = false;
+  for (let i = 0; i < 12 && !throttled; i++) throttled = (await announce(env, c, HANDOVER, from)).status === 202;
+  assert.ok(throttled);
+  const replay = await announce(env, c, { ...HANDOVER, paymentId: payment.id }, from);
+  assert.equal(replay.status, 200);
+  assert.equal(replay.body.reference, first.body.reference);
+});
+
+test('R3-02: a paid delivery does not pay for a delivery to another postcode with the same fee', async (t) => {
+  /* 68766 Hockenheim and 68799 Reilingen have the same 1 € fee and the same
+     15 € minimum, so every amount on the two quotes is identical. Only the
+     address differs. */
+  const { env, c, alerts } = world(t);
+  const payment = await paymentIn(env, c, 'captured', DELIVERY_PAID);
+  const res = await announce(env, c, { ...DELIVERY_HANDOVER, postcode: '68799', paymentId: payment.id });
+  assert.equal(res.body.recorded, true);
+  assert.notEqual(res.body.reference, payment.reference);
+  const [row] = orders(env);
+  assert.equal(row.payment_id, null, 'never linked as paid');
+  assert.equal(row.payment_check, 'unverified');
+  const paidQuote = await (await worker.fetch(post('/api/payments/quote', DELIVERY_PAID), env, c)).json();
+  assert.equal(row.total, paidQuote.total, 'the money was identical; only the destination told them apart');
+  assert.equal(row.fee, paidQuote.fee);
+  assert.equal(alerts().length, 1);
+});
+
+test('R3-03: an unverified claim handed over twice is one order and one alert', async (t) => {
+  const { env, c, alerts } = world(t);
+  const payment = await paymentIn(env, c, 'created');
+  const a = await announce(env, c, { ...HANDOVER, paymentId: payment.id });
+  const b = await announce(env, c, { ...HANDOVER, notes: 'corrected typo', paymentId: payment.id });
+  assert.equal(b.body.reference, a.body.reference);
+  assert.equal(orders(env).length, 1);
+  assert.equal(alerts().length, 1);
+});
+
+test('R3-03: an unverified claim racing itself is still one order', async (t) => {
+  const { env, c, alerts } = world(t);
+  const payment = await paymentIn(env, c, 'created');
+  const [a, b] = await Promise.all([
+    announce(env, c, { ...HANDOVER, paymentId: payment.id }),
+    announce(env, c, { ...HANDOVER, paymentId: payment.id })
+  ]);
+  assert.equal(a.body.reference, b.body.reference);
+  assert.equal(orders(env).length, 1);
+  assert.equal(alerts().length, 1);
+});
+
+test('R3-03: a captured payment whose menu price drifted is one flagged order however often it is handed over', async (t) => {
+  const { env, c, alerts } = world(t);
+  const payment = await paymentIn(env, c, 'captured');
+  // As if the menu had changed after paying: the payment's own lines no longer
+  // equal today's pricing of the same basket.
+  env.DB._raw.prepare('UPDATE payments SET lines = ? WHERE id = ?')
+    .run(JSON.stringify([{ id: 'koshari', name: 'Koshari', qty: 2, unit: 1400, amount: 2800 }]), payment.id);
+  const a = await announce(env, c, { ...HANDOVER, paymentId: payment.id });
+  const b = await announce(env, c, { ...HANDOVER, paymentId: payment.id });
+  assert.equal(a.body.reference, b.body.reference);
+  const rows = orders(env);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].payment_check, 'unverified');
+  assert.equal(alerts().length, 1);
+});
+
+test('R3-03: the same claimed id with a different basket is a second, distinct flagged order', async (t) => {
+  const { env, c, alerts } = world(t);
+  const payment = await paymentIn(env, c, 'created');
+  const a = await announce(env, c, { ...HANDOVER, paymentId: payment.id });
+  const b = await announce(env, c, { ...HANDOVER, items: { hummus: 1 }, paymentId: payment.id });
+  assert.notEqual(a.body.reference, b.body.reference);
+  assert.equal(orders(env).length, 2);
+  assert.equal(alerts().length, 2);
+});
+
+test('R3-04: the books can tell an unverified claim from cash, in both reports', async (t) => {
+  const REPORT = { REPORT_TOKEN: 'report-token-for-tests' };
+  const env = workerEnv(MENU, { ...TELEGRAM, ...REPORT });
+  const c = ctx();
+  const paypal = fakePayPal({
+    '/v2/checkout/orders': () => orderResponse({ id: 'PP-ORDER-1' }),
+    [SEND]: () => ({ ok: true })
+  });
+  t.after(() => paypal.restore());
+
+  // A captured pickup payment, handed over as a delivery: money taken, no link.
+  const payment = await paymentIn(env, c, 'captured');
+  const mismatch = await announce(env, c, { ...DELIVERY_HANDOVER, paymentId: payment.id });
+  // And an ordinary cash order beside it.
+  const cash = await announce(env, c, HANDOVER);
+
+  const auth = { Authorization: `Bearer ${REPORT.REPORT_TOKEN}` };
+  const report = await (await worker.fetch(new Request('https://kairo1980.de/api/reports/orders', { headers: auth }), env, c)).json();
+  const byRef = Object.fromEntries(report.orders.map((o) => [o.reference, o]));
+
+  const flagged = byRef[mismatch.body.reference];
+  assert.equal(flagged.payMethod, 'onsite', 'the documented enum is unchanged');
+  assert.equal(flagged.paymentCheck, 'unverified');
+  assert.deepEqual(
+    { id: flagged.claimedPayment.id, status: flagged.claimedPayment.status, amount: flagged.claimedPayment.amount },
+    { id: payment.id, status: 'captured', amount: 2610 },
+    'and says the named payment did take money'
+  );
+  assert.ok(flagged.claimedPayment.capturedAt);
+
+  const ordinary = byRef[cash.body.reference];
+  assert.equal(ordinary.paymentCheck, null);
+  assert.equal(ordinary.claimedPayment, null);
+
+  // The capture is in the settlement report too. The marker is what lets a
+  // reader of both see one sale, not a cash sale plus a payment.
+  const settled = await (await worker.fetch(new Request('https://kairo1980.de/api/reports/settlement', { headers: auth }), env, c)).json();
+  assert.equal(settled.totals.gross, 2610);
+});

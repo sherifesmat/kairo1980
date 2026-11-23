@@ -43,27 +43,54 @@ test.afterEach(async () => { resetOrderRate(); });
 /** The first open slot from tomorrow on, read from /api/status — the hours the
  *  Worker actually serves (admin-saved or the config fallback), never typed.
  *  Scheduling makes the test independent of the hour it runs at. */
-async function scheduleNextOpenSlot(page) {
+const KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const toMinutes = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
+const toClock = (t) => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+
+/** The Berlin calendar days from tomorrow on, each with its opening windows
+ *  (in minutes) as /api/status serves them. The weekday is derived from the
+ *  Berlin date itself, never from the runner's clock or a named day. */
+async function comingDays(page) {
   const { hours } = await (await page.request.get('/api/status')).json();
-  const KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-  let slot = null;
-  for (let i = 1; i <= 14 && !slot; i++) {
-    const d = new Date(Date.now() + i * 86400000);
-    const iso = d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
-    const wd = KEYS[(new Date(iso + 'T12:00:00Z').getUTCDay() + 6) % 7];
-    const day = hours.days[wd];
-    const w = day && !day.closed && (day.lunch || day.evening);
-    if (w) {
-      const [h, m] = w[0].split(':').map(Number);
-      const t = h * 60 + m + 60;
-      slot = { date: iso, time: `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}` };
-    }
+  const out = [];
+  for (let i = 1; i <= 14; i++) {
+    const date = new Date(Date.now() + i * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
+    const day = hours.days[KEYS[(new Date(date + 'T12:00:00Z').getUTCDay() + 6) % 7]];
+    const windows = day && !day.closed
+      ? [day.lunch, day.evening].filter(Boolean).map(([a, b]) => [toMinutes(a), toMinutes(b)])
+      : [];
+    out.push({ date, windows });
   }
-  expect(slot, '/api/status must offer an open day within two weeks').not.toBeNull();
+  return out;
+}
+
+async function scheduleAt(page, slot) {
   await page.locator('[data-when="scheduled"]').click();
   await page.locator('#fDate').fill(slot.date);
   await page.locator('#fTime').fill(slot.time);
   return slot;
+}
+
+async function scheduleNextOpenSlot(page) {
+  const open = (await comingDays(page)).find((d) => d.windows.length);
+  expect(open, '/api/status must offer an open day within two weeks').toBeTruthy();
+  return scheduleAt(page, { date: open.date, time: toClock(open.windows[0][0] + 60) });
+}
+
+/** A future moment the served hours say is CLOSED (R3-05): an hour before the
+ *  first opening of an open day, or after its last closing — checked against
+ *  every window of that day rather than assumed. */
+async function closedSlot(page) {
+  for (const { date, windows } of await comingDays(page)) {
+    if (!windows.length) continue;
+    const candidates = [windows[0][0] - 60, Math.max(...windows.map((w) => w[1])) + 30];
+    for (const t of candidates) {
+      if (t < 0 || t >= 24 * 60) continue;
+      if (windows.some(([a, b]) => t >= a && t < b)) continue;
+      return { date, time: toClock(t) };
+    }
+  }
+  return null;
 }
 
 async function addExtras(page) {
@@ -162,8 +189,10 @@ test('the Extras with a Hawawshy and fries, ordered in Arabic, reads right to le
   await choosePickup(page);
 
   const food = await expectedFood(page, true);
+  const pct = await page.evaluate(() => window.KAIRO_CONFIG.order.directDiscountPercent);
   const quote = await workerQuote(page);
-  expect(quote.subtotal).toBe(food);
+  expect(quote.subtotal, 'the Worker prices the page\'s own prices').toBe(food);
+  expect(quote.discount).toBe(Math.round(food * pct / 100));
   expect(quote.fee).toBe(0);
   expect(quote.total).toBe(quote.subtotal - quote.discount);
 
@@ -171,17 +200,30 @@ test('the Extras with a Hawawshy and fries, ordered in Arabic, reads right to le
   await scheduleNextOpenSlot(page);
   const announced = await observeAnnounce(page);
   await page.locator('#cartSend').click();
-  const { body: answer } = await announced();
+  const { status, body: answer } = await announced();
 
+  /* Every line, in the words the Arabic page itself carries (R3-06): each
+     Extra with its quantity and line price, the Hawawshy with its fries as one
+     line at the two prices added, the 10 % discount and the total. */
   const message = decodeURIComponent((await whatsapp()).split('?text=')[1]);
-  expect(message).toContain('النوع: استلام');
+  const ar = (id) => page.locator(`.mitem[data-item="${id}"] .mname`).first().getAttribute('data-ar');
+  for (const x of EXTRAS) {
+    expect(message).toContain(`${x.qty}× ${await ar(x.id)} — ${euro((await centsOf(page, x.id)) * x.qty)}`);
+  }
+  const sandwich = (await centsOf(page, 'hawawshy')) + (await centsOf(page, 'steakhouse-pommes'));
+  expect(message).toContain(`1× ${await ar('hawawshy')} + ${await ar('steakhouse-pommes')} — ${euro(sandwich)}`);
+  expect(message).toContain(`${pct} %: −${euro(quote.discount)}`);
   expect(message).toContain(euro(quote.total));
+  expect(message).toContain('النوع: استلام');
   for (const m of await page.evaluate(() => window.KAIRO_CONFIG.payment.onSite.pickup)) {
     expect(message).toContain(PAY_LABEL.ar[m]);
   }
+
+  expect(status).toBe(200);
   expect(answer.recorded).toBe(true);
-  const [row] = (await reportedOrders(page)).filter((o) => o.reference === answer.reference);
-  expect(row.money.total).toBe(quote.total);
+  const rows = (await reportedOrders(page)).filter((o) => o.reference === answer.reference);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].money).toMatchObject({ subtotal: quote.subtotal, discount: quote.discount, deliveryFee: 0, total: quote.total });
 });
 
 test('when the browser blocks WhatsApp, the order is still one tap away', async ({ page }) => {
@@ -245,9 +287,10 @@ test('a time outside opening hours is flagged for the kitchen, not refused', asy
   await openBasket(page);
   await choosePickup(page);
   await fillContact(page, {});
-  const slot = await scheduleNextOpenSlot(page);
-  // The same open day, at an hour no window in /api/status reaches.
-  await page.locator('#fTime').fill('23:30');
+  // A moment the served hours say is closed: derived and checked, never typed.
+  const closed = await closedSlot(page);
+  test.skip(!closed, 'the served hours leave no closed moment within two weeks');
+  const slot = await scheduleAt(page, closed);
 
   const send = page.locator('#cartSend');
   await expect(send).toBeEnabled();
@@ -257,7 +300,7 @@ test('a time outside opening hours is flagged for the kitchen, not refused', asy
   const message = decodeURIComponent((await whatsapp()).split('?text=')[1]);
   expect(message).toContain('*! Wunschtermin ausserhalb der Öffnungszeiten — bitte prüfen');
   const { status, request, body } = await announced();
-  expect(request.when).toEqual({ date: slot.date, time: '23:30' });
+  expect(request.when).toEqual(slot);
   expect(status).toBe(200);
   expect(body.recorded).toBe(true);
   expect((await reportedOrders(page)).filter((o) => o.reference === body.reference)).toHaveLength(1);

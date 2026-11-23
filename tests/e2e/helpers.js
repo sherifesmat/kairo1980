@@ -162,10 +162,13 @@ export async function captureWhatsApp(page) {
  * The Worker needs live PayPal credentials to create a real order, which CI
  * does not have. So the payment API is answered here instead.
  *
- * That boundary is deliberate and is not a gap: everything the Worker does
- * with a payment — pricing it, capturing it, refusing a double capture,
- * verifying a webhook, surviving a lost callback — is covered for real in
- * tests/integration against the actual routes. What only a browser can prove
+ * That boundary is deliberate. What the Worker does with a payment is covered
+ * in tests/integration against the actual routes: pricing it, capturing it,
+ * refusing a double capture, verifying a webhook, surviving a lost callback.
+ * Linking a payment to an order (order-payment-link.test.js) is covered there
+ * too, on payment rows whose status the test sets, NOT through a real PayPal
+ * capture. Nothing in these browser tests proves linkage: the announce after a
+ * stubbed payment is answered by the stub (W02-05). What only a browser can prove
  * is what these tests cover: that the guest sees the right thing at each step
  * and that the right words reach the restaurant.
  *
