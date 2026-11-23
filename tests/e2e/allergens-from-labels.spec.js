@@ -46,7 +46,7 @@ test('a generic nut beside the walnut is named too, and neither replaces the oth
 
 test('the cake maker\'s trace warning is in the legend, under the clean dish name, in each language', async ({ page }) => {
   await page.goto('/?lang=de');
-  const line = page.locator('#allergenLegend .legend-traces');
+  const line = page.locator('#allergenLegend .legend-traces', { hasText: /^Schokoladentörtchen/ });
   await expect(line).toHaveCount(1);
   // The name is followed directly by the separator: the allergen letters painted
   // into the dish name must never leak into it ("Schokoladentörtchena,c,g").
@@ -73,9 +73,21 @@ test('the gluten cereal is named as wheat, and the drinks declare their additive
   const legend = page.locator('#allergenLegend');
   await expect(legend.locator('.legend-item', { hasText: /^a / })).toHaveText('a Weizen');
   await expect(legend).not.toContainText('a Gluten');
-  await expect(legend.locator('.legend-additives')).toContainText('keine kennzeichnungspflichtigen Zusatzstoffe');
+  await expect(legend.locator('.legend-additives')).toContainText('stehen direkt am Gericht oder Getränk');
   await expect(page.locator('.mitem[data-item="fritz-kola-0-33-l"] .madditives')).toHaveText('mit Farbstoff.');
   await expect(page.locator('.mitem[data-item="fritz-zero-kola-0-33-l"] .madditives'))
     .toHaveText('mit Farbstoff, mit Süßungsmitteln, enthält eine Phenylalaninquelle.');
   await expect(page.locator('#speisekarte')).not.toContainText('Sesam, Nüsse, Gluten');
+});
+
+/* The three Metro Chef extras, 2026-11-23, declared from Metro's own product sheets. */
+test('the fried extras declare their allergens and additives from the supplier sheet', async ({ page }) => {
+  await page.goto('/?lang=de');
+  await expect(codes(page, 'mozzarella-sticks-6-stueck')).toHaveAttribute('aria-label', 'Allergene: Weizen, Milch');
+  await expect(codes(page, 'zwiebelringe-8-stueck')).toHaveAttribute('aria-label', 'Allergene: Weizen');
+  await expect(codes(page, 'cheddar-jalapenos-5-stueck')).toHaveAttribute('aria-label', 'Allergene: Weizen, Eier, Milch');
+  await expect(page.locator('.mitem[data-item="mozzarella-sticks-6-stueck"] .madditives')).toHaveText('mit Farbstoff, mit Antioxidationsmittel.');
+  await expect(page.locator('.mitem[data-item="cheddar-jalapenos-5-stueck"] .madditives')).toHaveText('mit Farbstoff.');
+  await expect(page.locator('.mitem[data-item="zwiebelringe-8-stueck"] .madditives')).toHaveCount(0);
+  await expect(page.locator('#allergenLegend .legend-traces', { hasText: /^Mozzarella Sticks/ })).toContainText('Eier');
 });
