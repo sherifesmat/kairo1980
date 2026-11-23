@@ -47,7 +47,7 @@ export async function page(request, env, url) {
   const { results: rows } = await env.DB.prepare(
     `SELECT o.*, p.status AS payment_status, p.captured_at AS payment_captured_at
        FROM orders o
-       LEFT JOIN payments p ON p.id = o.payment_id
+       LEFT JOIN payments p ON p.id = COALESCE(o.payment_id, o.claimed_payment_id)
       WHERE substr(o.created_at, 1, 10) BETWEEN date(?1, '-1 day') AND date(?1, '+1 day')
       ORDER BY o.created_at DESC`
   ).bind(day).all();
@@ -60,7 +60,7 @@ export async function page(request, env, url) {
        FROM payments p
       WHERE p.captured_at IS NOT NULL
         AND substr(p.captured_at, 1, 10) BETWEEN date(?1, '-1 day') AND date(?1, '+1 day')
-        AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.payment_id = p.id)
+        AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.payment_id = p.id OR o.claimed_payment_id = p.id)
       ORDER BY p.captured_at DESC`
   ).bind(day).all();
 
@@ -84,7 +84,7 @@ export async function page(request, env, url) {
   const { results: unsettled } = await env.DB.prepare(
     `SELECT p.reference, p.status, p.amount, p.order_type, p.postcode,
             p.failure_code, p.lines, p.created_at,
-            EXISTS (SELECT 1 FROM orders o WHERE o.payment_id = p.id) AS has_order
+            EXISTS (SELECT 1 FROM orders o WHERE o.payment_id = p.id OR o.claimed_payment_id = p.id) AS has_order
        FROM payments p
       WHERE p.captured_at IS NULL
         AND substr(p.created_at, 1, 10) BETWEEN date(?1, '-1 day') AND date(?1, '+1 day')
@@ -205,7 +205,12 @@ export function render({ day, orders, orphans, unfinished, totals, nonce }) {
   };
 
   const card = (o) => {
-    const cash = o.pay_method === 'onsite';
+    /* An order whose browser named a payment that did not check out is stored
+       as to be paid on site, but it is not an ordinary cash order: the guest
+       may believe they paid. It gets its own label and is never PAID ONLINE.
+       Loop WEBSITE_ORDERING, W01-05. */
+    const unverified = o.payment_check === 'unverified';
+    const cash = o.pay_method === 'onsite' && !unverified;
     /* `pay_method` records how the guest MEANT to pay; `captured_at` records
        what the money did. They agree almost always, and must not be confused
        on the occasions they do not: an order backed by a payment PayPal was
@@ -214,7 +219,7 @@ export function render({ day, orders, orphans, unfinished, totals, nonce }) {
        answers it has been on the query since the page was written and was
        simply never read. Asked as `captured_at`, like everywhere else, so a
        refunded order still counts as money that arrived. */
-    const settled = !cash && !!o.payment_captured_at;
+    const settled = !cash && !unverified && !!o.payment_captured_at;
     const delivery = o.order_type === 'delivery';
     const purged = !!o.details_purged_at;
 
@@ -257,11 +262,15 @@ export function render({ day, orders, orphans, unfinished, totals, nonce }) {
         <span class="when">${clock(o.created_at)}</span>
         <span class="tag">${delivery ? 'Delivery' : 'Pickup'}</span>
         <span class="tag ${cash ? 'cash' : settled ? 'paid' : 'unfin'}">${
-          cash ? 'PAY ON ARRIVAL' : settled ? 'PAID ONLINE' : 'PAYMENT NOT COMPLETED'}</span>
+          cash ? 'PAY ON ARRIVAL' : settled ? 'PAID ONLINE'
+            : unverified && o.payment_captured_at ? 'PAYMENT NOT VERIFIED — CHECK' : 'PAYMENT NOT COMPLETED'}</span>
         ${o.business ? '<span class="tag">Company</span>' : ''}
         ${cancelled ? '<span class="tag no">NOT TAKEN</span>' : ''}
         <span class="amt">${money(o.total)}</span>
       </div>
+      ${unverified ? `<div class="warn"><b>Online-Zahlung nicht bestätigt — bitte prüfen.</b>
+        The guest's browser named a payment that does not match this order (or has not taken
+        the money). Treat it as unpaid until the payment is checked.</div>` : ''}
       ${who}
       <div class="items">${itemsOf(o.lines)}</div>
       ${!purged && o.notes ? `<div class="note-in"><b>Note:</b> ${esc(o.notes)}</div>` : ''}

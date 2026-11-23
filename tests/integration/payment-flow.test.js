@@ -1089,8 +1089,12 @@ test('an order paid online is recorded but not announced twice', async (t) => {
   await c.settled();
   assert.equal(sent(paypal).length, 1, 'announced once, on capture');
 
-  const res = await worker.fetch(
-    post('/api/orders/announce', { ...CASH_ORDER, paymentId: payment.id }), env, c);
+  // The handover carries the basket that was paid for (BASKET is a pickup). It
+  // used to be sent as a delivery here, which only passed because the route
+  // believed any paymentId; a payment now links only to its own basket.
+  const res = await worker.fetch(post('/api/orders/announce', {
+    ...CASH_ORDER, type: BASKET.type, postcode: undefined, paymentId: payment.id
+  }), env, c);
   await c.settled();
   const body = await res.json();
 

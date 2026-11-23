@@ -107,14 +107,27 @@ export function composeOrderMessage(payment) {
  *  solves instead. The details are one tap away, behind the admin login, on a
  *  server in the EU. */
 export function composeCashOrderMessage(order) {
+  /* Three kinds of order reach this message, and the counter must never
+     confuse them: cash, a payment the provider is still reviewing, and a
+     payment the guest's browser named that did not check out. Only the first
+     is ordinary; the other two must be looked at before food is handed over.
+     Loop WEBSITE_ORDERING, W01-05 / W02-03. */
+  const unverified = order.payment_check === 'unverified';
+  const pending = !unverified && order.pay_method === 'online';
   const lines = [];
-  lines.push('NEUE BESTELLUNG — ZAHLUNG BEI ERHALT');
+  lines.push(unverified
+    ? 'NEUE BESTELLUNG — ONLINE-ZAHLUNG NICHT BESTÄTIGT, BITTE PRÜFEN'
+    : pending
+      ? 'NEUE BESTELLUNG — ONLINE-ZAHLUNG NOCH IN PRÜFUNG'
+      : 'NEUE BESTELLUNG — ZAHLUNG BEI ERHALT');
   lines.push('');
   lines.push(`Referenz: ${order.reference}`);
 
   const type = order.order_type === 'pickup' ? 'Abholung' : 'Lieferung';
   lines.push(`Art:      ${type}${order.postcode ? ` — ${order.postcode}` : ''}`);
-  lines.push(`Betrag:   ${money(order.total, order.currency)} (noch offen)`);
+  lines.push(`Betrag:   ${money(order.total, order.currency)} (${
+    unverified ? 'Zahlung nicht bestätigt — vor Übergabe prüfen'
+      : pending ? 'Zahlung ausstehend, noch nicht eingegangen' : 'noch offen'})`);
   if (order.requested_time) lines.push(`Termin:   ${order.requested_time}`);
   lines.push('');
 

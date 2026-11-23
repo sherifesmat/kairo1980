@@ -612,6 +612,52 @@ test('a holiday refuses a payment too — COSTS MONEY', async (t) => {
   assert.equal(after.status, 201, 'and the band coming down puts the till back');
 });
 
+/* Loop WEBSITE_ORDERING, W01-02. The pay-on-arrival announce used to carry only
+   the display text of the chosen moment, so during a closure an order asked for
+   the evening we reopen reached WhatsApp but was refused for the books. The page
+   now sends the same `when` the payment path does; the Worker's rule is unchanged
+   and is held here for the announce route on its own. */
+test('during a holiday an order for after reopening is recorded, and only that one', async (t) => {
+  const env = workerEnv(MENU, CREDS);
+  const paypal = fakePayPal({});
+  t.after(() => paypal.restore());
+
+  const { cookie } = await signIn(env);
+  const day = (offset) => new Date(Date.now() + offset * 86400000)
+    .toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
+  const from = day(0);
+  const until = day(5);
+  await worker.fetch(form('/admin/holiday', { mode: 'set', from, until }, { cookie }), env, ctx());
+  const { ordering } = await (await worker.fetch(get('/api/status'), env, ctx())).json();
+  assert.equal(ordering.open, false);
+
+  const order = { items: { koshari: 2 }, type: 'pickup', name: 'Test Gast', phone: '+49 176 1234567' };
+  const announce = async (extra) => {
+    const res = await worker.fetch(post('/api/orders/announce', { ...order, ...extra }), env, ctx());
+    return { status: res.status, body: await res.json() };
+  };
+
+  const asap = await announce({ time: 'So schnell wie möglich', when: null });
+  assert.equal(asap.status, 503, 'as soon as possible is a moment we are closed');
+  assert.equal(asap.body.error.code, 'ordering_closed');
+
+  const inside = await announce({ time: 'inside', when: { date: day(2), time: '19:00' } });
+  assert.equal(inside.status, 503, 'a slot inside the closure is still refused');
+
+  const p = until.split('-');
+  const shown = `${p[2]}.${p[1]}.${p[0]}, 19:00`;
+  const back = await announce({ time: shown, when: { date: until, time: '19:00' } });
+  assert.equal(back.status, 200, 'the evening we reopen is an ordinary order');
+  assert.equal(back.body.recorded, true);
+  assert.ok(back.body.reference);
+
+  const rows = env.DB._raw.prepare('SELECT reference, requested_time, total FROM orders').all();
+  assert.equal(rows.length, 1, 'exactly the one order that may be taken');
+  assert.equal(rows[0].reference, back.body.reference);
+  assert.equal(rows[0].requested_time, shown, 'stored as the guest read it');
+  assert.equal(rows[0].total, 2610);
+});
+
 test('closing always carries its own end, and the default is today', async (t) => {
   const env = workerEnv(MENU, CREDS);
   const paypal = fakePayPal({});
@@ -1012,6 +1058,8 @@ test('an order whose payment never completed is not shown to the kitchen as paid
 
   assert.ok(html.includes('Sherif Esmat'), 'the order is in the queue, because it is real');
   assert.ok(html.includes('PAYMENT NOT COMPLETED'), 'but the money is not claimed to be in');
+  // Loop WEBSITE_ORDERING, W01-05: the claim did not check out, and the counter is told so.
+  assert.ok(html.includes('Online-Zahlung nicht bestätigt — bitte prüfen'), 'the unverified claim is flagged');
   assert.equal(html.includes('PAID ONLINE'), false, 'and it is never called paid');
 
   // Listed once as a payment too, and not reported as a guest who vanished.
