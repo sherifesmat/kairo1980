@@ -156,6 +156,26 @@ export async function sendCashOrderNotification(env, order) {
   return post(env, composeCashOrderMessage(order));
 }
 
+/** A correction the guest made to an order already sent. Like the order
+ *  itself it carries no name, phone or address: it says WHAT changed, and the
+ *  new time if that was it, and points at /admin for the rest. R4-02. */
+export function composeOrderCorrectionMessage(order, changed) {
+  const lines = [];
+  lines.push('KORREKTUR ZU BESTELLUNG ' + order.reference);
+  lines.push('');
+  lines.push('Geändert: ' + changed.join(', '));
+  if (changed.includes('Termin') && order.requested_time) lines.push('Neuer Termin: ' + order.requested_time);
+  lines.push('');
+  lines.push('Aktuelle Angaben: kairo1980.de/admin/orders');
+  return lines.join('\n');
+}
+
+/** Send a correction. Never throws, like every notification here. */
+export async function sendOrderCorrection(env, order, changed) {
+  if (!notifyConfigured(env) || !order) return { ok: false, error: 'not configured' };
+  return post(env, composeOrderCorrectionMessage(order, changed));
+}
+
 /** Send it. Never throws, never returns a rejected promise: a notification is
  *  the last thing that may be allowed to fail a payment, and by the time this
  *  runs the money is already taken. Every failure is logged and swallowed. */

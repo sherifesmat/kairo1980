@@ -20,7 +20,7 @@ import * as admin from './admin/index.js';
 import { readSettings, orderingNow } from './settings.js';
 import { withLiveData, liveETag } from './page-render.js';
 import { dayOf, timeOf, instantOf } from './berlin.js';
-import { sendOrderNotification, sendCashOrderNotification } from './notify.js';
+import { sendOrderNotification, sendCashOrderNotification, sendOrderCorrection } from './notify.js';
 import { runRetention } from './retention.js';
 import { recordOrder, getOrder } from './orders.js';
 
@@ -404,6 +404,15 @@ async function announceOrder(request, env, ctx) {
     ctx.waitUntil((async () => {
       const order = await getOrder(env, stored.id);
       if (order) await sendCashOrderNotification(env, order);
+    })());
+  }
+  /* The guest changed when, where to, how to reach them or a note on an
+     order already sent. The kitchen hears it, or it works from the old one.
+     R4-02. */
+  if (stored.amended && stored.amended.length) {
+    ctx.waitUntil((async () => {
+      const order = await getOrder(env, stored.id);
+      if (order) await sendOrderCorrection(env, order, stored.amended);
     })());
   }
 

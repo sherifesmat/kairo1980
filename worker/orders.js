@@ -148,13 +148,92 @@ async function verifiedPayment(env, paymentId, priced, body) {
    A different basket, type or destination under a known payment id is a NEW
    order. It is stored and announced as one. It never inherits another order's
    payment or reference, and it is never swallowed as a repeat. R3-01. */
+const REPEAT_COLUMNS = `id, reference, total, requested_time, customer_address,
+       customer_phone, notes`;
+
 async function repeatedOrder(env, paymentId, identity) {
   if (!paymentId) return null;
-  return env.DB.prepare(
-    `SELECT id, reference, total FROM orders
+  const row = await env.DB.prepare(
+    `SELECT ${REPEAT_COLUMNS} FROM orders
       WHERE order_identity = ?2 AND (payment_id = ?1 OR claimed_payment_id = ?1)
       LIMIT 1`
   ).bind(paymentId, identity).first();
+  return row || legacyRepeat(env, paymentId, identity);
+}
+
+/* The identity of an order stored before migration 0006, rebuilt from what it
+   kept. Pricing writes one line per basket key with the guest's quantity
+   (`{id: key, qty}`), under the same whole-number rule `orderIdentity` uses, so
+   nothing is lost in the rebuild. R4-01. */
+function storedIdentity(row) {
+  let lines;
+  try { lines = JSON.parse(row.lines || '[]'); } catch { return null; }
+  if (!Array.isArray(lines)) return null;
+  const items = {};
+  for (const line of lines) items[line.id] = (items[line.id] || 0) + Number(line.qty);
+  return orderIdentity({
+    items,
+    type: row.order_type,
+    business: !!row.business,
+    postcode: row.postcode
+  });
+}
+
+/* An order from before 0006 carries no identity, so the lookup above can never
+   find it. Without this, a guest's browser handing an old paid order over again
+   would meet a payment already taken and be stored as a second, flagged order.
+   The rebuilt identity must equal this handover's; a different basket under the
+   same payment id is still a new order. On a match the identity is written onto
+   the row, once, so the next replay is found directly. R4-01. */
+async function legacyRepeat(env, paymentId, identity) {
+  const { results } = await env.DB.prepare(
+    `SELECT ${REPEAT_COLUMNS}, lines, order_type, business, postcode FROM orders
+      WHERE order_identity IS NULL AND (payment_id = ?1 OR claimed_payment_id = ?1)`
+  ).bind(paymentId).all();
+  const match = (results || []).find((row) => storedIdentity(row) === identity);
+  if (!match) return null;
+  await env.DB.prepare(
+    'UPDATE orders SET order_identity = ?2 WHERE id = ?1 AND order_identity IS NULL'
+  ).bind(match.id, identity).run();
+  return match;
+}
+
+/* What a guest may still change about an order they already sent.
+   ---------------------------------------------------------------------------
+   These fields change what the kitchen or the driver does: when, where to, how
+   to reach the guest, and what to cook differently. A replay that changes any
+   of them is a CORRECTION to the same order. The order is updated and the
+   kitchen is told, so the counter never works from an old address or an old
+   time. The name and the company are labels; a change there is a typo fixed,
+   kept silently.
+
+   A correction never touches the basket, the money or the payment: those are
+   the order's identity, and a change there is a new order. R4-02. */
+const AMENDABLE = [
+  ['requested_time', (b) => clip(b.time, 120), 'Termin'],
+  ['customer_address', (b) => clip(b.address, 240), 'Adresse'],
+  ['customer_phone', (b) => clip(b.phone, 40), 'Telefon'],
+  ['notes', (b) => clip(b.notes, 500), 'Anmerkung']
+];
+
+function corrections(row, body) {
+  return AMENDABLE
+    .filter(([column, read]) => (row[column] ?? null) !== read(body))
+    .map(([column, read, label]) => ({ column, before: row[column] ?? null, after: read(body), label }));
+}
+
+/* Apply a correction, once. The update names the values it read, so two
+   identical corrections racing each other change the row once, and only the one
+   that changed it tells the kitchen. */
+async function amend(env, row, changes) {
+  const sets = changes.map((c, i) => `${c.column} = ?${i + 2}`).join(', ');
+  const guards = changes.map((c, i) => `${c.column} IS ?${i + 2 + changes.length}`).join(' AND ');
+  const result = await env.DB.prepare(
+    `UPDATE orders SET ${sets}, amended_at = datetime('now'),
+            amendments = COALESCE(amendments, 0) + 1
+      WHERE id = ?1 AND ${guards}`
+  ).bind(row.id, ...changes.map((c) => c.after), ...changes.map((c) => c.before)).run();
+  return Number(result?.meta?.changes || 0) > 0;
 }
 
 /** Is this payment already the payment of some order? */
@@ -180,9 +259,22 @@ export async function recordOrder(env, body, ip) {
      After a reload, the browser's recovery path hands a paid order over again.
      That is the same dinner, so it must get the same reference back. Not a
      second row, not a second alert, and not a 202 that reads like a refusal.
-     W02-04, R3-03. */
+     W02-04, R3-03.
+
+     A replay that changes when, where to, how to reach the guest or what to
+     cook differently is a correction. It counts against the throttle like any
+     other write, and it reaches the kitchen. R4-02. */
   const already = await repeatedOrder(env, claimed, identity);
-  if (already) return { ...already, alerted: false, replay: true };
+  if (already) {
+    const answer = { id: already.id, reference: already.reference, total: already.total,
+                     alerted: false, replay: true };
+    const changes = corrections(already, body);
+    if (!changes.length) return answer;
+    if (await throttled(env, ip)) return null;
+    await recordAttempt(env, ip);
+    const applied = await amend(env, already, changes);
+    return applied ? { ...answer, amended: changes.map((c) => c.label) } : answer;
+  }
 
   if (await throttled(env, ip)) return null;
   await recordAttempt(env, ip);
@@ -258,7 +350,10 @@ export async function recordOrder(env, body, ip) {
          one is still a real order. It is stored as an unverified claim and
          announced. */
     const winner = await repeatedOrder(env, claimed, identity);
-    if (winner) return { ...winner, alerted: false, replay: true };
+    if (winner) {
+      return { id: winner.id, reference: winner.reference, total: winner.total,
+               alerted: false, replay: true };
+    }
     if (payment) return insert(null);
     throw err;
   }

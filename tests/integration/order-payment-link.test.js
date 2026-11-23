@@ -321,7 +321,7 @@ test('R3-03: an unverified claim handed over twice is one order and one alert', 
   const { env, c, alerts } = world(t);
   const payment = await paymentIn(env, c, 'created');
   const a = await announce(env, c, { ...HANDOVER, paymentId: payment.id });
-  const b = await announce(env, c, { ...HANDOVER, notes: 'corrected typo', paymentId: payment.id });
+  const b = await announce(env, c, { ...HANDOVER, name: 'Test Gast (typo fixed)', paymentId: payment.id });
   assert.equal(b.body.reference, a.body.reference);
   assert.equal(orders(env).length, 1);
   assert.equal(alerts().length, 1);
@@ -403,4 +403,172 @@ test('R3-04: the books can tell an unverified claim from cash, in both reports',
   // reader of both see one sale, not a cash sale plus a payment.
   const settled = await (await worker.fetch(new Request('https://kairo1980.de/api/reports/settlement', { headers: auth }), env, c)).json();
   assert.equal(settled.totals.gross, 2610);
+});
+
+/* --- round 4 of the loop: orders from before 0006, and corrections ---
+   Loop WEBSITE_ORDERING, R4-01 / R4-02. Each of these got through silently on
+   38c3b5d. */
+
+/** As if this order had been stored before migration 0006: no identity. */
+const forgetIdentity = (env) => env.DB._raw.prepare('UPDATE orders SET order_identity = NULL').run();
+
+const REPORT_TOKEN = 'report-token-for-tests';
+async function reported(env, c, reference) {
+  const res = await worker.fetch(new Request('https://kairo1980.de/api/reports/orders',
+    { headers: { Authorization: `Bearer ${REPORT_TOKEN}` } }), env, c);
+  return (await res.json()).orders.find((o) => o.reference === reference);
+}
+function reportWorld(t) {
+  const env = workerEnv(MENU, { ...TELEGRAM, REPORT_TOKEN });
+  const c = ctx();
+  const paypal = fakePayPal({
+    '/v2/checkout/orders': () => orderResponse({ id: 'PP-ORDER-1' }),
+    [SEND]: () => ({ ok: true })
+  });
+  t.after(() => paypal.restore());
+  const alerts = () => paypal.calls.filter((k) => k.path === SEND).map((k) => k.body && k.body.text);
+  return { env, c, alerts };
+}
+
+test('R4-01: a paid order stored before 0006, handed over again, is the same order', async (t) => {
+  const { env, c, alerts } = world(t);
+  const payment = await paymentIn(env, c, 'captured');
+  const first = await announce(env, c, { ...HANDOVER, paymentId: payment.id });
+  forgetIdentity(env);
+
+  const again = await announce(env, c, { ...HANDOVER, paymentId: payment.id });
+  assert.equal(again.status, 200);
+  assert.equal(again.body.reference, first.body.reference);
+  const rows = orders(env);
+  assert.equal(rows.length, 1, 'no second, flagged order');
+  assert.equal(rows[0].payment_check, null);
+  assert.equal(rows[0].payment_id, payment.id);
+  assert.ok(rows[0].order_identity, 'and its identity is written back');
+  assert.equal(alerts().length, 0, 'a captured payment was already announced; nothing more');
+});
+
+test('R4-01: a different basket under an old order\'s payment id is still a new, flagged order', async (t) => {
+  const { env, c, alerts } = world(t);
+  const payment = await paymentIn(env, c, 'captured');
+  const first = await announce(env, c, { ...HANDOVER, paymentId: payment.id });
+  forgetIdentity(env);
+
+  const other = await announce(env, c, { ...HANDOVER, items: { koshari: 3 }, paymentId: payment.id });
+  assert.notEqual(other.body.reference, first.body.reference);
+  assert.equal(orders(env).length, 2);
+  assert.equal(orders(env).find((r) => r.reference === other.body.reference).payment_check, 'unverified');
+  assert.equal(alerts().length, 1);
+});
+
+test('R4-01: an old delivery handed over to another postcode is a new order', async (t) => {
+  const { env, c } = world(t);
+  const payment = await paymentIn(env, c, 'captured', DELIVERY_PAID);
+  await announce(env, c, { ...DELIVERY_HANDOVER, paymentId: payment.id });
+  forgetIdentity(env);
+  const moved = await announce(env, c, { ...DELIVERY_HANDOVER, postcode: '68799', paymentId: payment.id });
+  assert.notEqual(moved.body.reference, payment.reference);
+  assert.equal(orders(env).length, 2);
+});
+
+test('R4-01: an old order is found again at the throttle limit, and under a race', async (t) => {
+  const { env, c, alerts } = world(t);
+  const from = { 'CF-Connecting-IP': '203.0.113.79' };
+  const payment = await paymentIn(env, c, 'captured');
+  const first = await announce(env, c, { ...HANDOVER, paymentId: payment.id }, from);
+  forgetIdentity(env);
+  let throttled = false;
+  for (let i = 0; i < 12 && !throttled; i++) throttled = (await announce(env, c, HANDOVER, from)).status === 202;
+  assert.ok(throttled);
+  const atLimit = await announce(env, c, { ...HANDOVER, paymentId: payment.id }, from);
+  assert.equal(atLimit.status, 200);
+  assert.equal(atLimit.body.reference, first.body.reference);
+
+  forgetIdentity(env);
+  const [a, b] = await Promise.all([
+    announce(env, c, { ...HANDOVER, paymentId: payment.id }),
+    announce(env, c, { ...HANDOVER, paymentId: payment.id })
+  ]);
+  assert.equal(a.body.reference, first.body.reference);
+  assert.equal(b.body.reference, first.body.reference);
+  assert.equal(orders(env).filter((r) => r.payment_id === payment.id).length, 1);
+  assert.equal(orders(env).filter((r) => r.claimed_payment_id === payment.id).length, 0);
+  const cash = orders(env).filter((r) => !r.payment_id && !r.claimed_payment_id).length;
+  assert.equal(alerts().length, cash, 'only the cash orders that filled the throttle were announced');
+});
+
+test('R4-02: an unchanged replay changes nothing and tells nobody', async (t) => {
+  const { env, c, alerts } = reportWorld(t);
+  const payment = await paymentIn(env, c, 'pending');
+  await announce(env, c, { ...HANDOVER, paymentId: payment.id });
+  const before = orders(env)[0];
+  await announce(env, c, { ...HANDOVER, paymentId: payment.id });
+  const after = orders(env)[0];
+  assert.equal(after.amended_at, null);
+  assert.equal(after.amendments, null);
+  assert.equal(after.requested_time, before.requested_time);
+  assert.equal(alerts().length, 1, 'the pending payment was announced once');
+});
+
+test('R4-02: a changed pickup time is a correction the kitchen hears, and the books keep', async (t) => {
+  const { env, c, alerts } = reportWorld(t);
+  const payment = await paymentIn(env, c, 'captured');
+  const first = await announce(env, c, { ...HANDOVER, time: 'Mi, 25.11. 18:00', paymentId: payment.id });
+  const moved = await announce(env, c, { ...HANDOVER, time: 'Do, 26.11. 19:30', paymentId: payment.id });
+
+  assert.equal(moved.status, 200);
+  assert.equal(moved.body.reference, first.body.reference, 'one payment, one order');
+  const rows = orders(env);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].requested_time, 'Do, 26.11. 19:30');
+  assert.equal(rows[0].amendments, 1);
+  assert.ok(rows[0].amended_at);
+  assert.equal((await reported(env, c, first.body.reference)).requestedTime, 'Do, 26.11. 19:30');
+
+  assert.equal(alerts().length, 1, 'captured: no new-order alert, one correction');
+  assert.match(alerts()[0], new RegExp(`KORREKTUR ZU BESTELLUNG ${first.body.reference}`));
+  assert.match(alerts()[0], /Geändert: Termin/);
+  assert.match(alerts()[0], /Neuer Termin: Do, 26\.11\. 19:30/);
+});
+
+test('R4-02: a changed street in the same postcode reaches the driver, without the address in the chat', async (t) => {
+  const { env, c, alerts } = reportWorld(t);
+  const payment = await paymentIn(env, c, 'captured', DELIVERY_PAID);
+  const first = await announce(env, c, { ...DELIVERY_HANDOVER, paymentId: payment.id });
+  assert.equal(first.body.reference, payment.reference);
+  await announce(env, c, { ...DELIVERY_HANDOVER, address: 'Karlsruher Straße 7', paymentId: payment.id });
+
+  const rows = orders(env);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].customer_address, 'Karlsruher Straße 7');
+  assert.equal(rows[0].payment_id, payment.id, 'still the paid order');
+  const report = await reported(env, c, payment.reference);
+  assert.equal(report.customer.address, 'Karlsruher Straße 7');
+
+  assert.equal(alerts().length, 1);
+  assert.match(alerts()[0], /Geändert: Adresse/);
+  assert.doesNotMatch(alerts()[0], /Karlsruher|Hauptstraße/, 'no address in a third-country chat');
+});
+
+test('R4-02: the same correction racing itself is applied and announced once', async (t) => {
+  const { env, c, alerts } = reportWorld(t);
+  const payment = await paymentIn(env, c, 'captured');
+  await announce(env, c, { ...HANDOVER, paymentId: payment.id });
+  await Promise.all([
+    announce(env, c, { ...HANDOVER, notes: 'ohne Zwiebeln', paymentId: payment.id }),
+    announce(env, c, { ...HANDOVER, notes: 'ohne Zwiebeln', paymentId: payment.id })
+  ]);
+  assert.equal(orders(env)[0].notes, 'ohne Zwiebeln');
+  assert.equal(orders(env)[0].amendments, 1);
+  assert.equal(alerts().length, 1);
+  assert.match(alerts()[0], /Geändert: Anmerkung/);
+});
+
+test('R4-02: a fixed typo in the name is kept quietly', async (t) => {
+  const { env, c, alerts } = reportWorld(t);
+  const payment = await paymentIn(env, c, 'captured');
+  await announce(env, c, { ...HANDOVER, paymentId: payment.id });
+  await announce(env, c, { ...HANDOVER, name: 'Test Gast-Müller', paymentId: payment.id });
+  assert.equal(orders(env).length, 1);
+  assert.equal(orders(env)[0].amendments, null);
+  assert.equal(alerts().length, 0);
 });

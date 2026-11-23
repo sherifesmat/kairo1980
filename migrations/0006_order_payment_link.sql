@@ -19,6 +19,13 @@
 -- `order_identity` is the order as the guest built it: dish keys with their
 -- quantities, the type, the company flag and the delivery postcode. It is how a
 -- REPLAY is told from a NEW order under the same payment id.
+-- It is written for new orders. An order from before 0006 has none until
+-- the first replay of it, when the Worker rebuilds the identity from the
+-- order's stored lines, type, flag and postcode and writes it (R4-01).
+--
+-- A replay of the same order that changes the time, the address, the phone or
+-- the notes is a correction to that order: the row is updated, `amended_at`
+-- and `amendments` record it, and the kitchen is told (R4-02).
 --
 -- Two partial unique indexes make duplicates impossible even under a race:
 --   * one verified payment pays for one order;
@@ -34,6 +41,8 @@
 ALTER TABLE orders ADD COLUMN claimed_payment_id TEXT;
 ALTER TABLE orders ADD COLUMN payment_check TEXT;     -- NULL | 'unverified'
 ALTER TABLE orders ADD COLUMN order_identity TEXT;    -- NULL for orders stored before 0006
+ALTER TABLE orders ADD COLUMN amended_at TEXT;        -- last correction by the guest (R4-02)
+ALTER TABLE orders ADD COLUMN amendments INTEGER;     -- how many corrections were applied
 
 DROP INDEX IF EXISTS idx_orders_payment;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_payment
