@@ -67,3 +67,19 @@ export function nextTimeOfDay(hhmm, instant = Date.now()) {
   }
   return at;
 }
+
+/* The Berlin day of a timestamp as D1 stores it.
+
+   `datetime('now')` is "YYYY-MM-DD HH:MM:SS" in UTC with no zone, and
+   JavaScript reads THAT as local time, which silently shifts the day. So the
+   zone is added only when it is missing, rather than assumed either way. Used
+   by /admin/orders to choose a day's orders, and by the correction message to
+   link to that same day (R5-03), so the two can never disagree. */
+export function berlinDay(stamp) {
+  const text = String(stamp || '');
+  const utc = /[Z+]|\d{2}:\d{2}$/.test(text.slice(10)) && /[Z+]/.test(text)
+    ? text
+    : text.replace(' ', 'T') + 'Z';
+  const date = new Date(utc);
+  return isNaN(date.getTime()) ? '' : dayOf(date.getTime());
+}

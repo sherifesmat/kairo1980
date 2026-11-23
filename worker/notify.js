@@ -1,3 +1,4 @@
+import { berlinDay } from './berlin.js';
 /* Telling the restaurant that money arrived.
    ---------------------------------------------------------------------------
    The order and the money have always travelled by different paths. The money
@@ -157,23 +158,35 @@ export async function sendCashOrderNotification(env, order) {
 }
 
 /** A correction the guest made to an order already sent. Like the order
- *  itself it carries no name, phone or address: it says WHAT changed, and the
- *  new time if that was it, and points at /admin for the rest. R4-02. */
-export function composeOrderCorrectionMessage(order, changed) {
+ *  itself it carries no direct identifier: no name, phone or address. It is not
+ *  free of personal data, since a reference and a time can still be linked to
+ *  a person. It says WHAT changed, and the new time if that was it.
+ *
+ *  It links to where the order actually is: the admin day it was PLACED on, in
+ *  Berlin, at its own card. A correction to yesterday's order arriving today
+ *  must not open today's page, where that order is not. R4-02, R5-03. */
+export function correctionLink(order) {
+  return `kairo1980.de/admin/orders?day=${berlinDay(order.created_at)}#o-${order.reference}`;
+}
+
+export function composeOrderCorrectionMessage(order, changed, { saved = true } = {}) {
   const lines = [];
-  lines.push('KORREKTUR ZU BESTELLUNG ' + order.reference);
+  /* A correction that lost a race and could not be written is still news: the
+     guest's WhatsApp message has it, and the counter must go and read it. */
+  lines.push('KORREKTUR ZU BESTELLUNG ' + order.reference +
+    (saved ? '' : ' — NICHT GESPEICHERT, BITTE WHATSAPP PRÜFEN'));
   lines.push('');
   lines.push('Geändert: ' + changed.join(', '));
   if (changed.includes('Termin') && order.requested_time) lines.push('Neuer Termin: ' + order.requested_time);
   lines.push('');
-  lines.push('Aktuelle Angaben: kairo1980.de/admin/orders');
+  lines.push('Aktuelle Angaben: ' + correctionLink(order));
   return lines.join('\n');
 }
 
 /** Send a correction. Never throws, like every notification here. */
-export async function sendOrderCorrection(env, order, changed) {
+export async function sendOrderCorrection(env, order, changed, options) {
   if (!notifyConfigured(env) || !order) return { ok: false, error: 'not configured' };
-  return post(env, composeOrderCorrectionMessage(order, changed));
+  return post(env, composeOrderCorrectionMessage(order, changed, options));
 }
 
 /** Send it. Never throws, never returns a rejected promise: a notification is

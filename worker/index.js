@@ -399,6 +399,16 @@ async function announceOrder(request, env, ctx) {
   }
   // Throttled. Not an error the guest should ever see or act on.
   if (!stored) return json({ recorded: false }, 202);
+  /* A correction that lost to a different one and still could not be written.
+     Never "recorded": the guest's WhatsApp message carries what they typed, and
+     the counter reads it there. R5-01. */
+  if (stored.conflict) {
+    ctx.waitUntil((async () => {
+      const order = await getOrder(env, stored.id);
+      if (order) await sendOrderCorrection(env, order, stored.amended, { saved: false });
+    })());
+    return json({ recorded: false, reason: 'conflict', reference: stored.reference }, 409);
+  }
 
   if (stored.alerted) {
     ctx.waitUntil((async () => {

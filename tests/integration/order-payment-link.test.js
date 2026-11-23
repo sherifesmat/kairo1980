@@ -8,6 +8,7 @@
    the linkage is proven against the database and not against a stub. */
 
 import { test } from 'node:test';
+import { scrubExpiredIdentities } from '../../worker/retention.js';
 import assert from 'node:assert/strict';
 import worker from '../../worker/index.js';
 import { workerEnv, fakePayPal, orderResponse } from '../helpers/env.js';
@@ -571,4 +572,116 @@ test('R4-02: a fixed typo in the name is kept quietly', async (t) => {
   assert.equal(orders(env).length, 1);
   assert.equal(orders(env)[0].amendments, null);
   assert.equal(alerts().length, 0);
+});
+
+/* --- round 5 of the loop: racing corrections, deleted details, the right day ---
+   Loop WEBSITE_ORDERING, R5-01 .. R5-03. Each of these got through silently on
+   17c0bcc. */
+
+test('R5-01: two different corrections racing each other are both written and both told', async (t) => {
+  const { env, c, alerts } = reportWorld(t);
+  const payment = await paymentIn(env, c, 'captured');
+  const first = await announce(env, c, { ...HANDOVER, time: 'Mi, 25.11. 18:00', paymentId: payment.id });
+  const [a, b] = await Promise.all([
+    announce(env, c, { ...HANDOVER, time: 'Do, 26.11. 19:30', paymentId: payment.id }),
+    announce(env, c, { ...HANDOVER, time: 'Fr, 27.11. 12:00', paymentId: payment.id })
+  ]);
+  for (const r of [a, b]) {
+    assert.equal(r.status, 200, 'neither is answered as recorded without being written');
+    assert.equal(r.body.reference, first.body.reference);
+  }
+  const [row] = orders(env);
+  assert.equal(orders(env).length, 1);
+  assert.equal(row.amendments, 2, 'both corrections were written, one after the other');
+  const corrections = alerts().filter((m) => /^KORREKTUR/.test(m));
+  assert.equal(corrections.length, 2, 'and the kitchen heard both');
+  // The stored time is the last one written, and the kitchen's last message says so.
+  assert.ok(corrections[1].includes(`Neuer Termin: ${row.requested_time}`));
+});
+
+test('R5-01: a correction that keeps losing is answered as a conflict, and the kitchen is told to check', async (t) => {
+  const { env, c, alerts } = reportWorld(t);
+  const payment = await paymentIn(env, c, 'captured');
+  const first = await announce(env, c, { ...HANDOVER, time: 'Mi, 25.11. 18:00', paymentId: payment.id });
+  // Every guarded update now finds the row changed under it, as if another
+  // correction always landed first.
+  const prepare = env.DB.prepare.bind(env.DB);
+  env.DB.prepare = (sql) => {
+    const stmt = prepare(sql);
+    if (!/^\s*UPDATE orders SET requested_time/.test(sql)) return stmt;
+    return { bind: (...args) => ({ run: async () => {
+      env.DB._raw.prepare(`UPDATE orders SET requested_time = 'someone else ' || abs(random()) WHERE id = ?`).run(args[0]);
+      return { success: true, meta: { changes: 0 } };
+    } }) };
+  };
+
+  const lost = await announce(env, c, { ...HANDOVER, time: 'Do, 26.11. 19:30', paymentId: payment.id });
+  assert.equal(lost.status, 409);
+  assert.deepEqual(lost.body, { recorded: false, reason: 'conflict', reference: first.body.reference });
+  assert.notEqual(orders(env)[0].requested_time, 'Do, 26.11. 19:30', 'nothing claimed that was not written');
+  const last = alerts().at(-1);
+  assert.match(last, /KORREKTUR ZU BESTELLUNG .* NICHT GESPEICHERT, BITTE WHATSAPP PRÜFEN/);
+});
+
+test('R5-02: a replay never brings back details the retention sweep deleted', async (t) => {
+  const { env, c, alerts } = reportWorld(t);
+  const payment = await paymentIn(env, c, 'captured');
+  const first = await announce(env, c, { ...HANDOVER, paymentId: payment.id });
+  // Past the three-year retention of an order's details (worker/retention.js), and swept.
+  env.DB._raw.prepare(`UPDATE orders SET created_at = datetime('now', '-4 years')`).run();
+  const swept = await scrubExpiredIdentities(env);
+  assert.equal(swept.orders, 1);
+
+  const again = await announce(env, c, {
+    ...HANDOVER, phone: '+49 170 9999999', address: 'Neue Straße 1', notes: 'bitte klingeln', paymentId: payment.id
+  });
+  assert.equal(again.status, 200);
+  assert.equal(again.body.reference, first.body.reference);
+  const [row] = orders(env);
+  assert.deepEqual(
+    { phone: row.customer_phone, address: row.customer_address, notes: row.notes, amendments: row.amendments },
+    { phone: null, address: null, notes: null, amendments: null },
+    'nothing written back'
+  );
+  assert.equal(alerts().length, 0);
+
+  // And a later sweep has nothing it would have to find.
+  assert.equal((await scrubExpiredIdentities(env)).orders, 0);
+  const report = await reported(env, c, first.body.reference);
+  assert.equal(report.customer, null);
+});
+
+test('R5-03: a correction to yesterday\'s order links to yesterday\'s page, at that order', async (t) => {
+  const CREDS = { ADMIN_USER: 'sherif', ADMIN_PASSWORD: 'correct-horse-battery-staple' };
+  const env = workerEnv(MENU, { ...TELEGRAM, ...CREDS, REPORT_TOKEN });
+  const c = ctx();
+  const paypal = fakePayPal({
+    '/v2/checkout/orders': () => orderResponse({ id: 'PP-ORDER-1' }),
+    [SEND]: () => ({ ok: true })
+  });
+  t.after(() => paypal.restore());
+  const alerts = () => paypal.calls.filter((k) => k.path === SEND).map((k) => k.body && k.body.text);
+
+  const payment = await paymentIn(env, c, 'captured');
+  const first = await announce(env, c, { ...HANDOVER, time: 'Mi, 25.11. 18:00', paymentId: payment.id });
+  // Placed yesterday evening, Berlin time: 20:30 Berlin is 19:30 UTC in winter.
+  const yesterday = new Date(Date.now() - 86400000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
+  env.DB._raw.prepare(`UPDATE orders SET created_at = ?`).run(`${yesterday} 19:30:00`);
+
+  await announce(env, c, { ...HANDOVER, time: 'Do, 26.11. 19:30', paymentId: payment.id });
+  const message = alerts().at(-1);
+  const link = `kairo1980.de/admin/orders?day=${yesterday}#o-${first.body.reference}`;
+  assert.ok(message.includes(link), message);
+
+  const login = await worker.fetch(new Request('https://kairo1980.de/admin/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: 'https://kairo1980.de' },
+    body: new URLSearchParams({ username: CREDS.ADMIN_USER, password: CREDS.ADMIN_PASSWORD })
+  }), env, c);
+  const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
+  const page = await (await worker.fetch(new Request(`https://${link.split('#')[0]}`, { headers: { cookie } }), env, c)).text();
+  assert.ok(page.includes(`id="o-${first.body.reference}"`), 'the card the link points at is on that page');
+  assert.ok(page.includes('Do, 26.11. 19:30'), 'showing the corrected time');
+
+  const today = await (await worker.fetch(new Request('https://kairo1980.de/admin/orders', { headers: { cookie } }), env, c)).text();
+  assert.ok(!today.includes(`id="o-${first.body.reference}"`), 'the plain link would not have found it');
 });

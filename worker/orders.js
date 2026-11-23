@@ -149,7 +149,7 @@ async function verifiedPayment(env, paymentId, priced, body) {
    order. It is stored and announced as one. It never inherits another order's
    payment or reference, and it is never swallowed as a repeat. R3-01. */
 const REPEAT_COLUMNS = `id, reference, total, requested_time, customer_address,
-       customer_phone, notes`;
+       customer_phone, notes, details_purged_at`;
 
 async function repeatedOrder(env, paymentId, identity) {
   if (!paymentId) return null;
@@ -243,6 +243,45 @@ async function paymentTaken(env, paymentId) {
   return !!row;
 }
 
+const CORRECTION_ATTEMPTS = 3;
+
+/* A replay of an order already stored: either nothing changed, or a correction.
+
+   - An order whose personal details were already deleted by the retention
+     sweep is never amended. Writing a phone, an address or a note into it
+     would bring back data that was deliberately removed, and the sweep never
+     looks at a row twice, so nothing would remove it again. An order that old
+     has nothing left to correct anyway. R5-02.
+   - Two DIFFERENT corrections can race. The guarded update lets one in; the
+     other then reads the row again and tries against the current values. Each
+     correction that is actually written tells the kitchen. One that is already
+     present (an identical correction that won) tells nobody. One that still
+     cannot be written after a few tries is answered as a conflict, never as
+     "recorded". R5-01. */
+async function correctOrder(env, stored, body, ip) {
+  const answer = { id: stored.id, reference: stored.reference, total: stored.total,
+                   alerted: false, replay: true };
+  if (stored.details_purged_at) return answer;
+  if (!corrections(stored, body).length) return answer;
+
+  if (await throttled(env, ip)) return null;
+  await recordAttempt(env, ip);
+
+  let current = stored;
+  let labels = corrections(stored, body).map((c) => c.label);
+  for (let attempt = 0; attempt < CORRECTION_ATTEMPTS; attempt++) {
+    if (current.details_purged_at) return answer;
+    const changes = corrections(current, body);
+    if (!changes.length) return answer;
+    labels = changes.map((c) => c.label);
+    if (await amend(env, current, changes)) return { ...answer, amended: changes.map((c) => c.label) };
+    current = await env.DB.prepare(`SELECT ${REPEAT_COLUMNS} FROM orders WHERE id = ?1`)
+      .bind(stored.id).first();
+    if (!current) break;
+  }
+  return { ...answer, conflict: true, amended: labels };
+}
+
 /**
  * Store one order and answer with the reference to print in the chat.
  *
@@ -265,16 +304,7 @@ export async function recordOrder(env, body, ip) {
      cook differently is a correction. It counts against the throttle like any
      other write, and it reaches the kitchen. R4-02. */
   const already = await repeatedOrder(env, claimed, identity);
-  if (already) {
-    const answer = { id: already.id, reference: already.reference, total: already.total,
-                     alerted: false, replay: true };
-    const changes = corrections(already, body);
-    if (!changes.length) return answer;
-    if (await throttled(env, ip)) return null;
-    await recordAttempt(env, ip);
-    const applied = await amend(env, already, changes);
-    return applied ? { ...answer, amended: changes.map((c) => c.label) } : answer;
-  }
+  if (already) return correctOrder(env, already, body, ip);
 
   if (await throttled(env, ip)) return null;
   await recordAttempt(env, ip);

@@ -16,6 +16,7 @@
    this page was "I cannot even call him". */
 
 import { layout, esc, newNonce, adminHeaders } from './pages.js';
+import { berlinDay } from '../berlin.js';
 
 const money = (cents) => (cents / 100).toFixed(2).replace('.', ',') + ' €';
 const clock = (iso) => (iso || '').slice(11, 16);
@@ -35,14 +36,6 @@ export async function page(request, env, url) {
      datetime('now'), which is "YYYY-MM-DD HH:MM:SS" with no zone at all — and
      JavaScript reads THAT as local time, which silently shifts the day. So the
      zone is added only when it is missing, rather than assumed either way. */
-  const berlinDay = (stamp) => {
-    const text = String(stamp || '');
-    const utc = /[Z+]|\d{2}:\d{2}$/.test(text.slice(10)) && /[Z+]/.test(text)
-      ? text
-      : text.replace(' ', 'T') + 'Z';
-    const date = new Date(utc);
-    return isNaN(date.getTime()) ? '' : date.toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
-  };
 
   const { results: rows } = await env.DB.prepare(
     `SELECT o.*, p.status AS payment_status, p.captured_at AS payment_captured_at
@@ -256,7 +249,8 @@ export function render({ day, orders, orphans, unfinished, totals, nonce }) {
            <button type="submit">Did not take it</button>
          </form>`;
 
-    return `<div class="order ${cash ? 'cash' : settled ? 'paid' : 'unfin'}${cancelled ? ' off' : ''}">
+    // The anchor a correction message links to (R5-03).
+    return `<div class="order ${cash ? 'cash' : settled ? 'paid' : 'unfin'}${cancelled ? ' off' : ''}" id="o-${esc(o.reference)}">
       <div class="otop">
         <span class="ref">${esc(o.reference)}</span>
         <span class="when">${clock(o.created_at)}</span>
