@@ -14,11 +14,42 @@ export async function openBasket(page) {
   await expect(page.locator('#cartPanel')).toBeVisible();
 }
 
-/* The basket opens on delivery, so an address is required unless pickup is
-   chosen. A test that skips this is stopped by the same validation a guest
-   would meet — which is correct behaviour, and was worth finding. */
+/** The service mode the Worker actually rendered this page in — 'pickup' or
+ *  'delivery' — read from the live island, never from config.js. /admin can
+ *  switch it, and the database wins over the file. Loop WEBSITE_ORDERING, B. */
+export async function serviceMode(page) {
+  return page.evaluate(() => {
+    try {
+      return JSON.parse(document.getElementById('kairoLive').textContent).serviceMode || null;
+    } catch { return null; }
+  });
+}
+
+/** Skip a test that only means something while delivery is offered, with the
+ *  reason said — and only after reading the effective mode, never at
+ *  registration and never from cleanup. Call it after page.goto. */
+export async function requireDelivery(page, testInfo) {
+  testInfo.skip(await serviceMode(page) === 'pickup', 'pickup-only service: no delivery to test');
+}
+
+/* Choose pickup in the basket.
+   In delivery mode the basket opens on delivery, so an address is required
+   unless pickup is chosen; a test that skips this is stopped by the same
+   validation a guest would meet. In pickup-only mode there is nothing to
+   choose: the basket says where to collect, offers no delivery and asks for no
+   address — and that is asserted here, not assumed. A missing pickup button
+   while delivery IS offered is a failure, never a silent pass. */
 export async function choosePickup(page) {
-  await page.locator('[data-type="pickup"]').click();
+  if (await serviceMode(page) === 'pickup') {
+    await expect(page.locator('#cartPanel [data-type="delivery"]')).toHaveCount(0);
+    await expect(page.locator('#cartPanel .cart-note', { hasText: 'Rostocker Straße 20a' })).toHaveCount(1);
+    await expect(page.locator('#fAddressWrap')).toBeHidden();
+    return;
+  }
+  const button = page.locator('[data-type="pickup"]');
+  await expect(button, 'delivery mode must still offer pickup').toBeVisible();
+  await button.click();
+  await expect(button).toHaveClass(/(^|\s)active(\s|$)/);
 }
 
 /* Delivery is not on offer at every hour: a driver's shift starts later than
@@ -144,6 +175,20 @@ export async function stubPayments(page, { methods = ['paypal'], outcome = 'appr
   amount = 1710, reference = 'K7F3QA' } = {}) {
   const id = 'test-payment-id';
 
+  /* Loop WEBSITE_ORDERING, W02-05. A stubbed payment is not a payment, so the
+     handover that follows it must not reach the real Worker as if it were:
+     it used to, and 101 orders "paid online" by `test-payment-id` piled up in
+     the local database. The announce is answered here and its request kept;
+     real linkage is proven only by tests/integration/order-payment-link. */
+  const stub = { announced: [] };
+  await page.route('**/api/orders/announce', (route) => {
+    stub.announced.push(route.request().postDataJSON());
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ recorded: true, reference })
+    });
+  });
+
   await page.route('**/api/payments/config', (route) =>
     route.fulfill({
       contentType: 'application/json',
@@ -154,15 +199,37 @@ export async function stubPayments(page, { methods = ['paypal'], outcome = 'appr
       })
     }));
 
-  await page.route('**/api/payments', (route) =>
-    route.fulfill({
+  /* The stub never invents a price: the amount it was given must be what the
+     real Worker quotes for the basket the page sent, or it answers with an
+     error and the test fails on screen. W02-05. */
+  await page.route('**/api/payments', async (route) => {
+    // Asked of the real Worker through the route itself, with the very body the
+    // page sent for payment.
+    const quoteUrl = new URL('/api/payments/quote', route.request().url()).href;
+    let quoted;
+    try {
+      quoted = await (await route.fetch({ url: quoteUrl, method: 'POST' })).json();
+    } catch {
+      // The test finished while this was in flight (it had already asserted
+      // what it needed). Nothing is left to answer.
+      return route.abort().catch(() => {});
+    }
+    if (quoted.total !== amount) {
+      return route.fulfill({
+        status: 500, contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'stub_amount_mismatch',
+          message: `stub amount ${amount} is not the Worker quote ${quoted.total}` } })
+      });
+    }
+    return route.fulfill({
       status: 201,
       contentType: 'application/json',
       body: JSON.stringify({
         id, reference, provider: 'paypal', providerOrderId: 'PP-ORDER-1',
         amount, amountText: (amount / 100).toFixed(2), currency: 'EUR'
       })
-    }));
+    });
+  });
 
   await page.route('**/api/payments/*/capture', (route) => {
     if (outcome === 'decline') {
@@ -197,6 +264,8 @@ export async function stubPayments(page, { methods = ['paypal'], outcome = 'appr
       contentType: 'application/javascript',
       body: fakeSdk(outcome)
     }));
+
+  return stub;
 }
 
 function fakeSdk(outcome) {

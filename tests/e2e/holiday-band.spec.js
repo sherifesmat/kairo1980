@@ -97,7 +97,7 @@ test.beforeEach(async ({ page }) => {
 
   // And the till open: one test closes it deliberately and the rest must not
   // inherit that.
-  const resume = page.locator('.switch button.go2');
+  const resume = page.locator('form[action="/admin/ordering"] button.go2');   // never the service-mode button beside it
   if (await resume.count()) await resume.click();
   await expect(page.locator('.switch.off')).toHaveCount(0);
 });
@@ -105,7 +105,7 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(async ({ page }) => {
   await signIn(page);
   await takeDown(page);
-  const resume = page.locator('.switch button.go2');
+  const resume = page.locator('form[action="/admin/ordering"] button.go2');   // never the service-mode button beside it
   if (await resume.count()) await resume.click();
 });
 

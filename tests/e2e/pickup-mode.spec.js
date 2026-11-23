@@ -43,7 +43,7 @@ for (const language of ['de', 'en', 'ar']) {
   }
 }
 
-test('switching back restores the delivery UI and hides the temporary guide', async ({ page }) => {
+test('@gate switching back restores the delivery UI and hides the temporary guide', async ({ page }) => {
   await setMode(page, 'delivery');
   await page.goto('/?lang=en');
   await expect(page.locator('.pickup-guide')).toBeHidden();

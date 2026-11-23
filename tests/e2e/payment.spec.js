@@ -8,7 +8,7 @@
 import { test, expect } from '@playwright/test';
 import {
   addItem, openBasket, fillContact, captureWhatsApp, stubPayments, choosePickup,
-  chooseDelivery
+  chooseDelivery, serviceMode
 } from './helpers.js';
 
 /** Basket → contact filled → "pay online" chosen → submitted. */
@@ -58,6 +58,8 @@ test('the button says what pressing it obliges you to (§ 312j Abs. 3 BGB)', asy
   await expect(button).toHaveText('Zahlungspflichtig bestellen');
 
   // An enquiry with no agreed price obliges nobody, whatever was chosen.
+  // Only a delivery outside the area is an enquiry; pickup always has a price.
+  if (await serviceMode(page) === 'pickup') return;
   await chooseDelivery(page);
   await page.locator('#fPlz').fill('10115');
   await expect(button).toHaveText('Unverbindliche Anfrage senden');
@@ -173,9 +175,9 @@ test('a declined card says nothing was charged, and offers to pay on arrival', a
   await expect(page.locator('[data-payact="onsite"]')).toBeVisible();
 });
 
-test('after a failed payment the order can still be sent, and says pay on arrival', async ({ page }) => {
+test('@gate after a failed payment the order can still be sent, and says pay on arrival', async ({ page }) => {
   const whatsapp = await captureWhatsApp(page);
-  await stubPayments(page, { outcome: 'decline' });
+  const stub = await stubPayments(page, { outcome: 'decline' });
   await reachPaymentStep(page);
 
   await page.locator('.fake-pay-button').first().click();
@@ -186,6 +188,14 @@ test('after a failed payment the order can still be sent, and says pay on arriva
   // It must NOT claim to be paid.
   expect(message).not.toMatch(/ONLINE BEZAHLT|PAID ONLINE/);
   expect(message).toMatch(/Bargeld|EC-|Kreditkarte/);
+  expect(message).toContain('Abholung');
+
+  // What the page told the server (the provider is stubbed, so only the
+  // outbound request is asserted — W02-05): a pickup, and no claim of a
+  // payment, so the Worker records and announces it as to be paid on site.
+  await expect.poll(() => stub.announced.length).toBe(1);
+  expect(stub.announced[0].type).toBe('pickup');
+  expect(stub.announced[0].paymentId == null).toBe(true);
 });
 
 test('a payment still being checked is handed over as pending, not as paid', async ({ page }) => {

@@ -149,11 +149,32 @@ test('the order the restaurant reads names every choice, and the Worker prices i
   await openBasket(page);
   await choosePickup(page);
   await fillContact(page, {});
+  // The basket the page built, read before sending empties it.
+  const items = await page.evaluate(() => JSON.parse(localStorage.getItem('kairo.cart.v2') || 'null'));
   const announced = page.waitForResponse((r) => r.url().includes('/api/orders/announce'));
   await page.locator('#cartSend').click();
 
   const message = decodeURIComponent((await whatsapp()).split('?text=')[1]);
-  expect(message).toContain('1× Hawawshy + Steakhouse Pommes — 23,00');
+
+  /* The expected line is read from the prices the page itself carries — never
+     typed. This test said 23,00 for six weeks after the sandwich went to 18 €
+     (PR #19), red on every run, because a price written into a test is a
+     second copy of the menu. Loop WEBSITE_ORDERING, C. */
+  const cents = (id) => page.locator(`.mitem[data-item="${id}"]`).first().getAttribute('data-price')
+    .then((v) => Math.round(Number(v) * 100));
+  const line = (await cents('hawawshy')) + (await cents('steakhouse-pommes'));
+  const euro = (c) => (c / 100).toFixed(2).replace('.', ',');
+  expect(message).toContain(`1× Hawawshy + Steakhouse Pommes — ${euro(line)}`);
+
+  /* And independently, the Worker's price for the very key the basket built.
+     DOM against DOM alone would agree with itself whatever it said. */
+  const quote = await (await page.request.post('/api/payments/quote', {
+    data: { items: (items && items.items) || {}, type: 'pickup' }
+  })).json();
+  expect(quote.subtotal).toBe(line);
+  expect(quote.total).toBe(quote.subtotal - quote.discount);
+  expect(message).toContain(euro(quote.total));
+
   // The server accepted the key it was sent: a 400 here would mean the page
   // and the Worker disagree about what a Hawawshy with fries is.
   // (202 is the per-address throttle, which records nothing but is not a no.)

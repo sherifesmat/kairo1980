@@ -8,6 +8,7 @@
    does not state. */
 
 import { test, expect } from '@playwright/test';
+import { serviceMode, requireDelivery } from './helpers.js';
 
 const URL = '/firmencatering';
 
@@ -19,6 +20,18 @@ async function deliveryFrom(page) {
 test('the page is served on its own URL and says what it is', async ({ page }) => {
   const response = await page.goto(URL);
   expect(response.status()).toBe(200);
+
+  /* In pickup-only service the page offers team lunch to collect, and says
+     so in its own title and heading — a page promising catering delivered to
+     the office while nobody drives would be the lie. Loop WEBSITE_ORDERING, B. */
+  if (await serviceMode(page) === 'pickup') {
+    await expect(page).toHaveTitle('Mittagessen für Firmen zur Abholung | KAIRO 1980 Hockenheim');
+    await expect(page.locator('h1')).toContainText('zum Abholen in Hockenheim');
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+      'href', 'https://kairo1980.de/firmencatering');
+    await expect(page.locator('body')).not.toContainText('Vorlauf');
+    return;
+  }
 
   await expect(page).toHaveTitle(/Firmencatering/);
   await expect(page.locator('h1')).toContainText('Firmencatering');
@@ -61,24 +74,29 @@ test('it carries every legal statement a standalone page needs', async ({ page }
 test('it switches all three languages, and Arabic mirrors the page', async ({ page }) => {
   await page.goto(URL);
   const h1 = page.locator('h1');
-  await expect(h1).toContainText('Rhein-Neckar');
+  const pickup = await serviceMode(page) === 'pickup';
+  const heading = pickup
+    ? { de: 'zum Abholen in Hockenheim', en: 'for pickup in Hockenheim', ar: 'للاستلام في هوكنهايم', back: 'Mittagessen fürs Team' }
+    : { de: 'Rhein-Neckar', en: 'Corporate & office catering', ar: 'راين-نيكار', back: 'Firmencatering' };
+  await expect(h1).toContainText(heading.de);
 
   await page.locator('[data-lang="en"]').click();
-  await expect(h1).toContainText('Corporate & office catering');
+  await expect(h1).toContainText(heading.en);
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
 
   await page.locator('[data-lang="ar"]').click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'ar');
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
-  await expect(h1).toContainText('راين-نيكار');
+  await expect(h1).toContainText(heading.ar);
 
   await page.locator('[data-lang="de"]').click();
   await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
-  await expect(h1).toContainText('Firmencatering');
+  await expect(h1).toContainText(heading.back);
 });
 
-test('the delivery towns are rendered from the zone list, not retyped', async ({ page }) => {
+test('the delivery towns are rendered from the zone list, not retyped', async ({ page }, testInfo) => {
   await page.goto(URL);
+  await requireDelivery(page, testInfo);
   const list = page.locator('#areasList');
   await expect(list).toContainText('Walldorf');
   await expect(list).toContainText('69190');
@@ -129,8 +147,9 @@ test('no basket is built on a page that carries no menu', async ({ page }) => {
 });
 
 test('the Service markup parses, and its provider is the existing restaurant',
-  async ({ page }) => {
+  async ({ page }, testInfo) => {
     await page.goto(URL);
+    await requireDelivery(page, testInfo);
     // Rewritten by order.js after the page renders; wait for the towns it adds.
     await expect(page.locator('#areasList .area').first()).toBeVisible();
 
@@ -177,8 +196,9 @@ test('the Service markup parses, and its provider is the existing restaurant',
       () => document.querySelector('h1').textContent.replace(/\s+/g, ' ').trim()));
   });
 
-test('the Service node follows the language being read', async ({ page }) => {
+test('the Service node follows the language being read', async ({ page }, testInfo) => {
   await page.goto(`${URL}?lang=en`);
+  await requireDelivery(page, testInfo);
   await expect(page.locator('#areasList .area').first()).toBeVisible();
   const data = await page.evaluate(() =>
     JSON.parse(document.getElementById('serviceSchema').textContent));
@@ -230,7 +250,9 @@ test('the strict content-security policy still applies to this page', async ({ p
 });
 
 test('both pages state the delivery rules in the words config writes',
-  async ({ page }) => {
+  async ({ page }, testInfo) => {
+    await page.goto(URL);
+    await requireDelivery(page, testInfo);
     // The two sentences are generated from config.order.minimumOrder and
     // business.freeDeliveryFrom, so a page cannot be edited into promising
     // something the basket does not do.
@@ -245,7 +267,9 @@ test('both pages state the delivery rules in the words config writes',
   });
 
 test('the minimum sentence disappears by itself if the rule ever changes',
-  async ({ page }) => {
+  async ({ page }, testInfo) => {
+    await page.goto(URL);
+    await requireDelivery(page, testInfo);
     // Not a hypothetical: the clause exists so nobody has to remember to
     // delete it by hand. Flip the rule in the page's own config and the
     // sentence must go, without touching a word of markup.

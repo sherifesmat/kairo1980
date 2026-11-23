@@ -27,7 +27,59 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Nothing reaches production unless a guest can still order. Loop
+  # WEBSITE_ORDERING (KBOSS), F / W02-06. Four scenarios, in a real browser,
+  # against the real Worker in `wrangler dev` with a disposable local D1:
+  # a pickup order recorded in the books, a failed payment falling back to
+  # paying on site, an order scheduled past a closure, and pickup with
+  # switch-back. No Cloudflare secret is in this job; the admin login and the
+  # report token below are throwaway values that exist only on this runner.
+  #
+  # tools/check-gate.mjs reads the JSON report and fails the gate unless each
+  # of the four ran exactly once and passed: Playwright's own exit code is 0
+  # for a run that skipped everything.
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx playwright install --with-deps chromium
+
+      - name: Disposable local admin and report token
+        run: |
+          printf 'ADMIN_USER=devuser\nADMIN_PASSWORD=dev-password-not-a-real-one\nREPORT_TOKEN=gate-%s\n' "$(openssl rand -hex 12)" > .dev.vars
+
+      - name: Disposable local database
+        run: npx wrangler d1 migrations apply kairo1980-payments --local --persist-to ../.kairo1980-dev-state
+
+      - name: Run the four ordering scenarios
+        env:
+          KAIRO_GATE: '1'
+          PLAYWRIGHT_JSON_OUTPUT_NAME: gate-results.json
+        run: npx playwright test --project=gate --reporter=list,json
+
+      - name: The gate held only if all four ran and passed
+        if: always()
+        run: node tools/check-gate.mjs gate-results.json
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: gate-browser-evidence
+          path: |
+            test-results/
+            gate-results.json
+
   deploy:
+    needs: [gate]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo

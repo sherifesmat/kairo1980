@@ -14,7 +14,8 @@
        somewhere, is still holding the closed state. */
 
 import { test, expect } from '@playwright/test';
-import { addItem, openBasket, choosePickup, chooseDelivery, fillContact, captureWhatsApp } from './helpers.js';
+import { addItem, openBasket, choosePickup, chooseDelivery, fillContact, captureWhatsApp, requireDelivery } from './helpers.js';
+import { resetOrderRate, reportedOrders, observeAnnounce, centsOf, euro } from './fixtures.js';
 
 /* One switch, one database, one restaurant. Two of these running at once would
    be two tests writing the same row — which reads as flakiness and is not. */
@@ -66,8 +67,12 @@ async function setOrdering(page,
        it WAITS for the page to resolve to one, which never happens. That is
        silent until it eats a whole test budget and surfaces as the previous
        test failing in its afterEach, taking the rest of a serial file with it. */
-    const box = page.locator('.switch');
-    const resume = box.locator('button.go2');
+    /* The reopen button, named by the form it submits. Since pickup mode the
+       switch box also holds the service-mode form, whose button has the same
+       class: "if there is a go2, click it" pressed "Restore saved delivery
+       setup" whenever the shop was open, and the site silently changed mode
+       under every later test. Loop WEBSITE_ORDERING. */
+    const resume = page.locator('form[action="/admin/ordering"] button.go2');
     if (await resume.count()) await resume.click();
     await expect(page.locator('.switch.off')).toHaveCount(0);
     return;
@@ -79,7 +84,8 @@ async function setOrdering(page,
      wrong form. */
   const box = page.locator('.switch');
 
-  if (await box.locator('button.go2').count()) await box.locator('button.go2').click();
+  const reopen = page.locator('form[action="/admin/ordering"] button.go2');
+  if (await reopen.count()) await reopen.click();
   await box.locator(`input[name="reason"][value="${reason}"]`).check();
 
   if (untilDate || untilTime) {
@@ -206,9 +212,10 @@ test('a paused shop still lets a guest build a basket, and refuses only "now"',
     await expect(page.locator('.cart-sent')).toHaveCount(0);
   });
 
-test('an order scheduled past the closure goes through untouched', async ({ page }) => {
+test('@gate an order scheduled past the closure goes through untouched', async ({ page }) => {
   const whatsapp = await captureWhatsApp(page);
   await signIn(page);
+  resetOrderRate();
 
   // Closed until a named time this evening, so "later today" is a real choice.
   await setOrdering(page, { closed: true, reason: 'demand', untilTime: '23:30' });
@@ -217,6 +224,9 @@ test('an order scheduled past the closure goes through untouched', async ({ page
   await addItem(page, 'hummus', 2);
   await openBasket(page);
   await choosePickup(page);
+
+  // "As soon as possible" is a moment we are closed: the basket withholds it.
+  await expect(page.locator('#cartSend')).toBeDisabled();
 
   // Pick a moment after we reopen — tomorrow, so no clock arithmetic can make
   // this test fail at some hours of the day and pass at others.
@@ -234,11 +244,23 @@ test('an order scheduled past the closure goes through untouched', async ({ page
   await expect(page.locator('#cartOrderOff')).toBeHidden();
 
   await fillContact(page, { name: 'Test Gast', phone: '+49 176 1234567' });
+  const announced = await observeAnnounce(page);
   await send.click();
 
   const message = decodeURIComponent((await whatsapp()).split('?text=')[1]);
   expect(message).toContain('2× Hummus');
   await expect(page.locator('.cart-sent')).toBeVisible();
+
+  /* And it reached the books. Loop WEBSITE_ORDERING, W01-02: the page used to
+     send only the display text of the moment, so the Worker read the order as
+     "now", inside the closure, and answered 503 — the guest's WhatsApp went,
+     the restaurant's books never had it. */
+  const { status, request, body } = await announced();
+  expect(request.when).toEqual({ date: tomorrow, time: '19:00' });
+  expect(status).toBe(200);
+  expect(body.recorded).toBe(true);
+  const rows = (await reportedOrders(page)).filter((o) => o.reference === body.reference);
+  expect(rows).toHaveLength(1);
 });
 
 test('moving the chosen time back into the closure withholds the button again',
@@ -293,7 +315,12 @@ test('the page says it is closed before a single line of script has run',
       await page.fill('#p', ADMIN_PASSWORD);
       await page.click('button.go');
     }
-    if (await page.locator('button.go2').count()) await page.locator('button.go2').click();
+    /* Scoped to the ordering switch, as everywhere else in this file. In
+       pickup mode /admin carries a second `button.go2` — "Restore saved
+       delivery setup" — and an unscoped click here switched the whole site to
+       delivery instead of reopening it. Loop WEBSITE_ORDERING. */
+    const resume = page.locator('form[action="/admin/ordering"] button.go2');
+    if (await resume.count()) await resume.click();
     await page.locator('input[name="reason"][value="holiday"]').check();
     await page.click('button.stop');
 
@@ -304,7 +331,7 @@ test('the page says it is closed before a single line of script has run',
     await expect(page.locator('html')).toHaveAttribute('data-ordering', 'off');
 
     await page.goto('/admin');
-    await page.locator('button.go2').click();
+    await page.locator('form[action="/admin/ordering"] button.go2').click();
     await context.close();
   });
 
@@ -382,7 +409,10 @@ async function setShift(page, mode, from = null) {
 }
 
 test('today\'s driver is said in three languages and published in none',
-  async ({ page }) => {
+  async ({ page }, testInfo) => {
+    // A driver means nothing while the service is pickup-only.
+    await page.goto('/');
+    await requireDelivery(page, testInfo);
     await signIn(page);
 
     /* The standing arrangement this test contrasts TODAY against, set here
@@ -436,8 +466,9 @@ test('today\'s driver is said in three languages and published in none',
   });
 
 test('a shift set for later today withholds delivery the basket would have offered',
-  async ({ page }) => {
+  async ({ page }, testInfo) => {
     await page.goto('/');
+    await requireDelivery(page, testInfo);
 
     /* A moment still ahead inside today's opening, read out of the page's own
        config rather than typed here — a time written into a test is a second
@@ -517,7 +548,9 @@ test('a shift set for later today withholds delivery the basket would have offer
   });
 
 test('with no driver today, delivery is withheld and the order still goes',
-  async ({ page }) => {
+  async ({ page }, testInfo) => {
+    await page.goto('/');
+    await requireDelivery(page, testInfo);
     const whatsapp = await captureWhatsApp(page);
     await signIn(page);
 
@@ -640,7 +673,9 @@ test('a cash order reaches the kitchen page without WhatsApp being sent', async 
   await expect(card).toContainText('Hummus');
 });
 
-test('a delivery order carries the address the driver needs', async ({ page }) => {
+test('a delivery order carries the address the driver needs', async ({ page }, testInfo) => {
+  await page.goto('/');
+  await requireDelivery(page, testInfo);
   const who = `E2E Lieferung ${Date.now()}`;
   const whatsapp = await captureWhatsApp(page);
   await page.goto('/?lang=de');
@@ -915,7 +950,10 @@ test('extras set up at /admin are what the chooser offers and the chat carries',
     await fillContact(page, {});
     await page.locator('#cartSend').click();
     const message = decodeURIComponent((await whatsapp()).split('?text=')[1]);
-    expect(message).toContain('1× Hawawshy + Tomatensauce — 19,50');
+    // From the prices the page carries, never typed: this said 19,50 for six
+    // weeks after the sandwich went to 18 €. Loop WEBSITE_ORDERING, C.
+    const line = (await centsOf(page, 'hawawshy')) + (await centsOf(page, 'tomatensauce'));
+    expect(message).toContain(`1× Hawawshy + Tomatensauce — ${euro(line)}`);
   } finally {
     await goAdmin(page, '/admin/extras');
     const all = page.locator('form.reset-all button');

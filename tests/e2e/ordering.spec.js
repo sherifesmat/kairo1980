@@ -5,7 +5,7 @@
    warning given, what reaches the restaurant — not pixels. */
 
 import { test, expect } from '@playwright/test';
-import { addItem, openBasket, captureWhatsApp, fillContact, choosePickup, chooseDelivery } from './helpers.js';
+import { addItem, openBasket, captureWhatsApp, fillContact, choosePickup, chooseDelivery, requireDelivery } from './helpers.js';
 
 test('the menu shows a price for every dish that can be ordered', async ({ page }) => {
   await page.goto('/');
@@ -62,8 +62,9 @@ test('the basket survives a reload, so a phone call does not cost the order', as
   await expect(page.locator('#cartFabCount')).toHaveText('2');
 });
 
-test('a postcode we deliver to shows its fee before the guest commits', async ({ page }) => {
+test('a postcode we deliver to shows its fee before the guest commits', async ({ page }, testInfo) => {
   await page.goto('/');
+  await requireDelivery(page, testInfo);
   await addItem(page, 'hummus', 2);
   await openBasket(page);
 
@@ -75,8 +76,9 @@ test('a postcode we deliver to shows its fee before the guest commits', async ({
   await expect(body).toContainText('2,00');
 });
 
-test('a sub-minimum order is warned about but never blocked', async ({ page }) => {
+test('a sub-minimum order is warned about but never blocked', async ({ page }, testInfo) => {
   await page.goto('/');
+  await requireDelivery(page, testInfo);
   await addItem(page, 'hummus', 1);          // 9.50, under the 20 € minimum
   await openBasket(page);
   await chooseDelivery(page);
@@ -88,8 +90,9 @@ test('a sub-minimum order is warned about but never blocked', async ({ page }) =
   await expect(page.locator('#cartSend')).toBeEnabled();
 });
 
-test('a postcode outside the area becomes an enquiry rather than a refusal', async ({ page }) => {
+test('a postcode outside the area becomes an enquiry rather than a refusal', async ({ page }, testInfo) => {
   await page.goto('/');
+  await requireDelivery(page, testInfo);
   await addItem(page, 'hummus', 2);
   await openBasket(page);
   await chooseDelivery(page);
@@ -121,7 +124,7 @@ test('the order that reaches the restaurant carries the items, total and contact
   expect(message).toMatch(/Bargeld|EC-|Kreditkarte/);
 });
 
-test('warnings survive the trip to WhatsApp intact', async ({ page }) => {
+test('warnings survive the trip to WhatsApp intact', async ({ page }, testInfo) => {
   // The warning sign U+26A0 was the obvious marker and the wrong one: wa.me
   // redirects through api.whatsapp.com, and that redirect replaces it with
   // U+FFFD, so the kitchen read a broken character on the line that matters
@@ -129,6 +132,7 @@ test('warnings survive the trip to WhatsApp intact', async ({ page }) => {
   // not. Nothing above ASCII goes in a flag.
   const whatsapp = await captureWhatsApp(page);
   await page.goto('/');
+  await requireDelivery(page, testInfo);
   await addItem(page, 'hummus', 1);
   await openBasket(page);
   await chooseDelivery(page);
@@ -281,8 +285,9 @@ test('the page never scrolls sideways on a phone', async ({ page }) => {
    config.js and asserted here as a guest meets them: in the basket, and in
    the message the restaurant reads. */
 
-test('free delivery is announced to everyone once the threshold is reached', async ({ page }) => {
+test('free delivery is announced to everyone once the threshold is reached', async ({ page }, testInfo) => {
   await page.goto('/');
+  await requireDelivery(page, testInfo);
   await addItem(page, 'etwas-von-allem', 4);  // 4 × 26.00 = 104.00, over 100 €
   await openBasket(page);
   await chooseDelivery(page);
@@ -293,8 +298,9 @@ test('free delivery is announced to everyone once the threshold is reached', asy
   await expect(body).toContainText('2,00');   // what was saved, named
 });
 
-test('below the threshold the basket says how much is missing', async ({ page }) => {
+test('below the threshold the basket says how much is missing', async ({ page }, testInfo) => {
   await page.goto('/');
+  await requireDelivery(page, testInfo);
   await addItem(page, 'hummus', 2);           // 19.00
   await openBasket(page);
   await chooseDelivery(page);
@@ -305,10 +311,11 @@ test('below the threshold the basket says how much is missing', async ({ page })
 });
 
 test('a company delivery is held to its zone minimum, on screen and in the chat',
-  async ({ page }) => {
+  async ({ page }, testInfo) => {
     // Owner, 23.10.2026: the minimum is the zone's, for private and company alike.
     const whatsapp = await captureWhatsApp(page);
     await page.goto('/?lang=de');
+    await requireDelivery(page, testInfo);
     await addItem(page, 'hummus', 1);         // 9.50, far under Wiesloch's 20 €
     await openBasket(page);
     await chooseDelivery(page);
@@ -388,6 +395,10 @@ test('every long section reveals itself on a small phone', async ({ page }) => {
   for (const id of ['ueber-uns', 'speisekarte', 'firmen', 'faq', 'liefergebiet']) {
     const section = page.locator(`#${id}`);
     if (!(await section.count())) continue;
+    // A section the service mode hides (#liefergebiet while pickup-only) is
+    // display:none, not transparent — it is not the bug this guards, and
+    // scrolling to it would wait forever.
+    if (!(await section.isVisible())) continue;
     await section.scrollIntoViewIfNeeded();
     await expect.poll(
       () => section.evaluate((el) => Number(getComputedStyle(el).opacity)),
@@ -480,9 +491,10 @@ const NOTICE = {
   ar: /تحضير|قبلها بـ/
 };
 for (const lang of ['de', 'en', 'ar']) {
-  test(`a company delivery asks for no notice, on screen or in the chat (${lang})`, async ({ page }) => {
+  test(`a company delivery asks for no notice, on screen or in the chat (${lang})`, async ({ page }, testInfo) => {
     const whatsapp = await captureWhatsApp(page);
     await page.goto(`/?lang=${lang}`);
+    await requireDelivery(page, testInfo);
     await addItem(page, 'hummus', 2);
     await openBasket(page);
     await chooseDelivery(page);

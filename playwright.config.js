@@ -10,7 +10,7 @@ const PORT = 8788;
 /* Specs that write settings shared by the whole run — the ordering switch, the
    hours and the holiday band are all one row in one database. See the `switch`
    project below for why they are kept out of everything else. */
-const SHARED_STATE = /(ordering-switch|holiday-band|pickup-mode)\.spec\.js/;
+const SHARED_STATE = /(ordering-switch|holiday-band|pickup-mode|pickup-order)\.spec\.js/;
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -59,9 +59,31 @@ export default defineConfig({
       name: 'switch',
       testMatch: SHARED_STATE,
       fullyParallel: false,
+      /* One worker, not only serial files: two shared-state FILES on two
+         workers still wrote the same row at once — the pickup switch-back test
+         flipped the service mode under the closure test beside it. Loop
+         WEBSITE_ORDERING, found while building the gate. */
+      workers: 1,
       dependencies: ['mobile', 'desktop'],
       use: { ...devices['Pixel 7'] }
     },
+
+    /* The deploy gate (deploy.yml, jobs.gate). Exactly the four scenarios that
+       must hold before production changes — a pickup order recorded in the
+       books, a failed payment falling back to on-site, an order scheduled past
+       a closure, and pickup with switch-back — on one worker, in a disposable
+       local D1. Only defined when the gate asks for it, so an ordinary run does
+       not repeat them. Loop WEBSITE_ORDERING, F / W02-06. */
+    ...(process.env.KAIRO_GATE
+      ? [{
+          name: 'gate',
+          grep: /@gate/,
+          fullyParallel: false,
+          workers: 1,
+          retries: 0,
+          use: { ...devices['Pixel 7'] }
+        }]
+      : []),
 
     // iPhone matters — it is most of the traffic a restaurant sees — but
     // Playwright's WebKit build hangs on clicks on Windows hosts, which is a
