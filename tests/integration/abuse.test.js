@@ -1339,6 +1339,11 @@ test('an extension changes what can be ordered, never the published hours', asyn
   const paypal = fakePayPal({});
   t.after(() => paypal.restore());
 
+  const schemaOf = (html) =>
+    JSON.parse(/<script id="restaurantSchema"[^>]*>([\s\S]*?)<\/script>/.exec(html)[1]).openingHoursSpecification;
+  const before = schemaOf(await (await worker.fetch(get('/'), env, c)).text());
+  assert.ok(before.length > 0, 'there are published hours to compare against');
+
   const { cookie } = await signIn(env);
   const res = await worker.fetch(form('/admin/extend', { minutes: '90' }, { cookie }), env, c);
   assert.equal(res.status, 303);
@@ -1352,14 +1357,63 @@ test('an extension changes what can be ordered, never the published hours', asyn
   assert.match(html, /"extension"/, 'handed to the page without a fetch');
   assert.match(html, /"until"/);
 
-  // The structured data is untouched: it closes when the shipped week closes,
-  // read from config.js rather than retyped (the week changed on 25.11.2026).
-  const closes = new Set(Object.values(CONFIG.hours.days)
-    .filter((d) => !d.closed).map((d) => (d.evening || d.lunch)[1]));
-  const schema = JSON.parse(/<script id="restaurantSchema"[^>]*>([\s\S]*?)<\/script>/.exec(html)[1]);
-  for (const spec of schema.openingHoursSpecification) {
-    assert.ok(closes.has(spec.closes), `an extension never becomes an opening hour (${spec.closes})`);
+  // The structured data is untouched: exactly what was published before it.
+  assert.deepEqual(schemaOf(html), before, 'an extension never becomes an opening hour');
+});
+
+/* Q-04, answered by the owner on 25.11.2026: the week is Tuesday to Sunday,
+   Monday closed. Spelled out here on purpose, NOT read from config.js: this
+   is the decision the shipped files must keep, so a config that drops a day
+   has to fail against it. The times are the delivery week as configured on
+   that day (16:00-22:00, delivery from 18:00), an operating setting, not
+   part of the decision. */
+const OWNER_WEEK = { closed: ['mon'], open: ['tue', 'wed', 'thu', 'fri', 'sat', 'sun'] };
+const SCHEMA_DAY = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday',
+  fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
+
+test('Q-04: with no hours saved at /admin, the shipped week is Tuesday to Sunday, everywhere', async (t) => {
+  const env = workerEnv(MENU, CREDS);   // delivery mode, nothing saved at /admin
+  const paypal = fakePayPal({});
+  t.after(() => paypal.restore());
+
+  // (b) what the basket and the badge are told
+  const status = await (await worker.fetch(get('/api/status'), env, ctx())).json();
+  assert.equal(status.serviceMode, 'delivery');
+  for (const d of OWNER_WEEK.closed) assert.equal(status.hours.days[d].closed, true, `${d} is closed`);
+  for (const d of OWNER_WEEK.open) {
+    const day = status.hours.days[d];
+    assert.equal(day.closed, false, `${d} is open`);
+    assert.deepEqual(day.lunch, ['16:00', '22:00'], `${d} 16:00-22:00`);
+    assert.equal(day.evening, null);
   }
+  assert.equal(status.hours.deliveryFrom, '18:00');
+
+  // (c) what the Worker publishes: six opening days, none of them Monday,
+  //     and the visible rows saying the same
+  const html = await (await worker.fetch(get('/'), env, ctx())).text();
+  const specs = JSON.parse(/<script id="restaurantSchema"[^>]*>([\s\S]*?)<\/script>/.exec(html)[1])
+    .openingHoursSpecification;
+  const opened = specs.flatMap((s) => [].concat(s.dayOfWeek).map((day) => ({ day, opens: s.opens, closes: s.closes })))
+    .filter((s) => s.opens !== s.closes);
+  assert.deepEqual(opened.map((s) => s.day).sort(), OWNER_WEEK.open.map((d) => SCHEMA_DAY[d]).sort(),
+    'the structured data opens Tuesday to Sunday and nothing else');
+  for (const s of opened) assert.deepEqual([s.opens, s.closes], ['16:00', '22:00'], s.day);
+  const rows = /<!--hours:start-->([\s\S]*?)<!--hours:end-->/.exec(html)[1].replace(/<[^>]+>/g, ' ');
+  assert.match(rows, /Montag\s+Geschlossen/, 'the rows close Monday');
+  assert.doesNotMatch(rows, /Dienstag\s+Geschlossen/, 'and not Tuesday');
+
+  // (d) the files as shipped, which is what a crawler gets if the Worker is bypassed
+  const { readFileSync } = await import('node:fs');
+  const index = readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
+  const stat = JSON.parse(/<script id="restaurantSchema"[^>]*>([\s\S]*?)<\/script>/.exec(index)[1])
+    .openingHoursSpecification;
+  const statOpen = stat.filter((s) => s.opens !== s.closes).flatMap((s) => [].concat(s.dayOfWeek));
+  const statShut = stat.filter((s) => s.opens === s.closes).flatMap((s) => [].concat(s.dayOfWeek));
+  assert.deepEqual([...statOpen].sort(), OWNER_WEEK.open.map((d) => SCHEMA_DAY[d]).sort(), 'static JSON-LD: open days');
+  assert.deepEqual(statShut, ['Monday'], 'static JSON-LD: only Monday closed');
+  const fallback = /<!--hours:start-->([\s\S]*?)<!--hours:end-->/.exec(index)[1].replace(/<[^>]+>/g, ' ');
+  assert.match(fallback, /Montag\s+Geschlossen/);
+  assert.match(fallback, /Dienstag – Sonntag/);
 });
 
 test('an extension can be taken back before it lapses', async (t) => {
