@@ -1352,10 +1352,13 @@ test('an extension changes what can be ordered, never the published hours', asyn
   assert.match(html, /"extension"/, 'handed to the page without a fetch');
   assert.match(html, /"until"/);
 
-  // The structured data is untouched: still the stub's fixed Wednesday window.
+  // The structured data is untouched: it closes when the shipped week closes,
+  // read from config.js rather than retyped (the week changed on 25.11.2026).
+  const closes = new Set(Object.values(CONFIG.hours.days)
+    .filter((d) => !d.closed).map((d) => (d.evening || d.lunch)[1]));
   const schema = JSON.parse(/<script id="restaurantSchema"[^>]*>([\s\S]*?)<\/script>/.exec(html)[1]);
   for (const spec of schema.openingHoursSpecification) {
-    assert.equal(spec.closes, '23:00', 'an extension never becomes an opening hour');
+    assert.ok(closes.has(spec.closes), `an extension never becomes an opening hour (${spec.closes})`);
   }
 });
 

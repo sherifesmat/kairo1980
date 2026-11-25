@@ -242,8 +242,11 @@ window.KAIRO_CONFIG = {
        then did not answer it. A day that genuinely has no driver is said at
        /admin, which withholds tonight only and lapses at midnight on its own.
        Put a time back here when the roster is fixed, and the sentence returns
-       everywhere by itself. */
-    deliveryFrom: '',
+       everywhere by itself.
+
+       25.11.2026: the owner set 18:00 at /admin, and the week is Tuesday to
+       Sunday (loop WEBSITE_ORDERING, Q-04). This fallback now says the same. */
+    deliveryFrom: '18:00',
 
     /* One entry per weekday. Times are "HH:MM" in 24h format.
 
@@ -267,12 +270,12 @@ window.KAIRO_CONFIG = {
        for the whole opening, delivery from `deliveryFrom` above. */
     days: {
       mon: { closed: true,  lunch: null,               evening: null },
-      tue: { closed: true,  lunch: null,               evening: null },
-      wed: { closed: false, lunch: ['17:00', '23:00'], evening: null },
-      thu: { closed: false, lunch: ['17:00', '23:00'], evening: null },
-      fri: { closed: false, lunch: ['17:00', '23:00'], evening: null },
-      sat: { closed: false, lunch: ['17:00', '23:00'], evening: null },
-      sun: { closed: false, lunch: ['17:00', '23:00'], evening: null }
+      tue: { closed: false, lunch: ['16:00', '22:00'], evening: null },
+      wed: { closed: false, lunch: ['16:00', '22:00'], evening: null },
+      thu: { closed: false, lunch: ['16:00', '22:00'], evening: null },
+      fri: { closed: false, lunch: ['16:00', '22:00'], evening: null },
+      sat: { closed: false, lunch: ['16:00', '22:00'], evening: null },
+      sun: { closed: false, lunch: ['16:00', '22:00'], evening: null }
     }
   }
 };
