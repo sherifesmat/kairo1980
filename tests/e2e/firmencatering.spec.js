@@ -109,6 +109,43 @@ test('the delivery towns are rendered from the zone list, not retyped', async ({
   await expect(page.locator('.areas-lead')).toContainText(String(zones));
 });
 
+test('the delivery towns climb in price steps: by minimum, then by fee', async ({ page }, testInfo) => {
+  /* Owner, 26.11.2026: two areas with the same minimum but different fees
+     sorted lowest to highest. Each step is one pair of minimum and fee, read
+     from the same rows the basket charges, and every town sits under its own. */
+  await page.goto(URL);
+  await requireDelivery(page, testInfo);
+  await expect(page.locator('#areasList .area').first()).toBeVisible();
+
+  const { steps, zones } = await page.evaluate(() => ({
+    zones: window.KAIRO_ZONES.map((z) => ({ plz: z[0], min: Number(z[3]), fee: Number(z[4]) })),
+    steps: [...document.querySelectorAll('#areasList .area-tier')].map((tier) => ({
+      min: Number(tier.dataset.min),
+      fee: Number(tier.dataset.fee),
+      heading: tier.querySelector('.area-tier-title').textContent,
+      plz: [...tier.querySelectorAll('.area-plz')].map((el) => el.textContent)
+    }))
+  }));
+
+  const pairs = new Set(zones.map((z) => z.min + '|' + z.fee));
+  expect(steps.length).toBe(pairs.size);
+  for (let i = 1; i < steps.length; i++) {
+    const [a, b] = [steps[i - 1], steps[i]];
+    expect(a.min < b.min || (a.min === b.min && a.fee < b.fee)).toBe(true);
+  }
+  for (const step of steps) {
+    expect(step.heading).toContain(String(step.min));
+    for (const plz of step.plz) {
+      const zone = zones.find((z) => z.plz === plz);
+      expect([zone.min, zone.fee]).toEqual([step.min, step.fee]);
+    }
+  }
+  // Same minimum, two fees: the cheaper step comes first.
+  const fifteen = steps.filter((s) => s.min === 15).map((s) => s.fee);
+  expect(fifteen).toEqual([...fifteen].sort((x, y) => x - y));
+  expect(fifteen.length).toBeGreaterThan(1);
+});
+
 test('the collection-only caveat travelled with the offer', async ({ page }) => {
   await page.goto(URL);
   const from = await deliveryFrom(page);

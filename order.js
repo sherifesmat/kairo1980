@@ -377,7 +377,8 @@
       copyOrder: 'Bestellung kopieren', copied: 'Kopiert ✓',
       callUs: 'Anrufen', smsUs: 'Per SMS senden',
       openAgain: 'WhatsApp erneut öffnen',
-      areaFree: 'frei',
+      areaFeeLine: 'Lieferung {fee}',
+      areaFreeLine: 'Lieferung frei',
       areaMinOrder: 'Mindestbestellwert {min} €',
       faqHoursLead: 'Unsere aktuellen Öffnungszeiten: ',
       faqHoursTail: 'Der Status im Kontaktbereich zeigt jederzeit an, ob wir gerade geöffnet haben. Bestellungen außerhalb dieser Zeiten erreichen uns als Vorbestellung für Ihren Wunschtermin.',
@@ -535,7 +536,8 @@
       copyOrder: 'Copy the order', copied: 'Copied ✓',
       callUs: 'Call us', smsUs: 'Send by SMS',
       openAgain: 'Open WhatsApp again',
-      areaFree: 'free',
+      areaFeeLine: 'Delivery {fee}',
+      areaFreeLine: 'Free delivery',
       areaMinOrder: 'Minimum order €{min}',
       faqHoursLead: 'Our current opening hours are: ',
       faqHoursTail: 'The live status at the top of the contact section always shows whether we are open right now. Orders placed outside these hours reach us as a pre-order for a time you choose.',
@@ -693,7 +695,8 @@
       copyOrder: 'انسخ الطلب', copied: 'اتنسخ ✓',
       callUs: 'اتصل بينا', smsUs: 'ابعت SMS',
       openAgain: 'افتح واتساب تاني',
-      areaFree: 'مجاني',
+      areaFeeLine: 'التوصيل {fee}',
+      areaFreeLine: 'التوصيل مجاني',
       areaMinOrder: 'الحد الأدنى للطلب {min} €',
       faqHoursLead: 'مواعيد العمل الحالية: ',
       faqHoursTail: 'حالة المطعم في قسم التواصل بتوضّح دايماً إحنا مفتوحين دلوقتي ولا لأ. والطلبات برة المواعيد دي بتوصلنا كطلب مسبق للموعد اللي اخترته.',
@@ -4193,16 +4196,35 @@
   // Visible delivery-area list. Same data as the basket, so a price change in
   // the spreadsheet updates the marketing copy and the checkout together.
   //
-  // Grouped by minimum order rather than listed in one long table: the zones
-  // already fall into natural price tiers, a reader only cares which tier they
-  // are in, and it lets each town sit on one line instead of a three-column
-  // grid breaking "Oberhausen-Rheinhausen" across three.
+  // Stepped by price: one step per pair of minimum order and delivery fee,
+  // cheapest first — by minimum, then by fee inside the same minimum (owner,
+  // 26.11.2026). A guest reads down a staircase that only ever climbs, finds
+  // their town, and has both figures in the heading above it instead of
+  // decoding a fee on every row. Inside a step the towns stay alphabetical,
+  // because a guest looks for their town by name.
   //
-  // The delivery fee is stated per town, not per tier, because it varies
-  // inside a tier — three towns with the same €50 minimum are charged €3, €4
-  // and €8. Publishing it here is the same figure the basket charges, from the
-  // same row of the spreadsheet, so the page cannot promise one price and
-  // invoice another.
+  // Both figures come from the same spreadsheet row the basket charges, so the
+  // page cannot promise one price and invoice another.
+  function areaSteps(rows) {
+    var steps = [];
+    var byKey = {};
+    rows.forEach(function (row) {
+      var min = Number(row[3]) || 0;
+      var fee = Number(row[4]) || 0;
+      var key = min + '|' + fee;
+      if (!byKey[key]) { byKey[key] = { min: min, fee: fee, towns: [] }; steps.push(byKey[key]); }
+      byKey[key].towns.push(row);
+    });
+    steps.sort(function (a, b) { return a.min - b.min || a.fee - b.fee; });
+    steps.forEach(function (step) {
+      step.towns.sort(function (a, b) {
+        return String(a[1]).localeCompare(String(b[1]), 'de') ||
+               String(a[0]).localeCompare(String(b[0]));
+      });
+    });
+    return steps;
+  }
+
   function renderAreas() {
     if (pickupOnly()) {
       var saved = document.getElementById("areasList");
@@ -4215,33 +4237,20 @@
     if (!rows.length) { host.innerHTML = ''; return; }
 
     var L = t();
-    var tiers = [];
-    var byMin = {};
-
-    rows.forEach(function (row) {
-      var min = row[3];
-      if (!byMin[min]) { byMin[min] = []; tiers.push(min); }
-      byMin[min].push(row);
-    });
-    tiers.sort(function (a, b) { return a - b; });
-
-    host.innerHTML = tiers.map(function (min) {
-      var towns = byMin[min].slice().sort(function (a, b) {
-        return String(a[1]).localeCompare(String(b[1]), 'de');
-      }).map(function (row) {
-        var fee = Number(row[4]) || 0;
+    host.innerHTML = areaSteps(rows).map(function (step) {
+      var towns = step.towns.map(function (row) {
         return '<li class="area">' +
           '<span class="area-city">' + escapeHtml(row[1]) + '</span>' +
           '<span class="area-plz">' + escapeHtml(row[0]) + '</span>' +
-          '<span class="area-fee' + (fee > 0 ? '' : ' is-free') + '">' +
-            (fee > 0 ? money(fee) : L.areaFree) +
-          '</span>' +
           '</li>';
       }).join('');
 
-      return '<div class="area-tier">' +
+      return '<div class="area-tier" data-min="' + step.min + '" data-fee="' + step.fee + '">' +
         '<h3 class="area-tier-title">' +
-          fill(L.areaMinOrder, { min: min }) +
+          '<span class="area-tier-min">' + fill(L.areaMinOrder, { min: step.min }) + '</span>' +
+          '<span class="area-tier-fee' + (step.fee > 0 ? '' : ' is-free') + '">' +
+            (step.fee > 0 ? fill(L.areaFeeLine, { fee: '<bdi>' + money(step.fee) + '</bdi>' }) : L.areaFreeLine) +
+          '</span>' +
         '</h3>' +
         '<ul class="area-towns">' + towns + '</ul>' +
         '</div>';

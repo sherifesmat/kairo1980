@@ -12,7 +12,7 @@ window.KAIRO_ZONES = [
   ['68809', 'Neulußheim',                     4,  15, 1],
   ['68804', 'Altlußheim',                   4.6,  15, 1],
   ['68775', 'Ketsch',                       4.9,  15, 1],
-  ['68526', 'Ladenburg',                    6.5,  15, 2],
+  ['68526', 'Ladenburg',                    6.5,  25, 4],
   ['68535', 'Edingen-Neckarhausen',         6.5,  15, 2],
   ['69190', 'Walldorf',                     7.6,  20, 2],
   ['68789', 'St. Leon-Rot',                   8,  20, 2],
@@ -32,12 +32,12 @@ window.KAIRO_ZONES = [
   ['68169', 'Mannheim (Neckarstadt-West)',  15.5,  50, 4],
   ['69115', 'Heidelberg (Zentrum)',        15.5,  50, 4],
   ['68167', 'Mannheim (Neckarstadt-Ost)',    16,  50, 4],
-  ['69117', 'Heidelberg (Altstadt)',         16,  50, 8],
+  ['69117', 'Heidelberg (Altstadt)',         16,  50, 7.5],
   ['69120', 'Heidelberg (Neuenheim)',        16,  50, 3],
   ['68259', 'Mannheim (Feudenheim)',       16.5,  50, 3],
   ['68199', 'Mannheim (Neckarau)',           17,  50, 4],
-  ['67346', 'Speyer',                      null,  50, 8],
+  ['67346', 'Speyer',                      null,  50, 7.5],
   ['68305', 'Mannheim (Käfertal)',         null,  35, 5],
   ['68309', 'Mannheim (Käfertal)',         null,  35, 5],
-  ['76646', 'Bruchsal',                    null,  50, 8]
+  ['76646', 'Bruchsal',                    null,  50, 7.5]
 ];

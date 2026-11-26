@@ -133,7 +133,7 @@ window.KAIRO_CONFIG = {
     /* Order value from which the delivery fee is waived (euros), applied to
        the food subtotal, before the direct-order discount.
 
-       ONE THRESHOLD, EVERYONE. A company and a private guest reaching 100 €
+       ONE THRESHOLD, EVERYONE. A company and a private guest reaching 80 €
        are the same order to a driver, so they are charged the same for it.
        There is deliberately no switch here to narrow it to company orders:
        a rule with an exception has to be explained in every place it is
@@ -142,7 +142,7 @@ window.KAIRO_CONFIG = {
        Because it now applies to everyone, it is advertised to everyone — the
        basket says how much is missing and says so when it has been reached,
        instead of leaving it as small print in the corporate section. */
-    freeDeliveryFrom: 100,
+    freeDeliveryFrom: 80,
 
     // Minimum lead time for large / corporate orders, in hours. 0 = none is asked:
     // no notice is printed, warned about or put in the WhatsApp message (owner,

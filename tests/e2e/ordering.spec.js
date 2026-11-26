@@ -288,7 +288,7 @@ test('the page never scrolls sideways on a phone', async ({ page }) => {
 test('free delivery is announced to everyone once the threshold is reached', async ({ page }, testInfo) => {
   await page.goto('/');
   await requireDelivery(page, testInfo);
-  await addItem(page, 'etwas-von-allem', 4);  // 4 × 26.00 = 104.00, over 100 €
+  await addItem(page, 'etwas-von-allem', 4);  // 4 × 26.00 = 104.00, over 80 €
   await openBasket(page);
   await chooseDelivery(page);
   await page.locator('#fPlz').fill('69168');  // Wiesloch would otherwise cost 2 €
@@ -306,8 +306,8 @@ test('below the threshold the basket says how much is missing', async ({ page },
   await chooseDelivery(page);
   await page.locator('#fPlz').fill('69168');
 
-  // 100.00 − 19.00 = 81.00 still to go.
-  await expect(page.locator('#cartBody')).toContainText('81,00');
+  // Free from 80 € on every channel (owner, 26.11.2026): 80.00 − 19.00 = 61.00 still to go.
+  await expect(page.locator('#cartBody')).toContainText('61,00');
 });
 
 test('a company delivery is held to its zone minimum, on screen and in the chat',

@@ -8,7 +8,9 @@ import { workerEnv } from '../helpers/env.js';
 
 const env = workerEnv({
   hummus: { price: 950, name: 'Hummus' },
-  koshari: { price: 1450, name: 'Koshari' }
+  koshari: { price: 1450, name: 'Koshari' },
+  platter: { price: 2000, name: 'Platter' },
+  'cent-off': { price: 1999, name: 'Cent off' }
 });
 
 test('prices the basket from the published menu, not from the request', async () => {
@@ -104,6 +106,30 @@ test('the fees raised on 23.10.2026: 0 € zones pay 1 €, 1 € zones pay 2 �
   assert.equal(await fee('69214'), 200);   // Eppelheim, was 1
   assert.equal(await fee('69168'), 200);   // Wiesloch, was 2: unchanged
   assert.equal(await fee('76661'), 300);   // Philippsburg, was 3: unchanged
+});
+
+test('the channels agreed on 26.11.2026: free from 80 €, Ladenburg 25/4, nothing above the 7,50 € Uber allows', async () => {
+  /* Lieferando is the reference and Uber caps a fee at 7,50 €, so the website
+     states the same figures. Each line is a number the owner set by name. */
+  const at = async (items, postcode) => quote(env, { items, type: 'delivery', postcode });
+
+  // 79,99 € of food still pays the fee; 80,00 € does not.
+  assert.equal((await at({ platter: 3, 'cent-off': 1 }, '69168')).fee, 200);
+  const free = await at({ platter: 4 }, '69168');
+  assert.equal(free.subtotal, 8000);
+  assert.equal(free.fee, 0);
+  assert.equal(free.freeDelivery, true);
+
+  // Ladenburg: 4 € and a 25 € minimum, which a 20 € basket does not reach.
+  const ladenburg = await at({ platter: 1 }, '68526');
+  assert.equal(ladenburg.fee, 400);
+  assert.equal(ladenburg.belowMinimum, true);
+  assert.equal((await at({ platter: 1, hummus: 1 }, '68526')).belowMinimum, false);
+
+  // The three far postcodes were 8 €; Uber cannot charge more than 7,50 €.
+  for (const postcode of ['69117', '67346', '76646']) {
+    assert.equal((await at({ platter: 3 }, postcode)).fee, 750, postcode);
+  }
 });
 
 test('pickup is never held to the minimum — there is no trip to pay for', async () => {

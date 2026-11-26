@@ -1103,13 +1103,25 @@ summary:focus-visible {
   display: grid; grid-template-columns: 190px 1fr;
   gap: 8px 32px; align-items: start;
 }
+/* The step's heading carries both prices, so the rows below it carry only
+   the town and its postcode. The minimum is the quiet label; the fee is the
+   figure a guest compares down the staircase, so it is set larger. */
 .area-tier-title {
+  margin: 0;
+  /* Optically level with the first town, which sits below its own rule. */
+  padding-top: 7px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.area-tier-min {
   font-family: 'Cinzel', serif; font-size: 9px; font-weight: 500;
   letter-spacing: 0.2em; text-transform: uppercase; color: #b8914a;
-  margin: 0; line-height: 1.7;
-  /* Optically level with the first town, which sits below its own rule. */
-  padding-top: 9px;
+  line-height: 1.7;
 }
+.area-tier-fee {
+  font-family: 'Cormorant Garamond', serif; font-size: 21px; font-weight: 500;
+  color: #8a6828; line-height: 1.2; font-variant-numeric: tabular-nums;
+}
+.area-tier-fee.is-free { color: #0e6b45; }
 /* An aligned column grid, not free-flowing text. Inline wrapping left ragged
    gaps with nothing for the eye to lock onto; here every town occupies one
    row of a column, postcode and fee line up on their own edges, and a
@@ -1126,7 +1138,7 @@ summary:focus-visible {
    the doubled line. A leading rule ends the list cleanly by construction, and
    with ragged column lengths there is no "last row" to special-case. */
 .area {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline; gap: 12px; padding: 8px 0;
   border-top: 1px solid rgba(200,165,90,0.14);
   font-size: 14px; color: #4a3010; line-height: 1.5;
@@ -1137,18 +1149,6 @@ summary:focus-visible {
   font-variant-numeric: tabular-nums; color: #a08a5e;
   font-size: 12px; letter-spacing: 0.05em;
 }
-/* The fee is the number a guest is looking for, so it gets the accent colour
-   and a fixed column — free delivery has to be legible at a glance down the
-   list, not decoded row by row. */
-.area-fee {
-  min-width: 62px; text-align: end;
-  font-variant-numeric: tabular-nums;
-  font-size: 12.5px; color: #8a6828;
-}
-.area-fee.is-free {
-  font-family: 'Cinzel', serif; font-size: 8.5px; font-weight: 500;
-  letter-spacing: 0.16em; text-transform: uppercase; color: #0e6b45;
-}
 .areas-note { margin: 34px 0 0; font-size: 13px; color: #7a6030; }
 
 /* Below this the 190px tier label costs more than it gives: stacking it
@@ -1157,7 +1157,7 @@ summary:focus-visible {
   /* Stacked, the title is a heading over its own list, so it no longer needs
      the optical offset that lined it up beside the first row. */
   .area-tier { grid-template-columns: 1fr; gap: 6px; }
-  .area-tier-title { padding-top: 0; }
+  .area-tier-title { padding-top: 0; flex-direction: row; align-items: baseline; gap: 14px; }
   .areas-list { gap: 34px; }
 }
 
@@ -1170,7 +1170,6 @@ summary:focus-visible {
   .areas-list { gap: 26px; }
   .area-towns { grid-template-columns: 1fr; column-gap: 0; }
   .area { font-size: 13.5px; padding: 9px 0; gap: 10px; }
-  .area-fee { min-width: 54px; }
 }
 
 /* ===========================================================================
@@ -1869,8 +1868,7 @@ a.cart-send-wa {
 :root[lang="ar"] .map-consent-btn,
 :root[lang="ar"] .announce-tag,
 :root[lang="ar"] .bcard-title,
-:root[lang="ar"] .area-tier-title,
-:root[lang="ar"] .area-fee.is-free,
+:root[lang="ar"] .area-tier-min,
 :root[lang="ar"] .hrow .day em,
 :root[lang="ar"] .hslot-label,
 :root[lang="ar"] .cart-type,
@@ -1905,7 +1903,6 @@ a.cart-send-wa {
 :root[dir="rtl"] .mchoice-price,
 :root[dir="rtl"] .chooser-price,
 :root[dir="rtl"] .area-plz,
-:root[dir="rtl"] .area-fee,
 :root[dir="rtl"] .hslot-time,
 :root[dir="rtl"] .cart-line-price,
 :root[dir="rtl"] .cart-sum span:last-child,
