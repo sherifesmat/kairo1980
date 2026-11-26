@@ -139,8 +139,19 @@
 
   function statusOf(id) {
     return api('/api/payments/' + encodeURIComponent(id)).then(function (data) {
-      return data.payment;
+      return data && data.payment;
     });
+  }
+
+  /* What the server says a payment means for the money (DP-25-01): 'money',
+     'none' (the provider established that nothing was or will be taken),
+     'open' (it may still be taken) or 'manual' (a person must look). An answer
+     that does not say, or does not name a payment, is 'unknown', and is treated
+     as open: nothing is let go and nothing is offered instead. */
+  var MONEY = ['money', 'none', 'open', 'manual'];
+  function moneyOf(payment) {
+    if (!payment || typeof payment !== 'object' || !payment.id || !payment.status) return 'unknown';
+    return MONEY.indexOf(payment.money) !== -1 ? payment.money : 'unknown';
   }
 
   /* --- the three steps every method shares --------------------------------
@@ -148,7 +159,17 @@
      it however their method approves things, then ask our server what became
      of it. Only the middle step differs between a wallet and a button. */
 
+  /* One payment at a time on this device (DP-25-02). A second start while one is
+     being created is ignored; one while an earlier payment is still remembered
+     is refused, and the page is told so: it shows that payment, never a second
+     one over it. */
+  var creating = false;
+  function refusal(code) { var err = new Error(code); err.code = code; return err; }
+
   function createPayment(spec, method) {
+    if (creating) return Promise.reject(refusal('busy'));
+    if (remembered()) return Promise.reject(refusal('unsettled'));
+    creating = true;
     spec.onState('paying');
     var body = {};
     Object.keys(spec.order).forEach(function (k) { body[k] = spec.order[k]; });
@@ -173,13 +194,33 @@
                     lines: payment.lines, subtotal: b.subtotal, discount: b.discount,
                     fee: b.fee, total: payment.amount };
       var record = { id: payment.id, reference: payment.reference, amount: payment.amount, at: Date.now() };
-      if (wholeOrder(order, payment.amount)) {
-        record.order = order;
-        if (!sameFigures(order, spec.snapshot)) record.order.shownDiffers = true;
-      }
+      var agreed = wholeOrder(order, payment.amount) && sameFigures(order, spec.snapshot);
+      if (agreed) record.order = order;
       remember(record);
+      creating = false;
+      /* The guest is never asked to approve figures other than the ones shown
+         (DP-25-02): a server answer that is not a whole order, or one that
+         prices it differently line by line (the same total, another fee or
+         discount), stops here, before the provider's window opens. The payment
+         is cancelled at the server, which forgets it once the provider confirms
+         it unapproved, and the page is reloaded to show the server's figures. */
+      if (!agreed) {
+        return cancel(payment.id).then(function () { throw refusal('total_changed'); },
+                                       function () { throw refusal('total_changed'); });
+      }
+      spec.onState('created', { payment: payment });
       return payment;
-    });
+    }, function (err) { creating = false; throw err; });
+  }
+
+  /* A start that did not happen, said to the page. A second click is silent; a
+     payment already held is shown by the page; anything else is a failure
+     before any money could move. */
+  function refused(spec, err) {
+    var code = err && err.code;
+    if (code === 'busy') return;
+    if (code === 'unsettled') { spec.onState('unsettled'); return; }
+    spec.onState('failed', { code: code });
   }
 
   /* A complete, self-consistent order: non-empty lines with a dish, a whole
@@ -188,8 +229,10 @@
      the total being the payment's amount, and the lines being exactly the
      basket. Anything else is not an order this page may tell. */
   function wholeOrder(o, amount) {
-    var whole = function (n, min) { return typeof n === 'number' && isFinite(n) && Math.floor(n) === n && n >= min; };
+    var whole = function (n, min) { return Number.isSafeInteger(n) && n >= min; };
     if (!o || (o.type !== 'delivery' && o.type !== 'pickup')) return false;
+    if (typeof o.business !== 'boolean') return false;
+    if (o.type === 'delivery' && !/^[0-9]{5}$/.test(String(o.postcode || ''))) return false;
     if (!Array.isArray(o.lines) || !o.lines.length) return false;
     if (!whole(o.subtotal, 0) || !whole(o.discount, 0) || !whole(o.fee, 0) || !whole(o.total, 1)) return false;
     if (o.discount > o.subtotal || o.subtotal - o.discount + o.fee !== o.total || o.total !== amount) return false;
@@ -197,12 +240,12 @@
     var sum = 0;
     for (var i = 0; i < o.lines.length; i++) {
       var l = o.lines[i];
-      if (!l || typeof l.id !== 'string' || !l.id || seen[l.id] || typeof l.name !== 'string') return false;
+      if (!l || typeof l.id !== 'string' || !l.id || seen[l.id] || typeof l.name !== 'string' || !l.name.trim()) return false;
       if (!whole(l.qty, 1) || !whole(l.amount, 0)) return false;
       seen[l.id] = l.qty;
       sum += l.amount;
     }
-    if (sum !== o.subtotal) return false;
+    if (!Number.isSafeInteger(sum) || sum !== o.subtotal) return false;
     var items = o.items || {};
     var keys = Object.keys(items).filter(function (k) { return Number(items[k]) > 0; });
     if (keys.length !== o.lines.length) return false;
@@ -251,16 +294,19 @@
      approved, an unreadable answer) may still become money, so the record is
      kept and the guest is told not to pay again. */
   function report(payment, spec, errorCode, known) {
-    if (!payment || !payment.status) { spec.onState('uncertain', { payment: known || payment }); return; }
+    var money = moneyOf(payment);
+    if (money === 'unknown' || (known && payment.id !== known.id)) {
+      spec.onState('uncertain', { payment: known || payment }); return;
+    }
     // Kept, not forgotten: the page forgets it once the server has the order
     // (or has flagged it for a person). Until then a reload can still hand it
     // over (DP-23-02).
-    if (payment.status === 'captured') { spec.onState('paid', { payment: payment }); return; }
-    if (payment.status === 'pending') { spec.onState('pending', { payment: payment }); return; }
-    if (payment.status === 'cancelled') { forget(payment.id); spec.onState('cancelled', { payment: payment }); return; }
-    if (payment.status === 'failed') {
+    if (money === 'money') { spec.onState(payment.status === 'captured' ? 'paid' : 'pending', { payment: payment }); return; }
+    if (money === 'manual') { spec.onState('manual', { payment: payment }); return; }
+    if (money === 'none') {
       forget(payment.id);
-      spec.onState('failed', { payment: payment, code: errorCode || payment.failureCode });
+      if (payment.status === 'cancelled') spec.onState('cancelled', { payment: payment });
+      else spec.onState('failed', { payment: payment, code: errorCode || payment.failureCode });
       return;
     }
     spec.onState('uncertain', { payment: payment });
@@ -281,7 +327,7 @@
     return api('/api/payments/' + encodeURIComponent(id) + '/cancel', { method: 'POST' })
       .then(function (data) {
         var payment = data && data.payment;
-        if (payment && (payment.status === 'cancelled' || payment.status === 'failed')) forget(id);
+        if (moneyOf(payment) === 'none' && payment.id === id) forget(id);
         return payment || null;
       });
   }
@@ -387,7 +433,7 @@
           }).catch(function (err) {
             session.completePayment(window.ApplePaySession.STATUS_FAILURE);
             if (payment) ask(payment, spec, 'declined');
-            else spec.onState('failed', { code: err && err.code });
+            else refused(spec, err);
           });
         };
 
@@ -466,7 +512,7 @@
         return;
       }
       if (payment) ask(payment, spec, 'declined');
-      else spec.onState('failed', { code: err && err.code });
+      else refused(spec, err);
     });
   }
 
@@ -493,7 +539,7 @@
 
     var host = slot(spec, method);
     var payment = null;
-    var refused = false;   // our own server refused to start it; already told
+    var stopped = false;   // our own server, or this page, refused to start it; already told
 
     var buttons = paypal.Buttons({
       fundingSource: funding,
@@ -504,8 +550,8 @@
           payment = created;
           return created.providerOrderId;
         }).catch(function (err) {
-          refused = true;
-          spec.onState('failed', { code: err.code });
+          stopped = true;
+          refused(spec, err);
           throw err;
         });
       },
@@ -521,7 +567,7 @@
          (DP-24-01). With none, nothing was started and nothing taken. */
       onError: function () {
         if (payment) { ask(payment, spec, 'provider_error'); return; }
-        if (!refused) spec.onState('failed', { code: 'provider_error' });
+        if (!stopped) spec.onState('failed', { code: 'provider_error' });
       }
     });
 
@@ -588,6 +634,7 @@
     remembered: remembered,
     forget: forget,
     cancel: cancel,
+    moneyOf: moneyOf,
     wholeOrder: wholeOrder,
     markHandedOver: markHandedOver
   };

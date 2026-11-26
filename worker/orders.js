@@ -19,7 +19,7 @@
    the problem this solves. */
 
 import { quote, PricingError, checkRequestShape } from './pricing.js';
-import { newReference } from './payments/store.js';
+import { newReference, moneyState, NO_CHARGE_SQL } from './payments/store.js';
 import { readPostcode, townsOf } from './site-data.js';
 
 /* Ten announcements from one address in ten minutes is far beyond a person
@@ -228,7 +228,7 @@ async function paymentRow(env, paymentId) {
   if (!paymentId) return null;
   return env.DB.prepare(
     `SELECT id, reference, provider, status, amount, currency, subtotal, discount, fee,
-            order_type, business, postcode, town, lines
+            order_type, business, postcode, town, lines, failure_code
        FROM payments WHERE id = ?1`
   ).bind(paymentId).first();
 }
@@ -305,6 +305,9 @@ const AMENDABLE = [
    page marks as a recovery corrects nothing at all: its form may belong to a
    different basket the guest has started since. */
 const isRecovery = (body) => !!body && body.recovery === true;
+const given = (v) => typeof v === 'string' && v.trim() !== '';
+const contactGiven = (body) => given(body.name) && given(body.phone)
+  && (body.type === 'pickup' || given(body.address));
 
 /* A recovery is the page asking, after a reload or a lost answer, whether the
    order for its payment is in. It carries the basket and where it goes, never
@@ -407,6 +410,11 @@ export async function recordOrder(env, body, ip, { recoveryOnly = false } = {}) 
   if (payment && IN_FLIGHT.has(payment.status)) {
     return { paymentUnsettled: true, reference: payment.reference };
   }
+  /* A payment nobody has shown to hold no money (a refund, part of one, an
+     amount that did not match, a failure never classified) is a person's to
+     resolve. An order already stored under it is answered as before; a new
+     one is never made from it, to be paid on site or otherwise (DP-25-01). */
+  const manual = !!payment && moneyState(payment) === 'manual';
 
   /* One claimed id, one order. Asked before the throttle: after a reload the
      browser hands the same dinner over again, and it gets the same reference
@@ -417,6 +425,7 @@ export async function recordOrder(env, body, ip, { recoveryOnly = false } = {}) 
     if (already && already.ambiguous) return { paymentConflict: true, reference: already.reference };
     if (already) return correctOrder(env, already, body, ip);
   }
+  if (manual) return { paymentConflict: true, reference: payment.reference, payment };
   if (isRecovery(body)) return { detailsNeeded: true, reference: payment ? payment.reference : null };
 
   if (await throttled(env, ip)) return null;
@@ -462,6 +471,11 @@ async function handOverPaid(env, body, ip, payment, claimed, identity) {
   if (!wholeSnapshot(payment) || !sameOrder(payment, body)) return conflict;
   // A quiet recovery finds an order; it never makes one without the guest.
   if (isRecovery(body)) return { detailsNeeded: true, reference: payment.reference };
+  /* A new paid order is made only with who to cook for and how to reach them:
+     a name, a phone, and for a delivery an address. Without them the page is
+     told to ask; nothing half-filled is stored (DP-25-02). A replay of an order
+     already stored is answered above and is never held to this. */
+  if (!contactGiven(body)) return { detailsNeeded: true, reference: payment.reference };
   return insertOrder(env, body, asPaid(payment), payment, claimed, identity);
 }
 
@@ -482,8 +496,7 @@ async function insertOrder(env, body, priced, payment, claimed, identity) {
        SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,'EUR',?13,?14,?15,?16,?17,?18,
               ?19,?20,?21, datetime('now'), ?22
         WHERE (?3 IS NULL AND (?19 IS NULL OR NOT EXISTS (
-                SELECT 1 FROM payments WHERE id = ?19
-                   AND status IN ('created', 'approved', 'captured', 'pending'))))
+                SELECT 1 FROM payments WHERE id = ?19 AND NOT ${NO_CHARGE_SQL})))
            OR (?3 IS NOT NULL AND EXISTS (
                 SELECT 1 FROM payments WHERE id = ?3 AND amount = ?23
                    AND status IN ('captured', 'pending')))`

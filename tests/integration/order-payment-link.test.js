@@ -54,8 +54,11 @@ async function paymentIn(env, c, status, basket = PAID) {
   const res = await worker.fetch(post('/api/payments', basket), env, c);
   assert.equal(res.status, 201, await res.clone().text());
   const payment = await res.json();
-  env.DB._raw.prepare('UPDATE payments SET status = ?, captured_at = ? WHERE id = ?')
-    .run(status, status === 'captured' ? new Date().toISOString() : null, payment.id);
+  // A failed or cancelled payment carries the reason that makes it "no money"
+  // (DP-25-01): a provider decline, or one abandoned while still unapproved.
+  const reason = { failed: 'INSTRUMENT_DECLINED', cancelled: 'abandoned_unapproved' }[status] || null;
+  env.DB._raw.prepare('UPDATE payments SET status = ?, captured_at = ?, failure_code = ? WHERE id = ?')
+    .run(status, status === 'captured' ? new Date().toISOString() : null, reason, payment.id);
   return payment;
 }
 
@@ -114,7 +117,7 @@ for (const status of ['created', 'approved']) {
   });
 }
 
-for (const status of ['failed', 'cancelled', 'refunded']) {
+for (const status of ['failed', 'cancelled']) {
   test(`a payment that is ${status} cannot pay for an order`, async (t) => {
     const { env, c, alerts } = world(t);
     const payment = await paymentIn(env, c, status);
@@ -747,7 +750,7 @@ function aheadOfEachCorrection(env, before) {
 test('R6-01: a retention sweep landing between the read and the write is not undone', async (t) => {
   const { env, c, alerts } = reportWorld(t);
   const payment = await paymentIn(env, c, 'captured');
-  const first = await announce(env, c, { ...HANDOVER, phone: null, paymentId: payment.id });
+  const first = await announce(env, c, { ...HANDOVER, paymentId: payment.id });
   // Old enough to be swept, but not swept yet when the correction reads it.
   env.DB._raw.prepare(`UPDATE orders SET created_at = datetime('now', '-4 years')`).run();
   aheadOfEachCorrection(env, () => scrubExpiredIdentities(env));

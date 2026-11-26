@@ -1,4 +1,6 @@
 import { expect } from '@playwright/test';
+// The server's own reading of a payment, so the stub can never disagree with it.
+import { moneyState } from '../../worker/payments/store.js';
 
 /** Add a dish to the basket n times. */
 export async function addItem(page, id, times = 1) {
@@ -197,6 +199,16 @@ export async function captureWhatsApp(page) {
 export async function stubPayments(page, { methods = ['paypal'], outcome = 'approve',
   amount = 1710, reference = 'K7F3QA', status = null, created = null } = {}) {
   const id = 'test-payment-id';
+  /* A payment as the server shows it, `money` and all (DP-25-01). A status may
+     carry its reason as 'status:reason'; a failed or cancelled one without a
+     reason gets the one that makes it "no money", as the real routes write it. */
+  const DEFAULT_REASON = { failed: 'INSTRUMENT_DECLINED', cancelled: 'abandoned_unapproved' };
+  const shown = (spec, extra = {}) => {
+    const [state, given] = String(spec).split(':');
+    const failureCode = given !== undefined ? (given || null) : (DEFAULT_REASON[state] || null);
+    return { id, reference, status: state, amount, currency: 'EUR', failureCode,
+             money: moneyState({ status: state, failure_code: failureCode }), ...extra };
+  };
 
   /* Loop WEBSITE_ORDERING, W02-05. A stubbed payment is not a payment, so the
      handover that follows it must not reach the real Worker as if it were:
@@ -272,11 +284,21 @@ export async function stubPayments(page, { methods = ['paypal'], outcome = 'appr
     stub.asked += 1;
     const now = typeof status === 'function' ? status(stub.asked) : (status || settled);
     if (now === 'network') return route.abort();
+    // Answered, but with nothing a page can settle anything on.
+    if (now === 'empty') return route.fulfill({ contentType: 'application/json', body: '{}' });
+    if (now === 'null') return route.fulfill({ contentType: 'application/json', body: '{"payment":null}' });
+    if (now === 'other') {
+      return route.fulfill({ contentType: 'application/json',
+        body: JSON.stringify({ payment: { ...shown('cancelled'), id: 'another-payment' } }) });
+    }
     return route.fulfill({ contentType: 'application/json',
-      body: JSON.stringify({ payment: { id, reference, status: now, amount, currency: 'EUR' } }) });
+      body: JSON.stringify({ payment: shown(now) }) });
   });
 
+  stub.captures = 0;
+  stub.cancels = 0;
   await page.route('**/api/payments/*/capture', (route) => {
+    stub.captures += 1;
     // The capture's answer never arrives: a dropped connection after the money moved, or not.
     if (outcome === 'lost') return route.abort();
     if (outcome === 'lost500') {
@@ -287,28 +309,24 @@ export async function stubPayments(page, { methods = ['paypal'], outcome = 'appr
         status: 402,
         contentType: 'application/json',
         body: JSON.stringify({
-          payment: { id, reference, status: 'failed', amount, failureCode: 'INSTRUMENT_DECLINED' },
+          payment: shown('failed:INSTRUMENT_DECLINED'),
           error: 'declined'
         })
       });
     }
     return route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({
-        payment: {
-          id, reference, amount, currency: 'EUR',
-          status: outcome === 'pending' ? 'pending' : 'captured'
-        }
-      })
+      body: JSON.stringify({ payment: shown(outcome === 'pending' ? 'pending' : 'captured') })
     });
   });
 
   stub.cancelAnswer = 'cancelled';
   await page.route('**/api/payments/*/cancel', (route) => {
+    stub.cancels += 1;
     if (stub.cancelAnswer === 'network') return route.abort();
     return route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ payment: { id, reference, status: stub.cancelAnswer, amount } })
+      body: JSON.stringify({ payment: shown(stub.cancelAnswer) })
     });
   });
 

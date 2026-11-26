@@ -366,26 +366,62 @@ async function capturePayment(request, env, id, ctx) {
   if (store.isTerminal(payment.status)) {
     return json({ payment: store.publicView(payment), alreadyFinal: true });
   }
+  /* Only a payment that may still be taken is captured here. A declined one is
+     final with no money; a pending one is the provider's to decide. Neither is
+     ever captured again from a page (DP-25-01). */
+  if (payment.status !== 'created' && payment.status !== 'approved') {
+    return json({ payment: store.publicView(payment) });
+  }
+  /* Claimed before the provider is called: from here a cancel from the page
+     can no longer win the race and call this payment abandoned while its
+     capture is on its way. */
+  if (payment.status === 'created') {
+    const claim = await store.settle(env.DB, id, 'approved', { source: 'api', from: ['created'],
+                                                                payload: { capture: 'requested' } });
+    if (!claim.changed && claim.payment && claim.payment.status !== 'approved') {
+      return json({ payment: store.publicView(claim.payment) });
+    }
+  }
 
   let result;
   try {
     result = await provider.captureOrder(env, payment.provider_order_id, payment.id);
   } catch (err) {
-    if (err instanceof ProviderError) {
-      await store.settle(env.DB, id, 'failed', {
-        failureCode: err.code,
-        failureMessage: err.message,
-        source: 'api',
-        payload: err.raw
-      });
-      const after = await store.get(env.DB, id);
-      return json({ payment: store.publicView(after), error: friendlyFailure(err.code) }, 402);
-    }
-    throw err;
+    return captureFailed(env, id, provider, payment, err, ctx);
   }
 
   const after = await applyCaptureResult(env, payment, result, 'api', ctx);
   return json({ payment: store.publicView(after) });
+}
+
+/* The capture call did not answer with an order. That is not "no money": the
+   provider may have taken it and the answer been lost, or still be working.
+   So the provider is asked first, and what it reports is what is recorded.
+   Only a refusal the provider made in so many words (a 422 naming a decline)
+   is recorded as failed; a transport error, a 5xx, a timeout, credentials,
+   anything else leaves the payment open, for the webhook and the sweep, and
+   the page is told it is not yet known (DP-25-01). */
+async function captureFailed(env, id, provider, payment, err, ctx) {
+  let remote = null;
+  try { remote = await provider.getOrder(env, payment.provider_order_id); }
+  catch (readErr) { console.error('capture read-back failed', id, readErr && readErr.message); }
+  if (remote && (remote.captureStatus || remote.status === 'COMPLETED')) {
+    const after = await applyCaptureResult(env, await store.get(env.DB, id), remote, 'api', ctx);
+    return json({ payment: store.publicView(after) });
+  }
+  if (err instanceof ProviderError && err.status === 422 && store.DECLINE_ISSUES.includes(err.code)) {
+    await store.settle(env.DB, id, 'failed', {
+      failureCode: err.code,
+      failureMessage: err.message,
+      source: 'api',
+      payload: err.raw
+    });
+    const after = await store.get(env.DB, id);
+    return json({ payment: store.publicView(after), error: friendlyFailure(err.code) }, 402);
+  }
+  console.error('capture outcome unknown', id, err && (err.code || err.message));
+  const now = await store.get(env.DB, id);
+  return json({ payment: store.publicView(now), unconfirmed: true }, 202);
 }
 
 /* --- the order itself -----------------------------------------------------
@@ -606,7 +642,8 @@ async function applyCaptureResult(env, payment, result, source, ctx) {
       await store.settle(env.DB, payment.id, 'failed', {
         ...common,
         failureCode: 'amount_mismatch',
-        failureMessage: `Captured ${result.amount} but owed ${payment.amount}`
+        failureMessage: `Captured ${result.amount} but owed ${payment.amount}`,
+        moneyTaken: true
       });
       console.error('amount mismatch', payment.id, result.amount, payment.amount);
       return store.get(env.DB, payment.id);
@@ -643,7 +680,13 @@ async function showPayment(env, id) {
   let payment = await store.get(env.DB, id);
   if (!payment) return fail(404, 'unknown_payment', 'No such payment.');
 
-  if (!store.isTerminal(payment.status) && payment.provider_order_id) {
+  /* Asked of the provider unless the answer is already settled for good:
+     money taken (and any refund of it), or a payment established as holding
+     none. A failure nobody classified is asked about too: a late capture is
+     recorded, never lost behind an old label (DP-25-01). */
+  const settledForGood = ['captured', 'refunded', 'partially_refunded'].includes(payment.status)
+    || store.moneyState(payment) === 'none';
+  if (!settledForGood && payment.provider_order_id) {
     const provider = providerFor(payment.provider);
     if (provider) {
       try {
@@ -658,15 +701,41 @@ async function showPayment(env, id) {
   return json({ payment: store.publicView(payment) });
 }
 
-/** The guest closed the PayPal window. Nothing was taken; record it so an
- *  abandoned checkout is a fact in the log rather than a payment that hangs
- *  in 'created' for ever. */
+/* The guest closed the provider's window, or asked from the page to cancel.
+
+   This server cannot void a PayPal order, and does not pretend to: a cancel is
+   a request. It is recorded as "abandoned" only when the provider itself still
+   shows the order unapproved, and only while nothing here has started its
+   capture (the capture route claims a payment before calling the provider).
+   From then on nothing captures it: the capture route, the webhook and the
+   sweep move only created or approved payments, and an intent-CAPTURE order
+   takes no money without that call. Anything else (approved, under review,
+   captured, or a provider that does not answer) is NOT cancelled: what the
+   provider reports is recorded, and the page is told what is known
+   (DP-25-01). */
 async function cancelPayment(env, id) {
-  const { payment } = await store.settle(env.DB, id, 'cancelled', {
-    source: 'client',
-    failureCode: 'cancelled_by_customer'
-  });
+  let payment = await store.get(env.DB, id);
   if (!payment) return fail(404, 'unknown_payment', 'No such payment.');
+  const provider = providerFor(payment.provider);
+  if (payment.status === 'created' && payment.provider_order_id && provider) {
+    try {
+      const remote = await provider.getOrder(env, payment.provider_order_id);
+      const unapproved = (remote.status === 'CREATED' || remote.status === 'PAYER_ACTION_REQUIRED')
+        && !remote.captureStatus;
+      if (unapproved) {
+        await store.settle(env.DB, id, 'cancelled', {
+          source: 'client', from: ['created'],
+          failureCode: 'abandoned_unapproved',
+          payload: { remote: remote.status }
+        });
+      } else {
+        await applyCaptureResult(env, payment, remote, 'reconcile');
+      }
+    } catch (err) {
+      console.error('cancel: provider read failed', id, err && err.message);
+    }
+  }
+  payment = await store.get(env.DB, id);
   return json({ payment: store.publicView(payment) });
 }
 
@@ -770,6 +839,7 @@ async function handleEvent(env, provider, event) {
           source: 'webhook',
           failureCode: 'amount_mismatch',
           failureMessage: `Captured ${ids.amount} but owed ${payment.amount}`,
+          moneyTaken: true,
           payload: { event: event.id }
         });
         return;

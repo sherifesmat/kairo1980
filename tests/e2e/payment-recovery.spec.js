@@ -14,7 +14,8 @@
    Worker does with them is covered by the integration suites. */
 
 import { test, expect } from '@playwright/test';
-import { addItem, captureWhatsApp } from './helpers.js';
+import { addItem, captureWhatsApp, openBasket, choosePickup, fillContact } from './helpers.js';
+import { moneyState } from '../../worker/payments/store.js';
 
 const RECORD_KEY = 'kairo.payment.v1';
 
@@ -28,14 +29,36 @@ const PAID_ORDER = {
   subtotal: 5300, discount: 530, fee: 100, total: 4870
 };
 
-async function remembering(page, { record, status = 'captured', amount = 4870, announce = 200, body } = {}) {
+/* The payment as the server shows it, with its reading of the money
+   (DP-25-01). 'status:reason' names the reason; a failed or cancelled one
+   without one gets the reason the real routes write for "no money". */
+function shownAs(spec, amount) {
+  const [status, given] = String(spec).split(':');
+  const failureCode = given !== undefined ? (given || null)
+    : ({ failed: 'INSTRUMENT_DECLINED', cancelled: 'abandoned_unapproved' }[status] || null);
+  return { id: 'PAY-REMEMBERED', reference: 'K-PAID1', status, amount, failureCode,
+           money: moneyState({ status, failure_code: failureCode }) };
+}
+
+async function remembering(page, { record, status = 'captured', amount = 4870, announce = 200, body, slow = 0 } = {}) {
   const whatsapp = await captureWhatsApp(page);
   const announced = [];
   await page.route('**/api/payments/config', (route) => route.fulfill({
     contentType: 'application/json', body: JSON.stringify({ online: true, methods: ['paypal'] }) }));
-  await page.route('**/api/payments/PAY-REMEMBERED', (route) => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({ payment: { id: 'PAY-REMEMBERED', reference: 'K-PAID1', status, amount } }) }));
+  /* `status` is a value, or a function of how many times the page has asked;
+     'network', 'empty', 'null' and 'other' are answers a page can settle
+     nothing on. `slow` holds every answer after the first that long. */
+  let asked = 0;
+  await page.route('**/api/payments/PAY-REMEMBERED', async (route) => {
+    asked += 1;
+    const now = typeof status === 'function' ? status(asked) : status;
+    if (slow && asked > 1) await new Promise((r) => setTimeout(r, slow));
+    if (now === 'network') return route.abort().catch(() => {});
+    const answer = now === 'empty' ? {} : now === 'null' ? { payment: null }
+      : now === 'other' ? { payment: { ...shownAs('captured', amount), id: 'PAY-SOMEONE-ELSE' } }
+      : { payment: shownAs(now, amount) };
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(answer) }).catch(() => {});
+  });
   await page.route('**/api/orders/announce', (route) => {
     announced.push(route.request().postDataJSON());
     if (announce === 'network') return route.abort();
@@ -228,4 +251,153 @@ test('a no-money payment on this device is let go quietly', async ({ page }) => 
   await expect.poll(stored, { timeout: 15000 }).toBeNull();
   expect(announced.length).toBe(0);
   await expect(page.locator('.cart-pay-step')).toHaveCount(0);
+});
+
+/* --- one unsettled payment, every road (DELIVERY_PRICING DP-25-02) ----------
+   While this device holds a payment nobody has settled, nothing new leaves it:
+   not a second payment, and not the same dinner sent to be paid on arrival.
+   It fails closed on anything unreadable, and the guest's details belong only
+   to the checkout, and the payment, they were typed for. */
+
+const unconfirmedShown = async (page) => {
+  const step = page.locator('.cart-pay-step');
+  await expect(step).toContainText('noch nicht bestätigt', { timeout: 15000 });
+  await expect(step).toContainText('K-PAID1');
+  await expect(page.locator('[data-payact="onsite"]')).toHaveCount(0);
+};
+
+// The guest closes what is shown and sends a basket to be paid on arrival.
+async function sendOnSite(page, { name = 'Bert Neu' } = {}) {
+  if (await page.locator('#cartClose').isVisible().catch(() => false)) {
+    await page.locator('#cartClose').click();
+  }
+  await addItem(page, 'hummus', 1);
+  await openBasket(page);
+  await choosePickup(page);
+  await fillContact(page, { name });
+  await page.locator('[data-pay="onsite"]').click();
+  await page.locator('#cartSend').click();
+}
+
+test('a payment not yet confirmed blocks paying on arrival too: closed, reopened and sent on site, nothing leaves', async ({ page }) => {
+  const { announced, stored } = await remembering(page, { record: { order: PAID_ORDER }, status: 'approved' });
+  await page.reload();
+  await unconfirmedShown(page);
+  await sendOnSite(page);
+  await unconfirmedShown(page);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.__waUrl)).toBeNull();
+  expect(announced.length).toBe(0);
+  expect((await stored()).id).toBe('PAY-REMEMBERED');
+});
+
+for (const answer of ['network', 'empty', 'null', 'other']) {
+  test(`a status answer the page cannot settle anything on (${answer}) keeps the payment and sends nothing`, async ({ page }) => {
+    const { announced, stored } = await remembering(page, { record: { order: PAID_ORDER }, status: answer });
+    await page.reload();
+    await unconfirmedShown(page);
+    await sendOnSite(page);
+    await unconfirmedShown(page);
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => window.__waUrl)).toBeNull();
+    expect(announced.length).toBe(0);
+    expect((await stored()).id).toBe('PAY-REMEMBERED');
+  });
+}
+
+test('a payment script that does not load shows the held payment by its reference, and sends nothing', async ({ page }) => {
+  const { announced, stored } = await remembering(page, { record: { order: PAID_ORDER }, status: 'captured' });
+  await page.route('**/pay.js*', (route) => route.abort());
+  await page.reload();
+  await sendOnSite(page);
+  await unconfirmedShown(page);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.__waUrl)).toBeNull();
+  expect(announced.length).toBe(0);
+  expect((await stored()).id).toBe('PAY-REMEMBERED');
+});
+
+test('an order handed over whose answer is lost, offline again, holds a new on-site order back', async ({ page }) => {
+  const { announced, stored } = await remembering(page, {
+    record: { order: PAID_ORDER, handedOver: true }, status: 'captured', announce: 'network' });
+  await page.reload();
+  await expect.poll(() => announced.length, { timeout: 15000 }).toBe(1);
+  await sendOnSite(page);
+  await expect(page.locator('.cart-pay-step')).toContainText('Bitte nicht noch einmal bezahlen', { timeout: 15000 });
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.__waUrl)).toBeNull();
+  expect(announced.every((a) => a.recovery === true)).toBe(true);
+  expect((await stored()).id).toBe('PAY-REMEMBERED');
+});
+
+test('a decline the provider named still lets the guest pay on arrival', async ({ page }) => {
+  const { announced, stored } = await remembering(page, { record: { order: PAID_ORDER }, status: 'failed' });
+  await page.reload();
+  await expect.poll(stored, { timeout: 15000 }).toBeNull();
+  await sendOnSite(page);
+  await expect.poll(() => page.evaluate(() => window.__waUrl), { timeout: 15000 }).toBeTruthy();
+  expect(announced.some((a) => a.name === 'Bert Neu')).toBe(true);
+});
+
+for (const [label, status, words] of [
+  ['an old failure nobody classified', 'failed:provider_error', 'von Hand prüfen'],
+  ['a refund', 'refunded', 'erstattet']
+]) {
+  test(`${label} is for a person to resolve: told by reference, and nothing is sent on site`, async ({ page }) => {
+    const { announced, stored } = await remembering(page, { record: { order: PAID_ORDER }, status });
+    await page.reload();
+    const step = page.locator('.cart-pay-step');
+    await expect(step).toContainText(words, { timeout: 15000 });
+    await expect(step).toContainText('K-PAID1');
+    await sendOnSite(page);
+    await expect(step).toContainText(words, { timeout: 15000 });
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => window.__waUrl)).toBeNull();
+    expect(announced.length).toBe(0);
+    expect((await stored()).id).toBe('PAY-REMEMBERED');
+    // Read and acknowledged: the guest decides; only then may a new order go.
+    await page.locator('[data-payact="ack"]').click();
+    expect(await stored()).toBeNull();
+  });
+}
+
+test('money for an older checkout is never handed over with the details typed for a newer one', async ({ page }) => {
+  // Not confirmed at first; captured by the time the guest sends a new basket.
+  const { announced, whatsapp } = await remembering(page, {
+    record: { order: PAID_ORDER }, status: (n) => (n < 2 ? 'approved' : 'captured') });
+  await page.reload();
+  await unconfirmedShown(page);
+  await sendOnSite(page, { name: 'Bert Neu' });
+
+  // The paid order is asked for its own details: none of the new checkout's.
+  await expect(page.locator('#cartRecoverForm')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('#rName')).toHaveValue('');
+  expect(announced.length).toBe(0);
+  await page.locator('#rName').fill('Erika Gast');
+  await page.locator('#rPhone').fill('+49 176 7654321');
+  await page.locator('#rAddress').fill('Hauptstraße 7');
+  await page.locator('#cartRecoverSend').click();
+  await expect.poll(() => announced.length, { timeout: 15000 }).toBe(1);
+  expect(announced[0]).toMatchObject({ paymentId: 'PAY-REMEMBERED', name: 'Erika Gast', address: 'Hauptstraße 7' });
+  const message = await text(whatsapp);
+  expect(message).toContain('Erika Gast');
+  expect(message).not.toContain('Bert Neu');
+  // The new basket is the guest's and stays.
+  await expect(page.locator('#cartFabCount')).toHaveText('1', { timeout: 10000 });
+});
+
+test('a recheck answered after the guest left its screen changes nothing on screen and keeps the payment', async ({ page }) => {
+  const { announced, stored } = await remembering(page, {
+    record: { order: PAID_ORDER }, status: (n) => (n < 2 ? 'approved' : 'captured'), slow: 1500 });
+  await page.reload();
+  await unconfirmedShown(page);
+  await page.locator('[data-payact="recheck"]').click();
+  await page.locator('#cartClose').click();
+  await addItem(page, 'hummus', 1);
+  await page.waitForTimeout(2500);
+  await expect(page.locator('#cartRecoverForm')).toHaveCount(0);
+  await expect(page.locator('.cart-sent.is-paid')).toHaveCount(0);
+  expect(announced.length).toBe(0);
+  expect((await stored()).id).toBe('PAY-REMEMBERED');
+  await expect(page.locator('#cartFabCount')).toHaveText('1');
 });

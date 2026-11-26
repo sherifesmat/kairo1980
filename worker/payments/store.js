@@ -17,8 +17,12 @@ const ALLOWED_FROM = {
   // `pending` is PayPal holding a capture for review. It is not failure and it
   // is not money: the guest is told to expect a decision, and the webhook
   // resolves it either way.
-  pending: ['created', 'approved'],
-  captured: ['created', 'approved', 'pending'],
+  pending: ['created', 'approved', 'failed', 'cancelled'],
+  /* Money the provider reports is recorded whatever this server said before
+     it. A capture that lands after a cancel, or after a capture call whose
+     answer was lost, is the guest's money and must reach the books and the
+     kitchen, never be discarded as an illegal move (DP-25-01). */
+  captured: ['created', 'approved', 'pending', 'failed', 'cancelled'],
   failed: ['created', 'approved', 'pending'],
   cancelled: ['created', 'approved', 'pending'],
   refunded: ['captured', 'partially_refunded'],
@@ -85,7 +89,11 @@ export async function settle(db, id, status, fields = {}) {
   const before = await get(db, id);
   if (!before) return { changed: false, payment: null };
 
-  const from = ALLOWED_FROM[status] || [];
+  // A caller may narrow where it moves from. The one widening is evidence that
+  // money was taken (a capture for the wrong amount): it overrides an earlier
+  // "no money" label, so the payment goes to a person instead of staying "none".
+  const from = (ALLOWED_FROM[status] || []).filter((s) => !fields.from || fields.from.includes(s))
+    .concat(fields.moneyTaken ? ['failed', 'cancelled'] : []);
   const ts = now();
 
   const set = ['status = ?2', 'updated_at = ?3'];
@@ -153,6 +161,47 @@ export async function logEvent(db, event) {
   }
 }
 
+/* What a payment means for the guest's money (DP-25-01). The status alone does
+   not say it: `failed` and `cancelled` were once written for a lost answer or a
+   closed window, which is not the provider saying nothing was taken. So "no
+   money" is only a status AND a reason that establish it:
+
+     money   captured, or pending at the provider: the money is (being) taken
+     open    created or approved: it may still be taken
+     none    the provider declined or voided it, or the guest abandoned one the
+             provider still showed unapproved, after which nothing here will
+             ever capture it (the capture route, the webhook and the sweep all
+             move only created or approved payments)
+     manual  anything else: a refund, an amount that did not match, a failure
+             nobody classified. A person looks; the guest is told by reference.
+
+   The reasons are kept as written, so a payment recorded before this existed
+   is judged by what was actually known about it. */
+export const DECLINE_ISSUES = [
+  'INSTRUMENT_DECLINED', 'TRANSACTION_REFUSED', 'PAYER_CANNOT_PAY',
+  'PAYER_ACCOUNT_RESTRICTED', 'PAYER_ACCOUNT_LOCKED_OR_CLOSED', 'PAYEE_ACCOUNT_RESTRICTED',
+  'MAX_NUMBER_OF_PAYMENT_ATTEMPTS_EXCEEDED', 'ORDER_NOT_APPROVED', 'PAYER_ACTION_REQUIRED',
+  'CARD_EXPIRED', 'COMPLIANCE_VIOLATION'
+];
+export const NO_CHARGE_CODES = [
+  'DECLINED', 'VOIDED', 'PAYMENT.CAPTURE.DENIED', 'CHECKOUT.ORDER.VOIDED',
+  'abandoned_unapproved', ...DECLINE_ISSUES
+];
+
+export function moneyState(payment) {
+  if (!payment) return 'manual';
+  const s = payment.status;
+  if (s === 'captured' || s === 'pending') return 'money';
+  if (s === 'created' || s === 'approved') return 'open';
+  if ((s === 'failed' || s === 'cancelled') && NO_CHARGE_CODES.includes(payment.failure_code)) return 'none';
+  return 'manual';
+}
+
+/* The same rule, as SQL over a `payments` row, for statements that must decide
+   in the database (the claim insert). Kept beside the function it mirrors. */
+export const NO_CHARGE_SQL = `(status IN ('failed','cancelled') AND failure_code IN (${
+  NO_CHARGE_CODES.map((c) => `'${c}'`).join(',')}))`;
+
 export function isTerminal(status) {
   return TERMINAL.includes(status);
 }
@@ -171,6 +220,8 @@ export function publicView(payment) {
     refunded: payment.refunded_amount,
     capturedAt: payment.captured_at,
     failureCode: payment.failure_code,
+    // The one field the page decides by: see moneyState.
+    money: moneyState(payment),
     final: isTerminal(payment.status)
   };
 }

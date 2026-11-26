@@ -995,8 +995,8 @@ test('a payment that was started and never settled is on the page, not only in t
 
   assert.ok(html.includes('Started, never finished'), 'the section is there');
   assert.ok(html.includes(payment.reference), 'and the code she will quote on the telephone');
-  assert.ok(html.includes('NEVER APPROVED'), 'said as the state it actually stopped in');
-  assert.ok(html.includes('Nothing was charged'), 'and answering the only question she asked');
+  assert.ok(html.includes('NOT APPROVED'), 'said as the state it actually stopped in');
+  assert.ok(html.includes('Nothing has been taken so far'), 'and answering the only question she asked');
   assert.ok(html.includes('26,10'), 'for the amount she was looking at');
   assert.ok(html.includes('2× Koshari'), 'with the basket, which is how you recognise her order');
 
@@ -1030,7 +1030,7 @@ test('a payment that settled is not reported as unfinished', async (t) => {
 
   assert.equal(html.includes('Started, never finished'), false,
     'captured money is trade, not an unfinished payment');
-  assert.equal(html.includes('NEVER APPROVED'), false);
+  assert.equal(html.includes('NOT APPROVED'), false);
 });
 
 test('an order whose payment never completed is not shown to the kitchen as paid', async (t) => {
@@ -1049,7 +1049,7 @@ test('an order whose payment never completed is not shown to the kitchen as paid
   const payment = await (await worker.fetch(post('/api/payments', BASKET), env, c)).json();
   // The provider refused it (DP-23-01: a created/approved payment may still
   // settle and stores nothing; a failed one is a claim, as this test is about).
-  env.DB._raw.prepare("UPDATE payments SET status = 'failed' WHERE id = ?").run(payment.id);
+  env.DB._raw.prepare("UPDATE payments SET status = 'failed', failure_code = 'DECLINED' WHERE id = ?").run(payment.id);
   // The guest sends the order anyway, naming the payment that never completed.
   await worker.fetch(post('/api/orders/announce', {
     items: { koshari: 2 }, type: 'pickup', name: 'Sherif Esmat',

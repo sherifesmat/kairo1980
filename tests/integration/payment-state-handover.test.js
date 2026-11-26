@@ -127,7 +127,7 @@ test('approved and never seen again: nothing stored, however often it is handed 
 test('an order claimed under a failed payment that is captured after all is reconciled by a person, never answered as settled', async (t) => {
   const { env, c, alerts } = world(t);
   const payment = await created(env, c, PICKUP);
-  env.DB._raw.prepare("UPDATE payments SET status = 'failed' WHERE id = ?").run(payment.id);
+  env.DB._raw.prepare("UPDATE payments SET status = 'failed', failure_code = 'DECLINED' WHERE id = ?").run(payment.id);
   const claim = await call(env, c, '/api/orders/announce', { ...GUEST, ...PICKUP, paymentId: payment.id });
   assert.equal(claim.status, 200);
   assert.equal(rows(env, 'orders')[0].payment_check, 'unverified');
@@ -277,7 +277,7 @@ for (const [to, reason] of [['captured', 'payment_conflict'], ['pending', 'payme
   test(`a failed payment that turns ${to} between the read and the claim's write stores no order to be paid on site`, async (t) => {
     const { env, c, alerts } = world(t);
     const payment = await created(env, c, PICKUP);
-    env.DB._raw.prepare("UPDATE payments SET status = 'failed' WHERE id = ?").run(payment.id);
+    env.DB._raw.prepare("UPDATE payments SET status = 'failed', failure_code = 'DECLINED' WHERE id = ?").run(payment.id);
     const undo = atInsert(env, () => env.DB._raw.prepare('UPDATE payments SET status = ? WHERE id = ?').run(to, payment.id));
     const res = await call(env, c, '/api/orders/announce', { ...GUEST, ...PICKUP, paymentId: payment.id });
     undo();

@@ -17,6 +17,7 @@
 
 import { layout, esc, newNonce, adminHeaders } from './pages.js';
 import { berlinDay } from '../berlin.js';
+import { moneyState } from '../payments/store.js';
 
 const money = (cents) => (cents / 100).toFixed(2).replace('.', ',') + ' €';
 const clock = (iso) => (iso || '').slice(11, 16);
@@ -184,17 +185,24 @@ const CSS = `
    promise: the guest agreed, the capture never ran, and the webhook may still
    complete it — so it is described as unfinished rather than as refused. */
 const STOPPED_ON = {
-  created: ['NEVER APPROVED',
-    'The payment window opened and the guest never approved it. Nothing was charged.'],
+  created: ['NOT APPROVED',
+    'The payment window opened and the guest has not approved it. Nothing has been taken so far.'],
   approved: ['NOT YET TAKEN',
     'The guest approved it but the money was never captured. This one may still complete on its own.'],
   pending: ['PAYPAL REVIEWING',
     'PayPal is holding this for review. It is not money yet — do not treat it as paid.'],
   failed: ['FAILED',
-    'The payment was refused. Nothing was charged.'],
+    'PayPal refused the payment. Nothing was charged.'],
   cancelled: ['CANCELLED',
-    'The guest cancelled it. Nothing was charged.']
+    'Abandoned before the guest approved it, and never taken. Nothing was charged.']
 };
+
+/* A failed or cancelled payment whose reason does not establish that nothing
+   was taken (an amount that did not match, an error nobody classified, a
+   label from before DP-25-01) is never told to the counter as "nothing was
+   charged". */
+const CHECK_BY_HAND = ['CHECK BY HAND',
+  'It is not established that nothing was charged. Look this payment up in PayPal before the guest pays again or pays on arrival.'];
 
 /** 'YYYY-MM-DD' + n days, in UTC so no local timezone can shift the date. */
 function shiftDay(day, n) {
@@ -328,7 +336,8 @@ export function render({ day, orders, orphans, unfinished, totals, nonce, confli
      and nothing else. The basket is printed even though nobody is owed it: it
      is how you recognise the order they are describing. */
   const unfinishedCard = (p) => {
-    const [tag, why] = STOPPED_ON[p.status] || ['UNFINISHED', 'This payment never completed.'];
+    const [tag, why] = moneyState(p) === 'manual' ? CHECK_BY_HAND
+      : (STOPPED_ON[p.status] || ['UNFINISHED', 'This payment never completed.']);
     return `<div class="order unfin">
       <div class="otop">
         <span class="ref">${esc(p.reference)}</span>

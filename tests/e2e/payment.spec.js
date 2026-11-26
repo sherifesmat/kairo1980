@@ -404,23 +404,31 @@ test('a cancel that gets no answer, with the payment approved, is not called can
   await expect(page.locator('.cart-pay-step')).not.toContainText('abgebrochen');
 });
 
-test('paid, with a create answer whose figures do not hold, is told by its reference and never from the basket', async ({ page }) => {
-  const whatsapp = await captureWhatsApp(page);
-  // Same total, but the lines say something else than was priced.
-  await stubPayments(page, { created: (a) => ({ ...a, lines: a.lines.map((l) => ({ ...l, amount: l.amount + 100 })) }) });
-  await reachPaymentStep(page);
-  await page.locator('.fake-pay-button').first().click();
-  const step = page.locator('.cart-pay-step');
-  await expect(step).toContainText('Bitte nicht noch einmal bezahlen');
-  await expect(step).toContainText('K7F3QA');
-  // The chat way out names the payment, not a basket.
-  const href = decodeURIComponent(await page.locator('a.cart-send-wa').getAttribute('href'));
-  expect(href).toContain('K7F3QA');
-  expect(href).not.toContain('Hummus');
-  await page.waitForTimeout(300);
-  expect(await page.evaluate(() => window.__waUrl)).toBeNull();
-  void whatsapp;
-});
+/* DP-25-02: the guest is never asked to approve figures other than the ones on
+   screen. A create answer that is not a whole order, or a whole one that prices
+   it differently line by line (the same total, another fee and discount),
+   stops before the provider's window: the payment is cancelled at the server,
+   nothing is captured, nothing is remembered, and the page is reloaded. */
+for (const [name, spoil] of [
+  ['whose lines do not add up', (a) => ({ ...a, lines: a.lines.map((l) => ({ ...l, amount: l.amount + 100 })) })],
+  ['that adds up to the same total with another fee and discount',
+   (a) => ({ ...a, breakdown: { ...a.breakdown, discount: a.breakdown.discount + 100, fee: a.breakdown.fee + 100 } })]
+]) {
+  test(`a create answer ${name} stops before the guest approves anything`, async ({ page }) => {
+    await captureWhatsApp(page);
+    const stub = await stubPayments(page, { created: spoil });
+    await reachPaymentStep(page);
+    await page.locator('.fake-pay-button').first().click();
+    const step = page.locator('.cart-pay-step');
+    await expect(step).toContainText('Der Betrag hat sich inzwischen geändert', { timeout: 15000 });
+    await expect(page.locator('[data-payact="reload"]')).toBeVisible();
+    await expect(page.locator('[data-payact="onsite"]')).toHaveCount(0);
+    expect(stub.captures).toBe(0);
+    expect(stub.cancels).toBe(1);
+    expect(await page.evaluate(() => localStorage.getItem('kairo.payment.v1'))).toBeNull();
+    expect(await page.evaluate(() => window.__waUrl)).toBeNull();
+  });
+}
 
 test('a new payment is not started over one this device has not settled', async ({ page }) => {
   const stub = await stubPayments(page, { status: 'approved' });
@@ -439,4 +447,16 @@ test('a new payment is not started over one this device has not settled', async 
   await unconfirmed(page);
   await expect(page.locator('.fake-pay-button')).toHaveCount(0);
   expect(stub.created || []).toHaveLength(0);
+});
+
+test('two payment methods tapped at once start one payment, never two', async ({ page }) => {
+  await captureWhatsApp(page);
+  const stub = await stubPayments(page, { methods: ['card', 'paypal'] });
+  await reachPaymentStep(page);
+  const buttons = page.locator('.fake-pay-button');
+  await expect(buttons).toHaveCount(2);
+  await Promise.all([buttons.nth(0).click(), buttons.nth(1).click()]);
+  await expect(page.locator('.cart-sent.is-paid')).toBeVisible({ timeout: 15000 });
+  expect(stub.created.length).toBe(1);
+  expect(stub.captures).toBe(1);
 });

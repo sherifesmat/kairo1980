@@ -83,13 +83,61 @@ test('a captured payment can never be walked back to failed or cancelled', async
   }
 });
 
-test('a cancelled payment cannot later be captured', async () => {
+/* DELIVERY_PRICING DP-25-01. A local label is not the provider's word: money
+   the provider reports after a cancel or a failure is recorded, never dropped
+   as an illegal move. Only what this server itself decides stays narrow. */
+for (const label of ['cancelled', 'failed']) {
+  test(`money the provider reports after a ${label} label is recorded, not discarded`, async () => {
+    const db = freshDatabase();
+    await store.create(db, newPayment());
+    await store.settle(db, 'pay-1', label, {});
+
+    const { changed, payment } = await store.settle(db, 'pay-1', 'captured', { captureId: 'CAP-1' });
+    assert.equal(changed, true);
+    assert.equal(payment.status, 'captured');
+    assert.equal(store.moneyState(payment), 'money');
+  });
+}
+
+test('a cancel narrowed to created does not move a payment whose capture was claimed', async () => {
   const db = freshDatabase();
   await store.create(db, newPayment());
-  await store.settle(db, 'pay-1', 'cancelled', {});
-
-  const { changed } = await store.settle(db, 'pay-1', 'captured', { captureId: 'CAP-1' });
+  await store.settle(db, 'pay-1', 'approved', {});
+  const { changed, payment } = await store.settle(db, 'pay-1', 'cancelled', { from: ['created'] });
   assert.equal(changed, false);
+  assert.equal(payment.status, 'approved');
+});
+
+test('no money is a status AND a reason that establish it; everything else is for a person', async () => {
+  const at = (status, failure_code = null) => store.moneyState({ status, failure_code });
+  assert.equal(at('captured'), 'money');
+  assert.equal(at('pending'), 'money');
+  assert.equal(at('created'), 'open');
+  assert.equal(at('approved'), 'open');
+  for (const code of ['DECLINED', 'VOIDED', 'INSTRUMENT_DECLINED', 'PAYMENT.CAPTURE.DENIED',
+                      'CHECKOUT.ORDER.VOIDED', 'abandoned_unapproved']) {
+    assert.equal(at(code === 'abandoned_unapproved' || /VOID/.test(code) ? 'cancelled' : 'failed', code), 'none', code);
+  }
+  // The labels written before DP-25-01 for a lost answer or a closed window,
+  // a capture for the wrong amount, a reversal, and refunds: not "no money".
+  for (const [status, code] of [['failed', 'provider_error'], ['failed', 'INTERNAL_SERVER_ERROR'],
+                                ['failed', 'auth_failed'], ['failed', 'amount_mismatch'],
+                                ['failed', 'PAYMENT.CAPTURE.REVERSED'], ['failed', null],
+                                ['cancelled', 'cancelled_by_customer'], ['cancelled', null],
+                                ['refunded', null], ['partially_refunded', null]]) {
+    assert.equal(at(status, code), 'manual', `${status}/${code}`);
+  }
+  assert.equal(store.moneyState(null), 'manual');
+});
+
+test('a capture for the wrong amount overrides an earlier no-money label', async () => {
+  const db = freshDatabase();
+  await store.create(db, newPayment());
+  await store.settle(db, 'pay-1', 'cancelled', { failureCode: 'abandoned_unapproved' });
+  const { changed, payment } = await store.settle(db, 'pay-1', 'failed',
+    { failureCode: 'amount_mismatch', moneyTaken: true });
+  assert.equal(changed, true);
+  assert.equal(store.moneyState(payment), 'manual');
 });
 
 test('a pending capture can still resolve either way', async () => {

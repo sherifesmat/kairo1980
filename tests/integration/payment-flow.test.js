@@ -293,12 +293,18 @@ test('a payment for the wrong amount is refused even if PayPal accepted it', asy
 test('a guest who closes the PayPal window leaves a cancelled payment, not a stuck one', async (t) => {
   const env = workerEnv(MENU);
   const c = ctx();
-  const paypal = fakePayPal({ '/v2/checkout/orders': () => orderResponse({}) });
+  // The provider still shows the order unapproved: abandoned (DP-25-01).
+  const paypal = fakePayPal({
+    '/v2/checkout/orders': () => orderResponse({}),
+    '/v2/checkout/orders/*': () => orderResponse({ status: 'CREATED' })
+  });
   t.after(() => paypal.restore());
 
   const payment = await createPayment(env, c);
   const res = await worker.fetch(post(`/api/payments/${payment.id}/cancel`), env, c);
-  assert.equal((await res.json()).payment.status, 'cancelled');
+  const answer = (await res.json()).payment;
+  assert.equal(answer.status, 'cancelled');
+  assert.equal(answer.money, 'none');
 });
 
 /* --- webhooks ------------------------------------------------------------ */
