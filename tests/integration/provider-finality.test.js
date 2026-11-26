@@ -378,3 +378,50 @@ test('/admin never tells the counter "nothing was charged" for a payment nobody 
   assert.match(card, /CHECK BY HAND/);
   assert.doesNotMatch(card, /Nothing was charged/);
 });
+
+test('a cancel that read the order unapproved, just before the guest approved and the capture started, does not win', async (t) => {
+  const env = workerEnv(MENU, TELEGRAM);
+  const c = ctx();
+  let release;
+  const held = new Promise((r) => { release = r; });
+  let capturing = null;
+  let reads = 0;
+  const { state } = provider(t, {
+    // The capture is on its way and does not answer until released.
+    capture: async ({ take }) => { await held; return take(); },
+    read: async ({ state: s, view }) => {
+      reads += 1;
+      if (reads > 1) return view();
+      // The cancel's read sees CREATED; at that moment the guest approves and
+      // the page starts the capture, which claims the payment.
+      const seen = view();
+      s.status = 'APPROVED';
+      capturing = worker.fetch(post(`/api/payments/${s.payment.id}/capture`), env, c);
+      for (let i = 0; i < 50 && row(env, s.payment.id).status !== 'approved'; i++) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      return seen;
+    }
+  });
+  const payment = await start(env, c, state);
+
+  const answer = await cancel(env, c, payment.id);
+  assert.notEqual(answer.money, 'none', 'the page is never told nothing was taken');
+  assert.notEqual(answer.status, 'cancelled');
+  release();
+  await capturing;
+  await c.settled();
+  assert.equal(row(env, payment.id).status, 'captured');
+});
+
+test('a quiet recovery for a payment that is a person\'s to resolve is a conflict, never a request for details', async (t) => {
+  const env = workerEnv(MENU, TELEGRAM);
+  const c = ctx();
+  const { state } = provider(t);
+  const payment = await start(env, c, state);
+  env.DB._raw.prepare("UPDATE payments SET status = 'failed', failure_code = 'amount_mismatch' WHERE id = ?").run(payment.id);
+  const { status, body } = await announce(env, c, {
+    recovery: true, items: { koshari: 2 }, type: 'pickup', business: false, paymentId: payment.id });
+  assert.equal(status, 409);
+  assert.equal(body.reason, 'payment_conflict');
+});

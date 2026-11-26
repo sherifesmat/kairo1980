@@ -197,7 +197,7 @@ export async function captureWhatsApp(page) {
  * @param {'approve'|'cancel'|'error'|'decline'|'pending'} outcome
  */
 export async function stubPayments(page, { methods = ['paypal'], outcome = 'approve',
-  amount = 1710, reference = 'K7F3QA', status = null, created = null } = {}) {
+  amount = 1710, reference = 'K7F3QA', status = null, created = null, createDelay = 0 } = {}) {
   const id = 'test-payment-id';
   /* A payment as the server shows it, `money` and all (DP-25-01). A status may
      carry its reason as 'status:reason'; a failed or cancelled one without a
@@ -252,6 +252,8 @@ export async function stubPayments(page, { methods = ['paypal'], outcome = 'appr
     // What the page asked for, kept so a test can read it.
     const asked = route.request().postDataJSON();
     stub.created = (stub.created || []).concat([asked]);
+    // The first payment's answer can be made to land late (`createDelay`, ms).
+    if (createDelay && stub.created.length === 1) await new Promise((r) => setTimeout(r, createDelay));
     if (quoted.total !== amount) {
       return route.fulfill({
         status: 500, contentType: 'application/json',

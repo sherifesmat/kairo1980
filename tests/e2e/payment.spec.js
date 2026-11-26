@@ -455,8 +455,43 @@ test('two payment methods tapped at once start one payment, never two', async ({
   await reachPaymentStep(page);
   const buttons = page.locator('.fake-pay-button');
   await expect(buttons).toHaveCount(2);
-  await Promise.all([buttons.nth(0).click(), buttons.nth(1).click()]);
+  // In the same moment, so the second lands while the first is being created.
+  await page.evaluate(() => document.querySelectorAll('.fake-pay-button').forEach((b) => b.click()));
   await expect(page.locator('.cart-sent.is-paid')).toBeVisible({ timeout: 15000 });
   expect(stub.created.length).toBe(1);
   expect(stub.captures).toBe(1);
+});
+
+test('an older checkout whose payment lands late never borrows the details typed for a newer one', async ({ page }) => {
+  await captureWhatsApp(page);
+  await stubPayments(page, { createDelay: 2500 });
+  await page.goto('/');
+  await addItem(page, 'hummus', 2);
+  await openBasket(page);
+  await choosePickup(page);
+  await fillContact(page, { name: 'Anna Alt' });
+  await page.locator('[data-pay="online"]').click();
+  await page.locator('#cartSend').click();
+  await expect(page.locator('.cart-pay-step')).toBeVisible();
+  // Checkout A starts its payment; its answer is slow.
+  await page.locator('.fake-pay-button').first().click();
+  await page.locator('#cartClose').click();
+
+  // Checkout B, with other details, reaches its own payment step meanwhile.
+  await openBasket(page);
+  await fillContact(page, { name: 'Bert Neu', phone: '+49 170 0000000' });
+  await page.locator('[data-pay="online"]').click();
+  await page.locator('#cartSend').click();
+  await expect(page.locator('.fake-pay-button')).toHaveCount(1);
+
+  // A's payment lands and is taken. Its answers belong to A's checkout, not B's.
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('kairo.payment.v1')), { timeout: 15000 }).toBeTruthy();
+  await page.waitForTimeout(500);
+  await expect(page.locator('.cart-sent.is-paid')).toHaveCount(0);
+
+  // B tries to pay: A's money is shown first, and asked for its own details.
+  await page.locator('.fake-pay-button').first().click();
+  await expect(page.locator('#cartRecoverForm')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('#rName')).toHaveValue('');
+  expect(await page.evaluate(() => window.__waUrl)).toBeNull();
 });
