@@ -347,6 +347,7 @@
       payFailTitle: 'Zahlung fehlgeschlagen',
       payFailText: 'Es wurde nichts abgebucht. Bitte versuchen Sie eine andere Zahlungsart — oder bezahlen Sie bei Erhalt.',
       payDeclined: 'Ihre Bank hat die Zahlung abgelehnt. Es wurde nichts abgebucht.',
+      payTotalChanged: 'Der Betrag hat sich inzwischen geändert. Es wurde nichts abgebucht. Bitte laden Sie die Seite neu und prüfen Sie Ihre Bestellung.',
       payPendingTitle: 'Zahlung wird geprüft',
       payPendingText: 'Ihre Zahlung wird noch bestätigt. Senden Sie Ihre Bestellung jetzt ab — wir melden uns im Chat.',
       payUnavailable: 'Online-Zahlung ist gerade nicht verfügbar. Senden Sie Ihre Bestellung und bezahlen Sie bei Erhalt.',
@@ -509,6 +510,7 @@
       payFailTitle: 'Payment failed',
       payFailText: 'Nothing was charged. Please try another payment method — or pay on arrival.',
       payDeclined: 'Your bank declined the payment. Nothing was charged.',
+      payTotalChanged: 'The amount has changed in the meantime. Nothing was charged. Please reload the page and check your order.',
       payPendingTitle: 'Payment being checked',
       payPendingText: 'Your payment is still being confirmed. Send your order now — we will get back to you in the chat.',
       payUnavailable: 'Online payment is unavailable right now. Send your order and pay on arrival.',
@@ -671,6 +673,7 @@
       payFailTitle: 'الدفع ما تمّش',
       payFailText: 'مفيش أي مبلغ اتخصم. جرّب طريقة دفع تانية — أو ادفع عند الاستلام.',
       payDeclined: 'البنك رفض العملية. مفيش أي مبلغ اتخصم.',
+      payTotalChanged: 'المبلغ اتغير في الوقت ده. مفيش أي مبلغ اتخصم. من فضلك حمّل الصفحة تاني وراجع طلبك.',
       payPendingTitle: 'الدفع تحت المراجعة',
       payPendingText: 'الدفع لسه بيتأكد. ابعت طلبك دلوقتي — وهنرد عليك في الشات.',
       payUnavailable: 'الدفع أونلاين مش متاح دلوقتي. ابعت طلبك وادفع عند الاستلام.',
@@ -3533,7 +3536,12 @@
           // Which moment this order is for, so the server can apply the same
           // closure rule the basket did. Never a price — only a wish.
           when: requestedWhen(),
-          lang: lang()
+          lang: lang(),
+          // The total the guest was just shown, in cents. Not a price: the server
+          // prices the order itself and refuses to start a payment for any other
+          // amount, so nobody is asked to pay a figure they were not shown
+          // (DELIVERY_PRICING round 21, G5).
+          expectedTotal: Math.round(total * 100)
         },
         // In cents, and only so the wallet sheet can show the guest the same
         // figure the panel does. The charge is still the server's number.
@@ -3559,7 +3567,10 @@
     if (state === 'cancelled') { paymentStopped(L.payCancelTitle, L.payCancelText); return; }
     if (state === 'unavailable') { paymentUnavailable(); return; }
 
-    paymentStopped(L.payFailTitle, info.code === 'declined' ? L.payDeclined : L.payFailText);
+    paymentStopped(L.payFailTitle,
+      info.code === 'declined' ? L.payDeclined
+        : info.code === 'total_changed' ? L.payTotalChanged
+        : L.payFailText);
   }
 
   // Nothing was charged. Both ways forward are offered: try again, or send the

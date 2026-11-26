@@ -241,6 +241,13 @@ async function createPayment(request, env, url) {
   if (!q.deliverable) {
     return fail(400, 'postcode_not_listed', 'Please choose your postcode and town from the list.');
   }
+  // The guest is asked to pay only the total they were shown. A page holding an
+  // older menu or tariff shows another figure; the payment is then not started,
+  // and the guest is told to look again. A page from before this check sends no
+  // figure and is priced as before (round 21, G5).
+  if (body.expectedTotal !== undefined && body.expectedTotal !== q.total) {
+    return fail(409, 'total_changed', 'The amount has changed. Please check your order.');
+  }
 
   const id = crypto.randomUUID();
   const reference = store.newReference();

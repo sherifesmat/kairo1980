@@ -163,6 +163,30 @@ test('a cancelled payment charges nothing and keeps the order alive', async ({ p
   await expect(page.locator('[data-payact="onsite"]')).toBeVisible();
 });
 
+test('the payment is asked for the total on screen, and a changed total stops it', async ({ page }) => {
+  const stub = await stubPayments(page);
+  await reachPaymentStep(page);
+  await page.locator('.fake-pay-button').first().click();
+  // The page names the 17,10 € it showed; the Worker prices the order itself.
+  await expect.poll(() => (stub.created || []).length).toBe(1);
+  expect(stub.created[0].expectedTotal).toBe(1710);
+});
+
+test('when the server prices another total, nothing is charged and the guest is told to look again', async ({ page }) => {
+  await stubPayments(page);
+  // Registered last, so it answers first: the Worker's refusal of a stale figure.
+  await page.route('**/api/payments', (route) => route.fulfill({
+    status: 409, contentType: 'application/json',
+    body: JSON.stringify({ error: { code: 'total_changed', message: 'The amount has changed.' } })
+  }));
+  await reachPaymentStep(page);
+  await page.locator('.fake-pay-button').first().click();
+  const step = page.locator('.cart-pay-step');
+  await expect(step).toContainText('Betrag hat sich inzwischen geändert');
+  await expect(step).toContainText('nichts abgebucht');
+  await expect(page.locator('[data-payact="onsite"]')).toBeVisible();
+});
+
 test('a declined card says nothing was charged, and offers to pay on arrival', async ({ page }) => {
   await stubPayments(page, { outcome: 'decline' });
   await reachPaymentStep(page);

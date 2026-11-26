@@ -237,6 +237,9 @@ export async function stubPayments(page, { methods = ['paypal'], outcome = 'appr
       // what it needed). Nothing is left to answer.
       return route.abort().catch(() => {});
     }
+    // What the page asked for, kept so a test can read it.
+    const asked = route.request().postDataJSON();
+    stub.created = (stub.created || []).concat([asked]);
     if (quoted.total !== amount) {
       return route.fulfill({
         status: 500, contentType: 'application/json',

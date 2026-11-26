@@ -228,3 +228,29 @@ test('an old order\'s identity is exactly what it was, so its replay is still fo
     orderIdentity({ ...old, postcode: '68723', town: 'Oftersheim' }),
     orderIdentity({ ...old, postcode: '68723', town: 'Plankstadt' }));
 });
+
+/* --- the guest pays only what they were shown (G5) -------------------------- */
+
+test('a payment is started only for the total the guest was shown', async (t) => {
+  const { env, c, providerCalls } = world(t);
+  const order = { items: { feast: 1 }, type: 'delivery', method: 'paypal', ...REILINGEN };
+
+  // A page holding an older menu or tariff showed another figure: refused, before the provider.
+  const stale = await call(env, c, '/api/payments', { ...order, expectedTotal: 4770 });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.error.code, 'total_changed');
+  assert.equal(providerCalls(), 0);
+  assert.equal(rows(env, 'payments').length, 0);
+
+  // The figure the server agrees with starts the payment, for exactly that amount.
+  const shown = await call(env, c, '/api/payments', { ...order, expectedTotal: 4870 });
+  assert.equal(shown.status, 201, JSON.stringify(shown.body));
+  assert.equal(rows(env, 'payments')[0].amount, 4870);
+
+  // A page from before the check sends no figure, and is priced as it always was.
+  const older = await call(env, c, '/api/payments', order);
+  assert.equal(older.status, 201);
+  // A figure that is not a number of cents is not the shown total either.
+  const text = await call(env, c, '/api/payments', { ...order, expectedTotal: '4870' });
+  assert.equal(text.status, 409);
+});
