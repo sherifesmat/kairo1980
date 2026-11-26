@@ -207,6 +207,9 @@ async function quoteOnly(request, env) {
     total: q.total,
     currency: 'EUR',
     zone: q.zone ? { place: q.zone.place, fee: Math.round(q.zone.fee * 100), minimum: Math.round(q.zone.minimum * 100) } : null,
+    // The lines as priced, to the caller who just sent this basket (as in the
+    // create answer, DP-24-02). The public payment status still carries none.
+    lines: q.lines.map((l) => ({ id: l.id, name: l.name, qty: l.qty, amount: l.amount })),
     // False for a delivery that is not a listed postcode-and-town pair. Such a
     // quote is not a price with no fee: it is not an order at all (PO-15).
     deliverable: q.deliverable,
@@ -310,6 +313,11 @@ async function createPayment(request, env, url) {
     currency: 'EUR',
     // So the page can prove the figure it displayed is the figure being taken.
     breakdown: { subtotal: q.subtotal, discount: q.discount, fee: q.fee },
+    /* And the lines as priced, so the page keeps the server's own summary of
+       what this payment is for, not its own arithmetic (DP-24-02). Only in this
+       answer, to the caller who just sent that basket: GET /api/payments/:id
+       still discloses no basket. */
+    lines: q.lines.map((l) => ({ id: l.id, name: l.name, qty: l.qty, amount: l.amount })),
     belowMinimum: q.belowMinimum
   }, 201);
 }
@@ -396,22 +404,41 @@ async function capturePayment(request, env, id, ctx) {
    The record of it goes into the payment's own event log, which is append-only,
    so it is also the audit trail of who was told what and when (DP-23-01). */
 async function alertConflictOnce(env, stored) {
-  const payment = stored.payment || null;
+  /* Read as it is now: the state the decision was made on may be a moment old
+     (a refund or a capture landing in between), and the alert says what the
+     counter will find. */
+  let payment = stored.payment || null;
+  if (payment) {
+    payment = (await env.DB.prepare(
+      'SELECT id, reference, provider, status, amount, currency FROM payments WHERE id = ?1'
+    ).bind(payment.id).first()) || payment;
+  }
+  const key = payment ? payment.id : 'ref:' + stored.reference;
+  const log = (kind, eventKey) => env.DB.prepare(
+    `INSERT OR IGNORE INTO payment_events
+       (payment_id, provider, event_key, event_type, source, status_from, status_to, amount, payload, created_at)
+     VALUES (?1, ?2, ?3, ?4, 'client', ?5, ?5, ?6, ?7, datetime('now'))`
+  ).bind(payment ? payment.id : null, payment ? (payment.provider || 'paypal') : 'site', eventKey, kind,
+         payment ? payment.status : null, payment ? payment.amount : null,
+         JSON.stringify({ reference: stored.reference })).run();
+  /* Two records in the append-only event log: that the conflict was DETECTED
+     (once; /admin lists it until a person deals with it, whatever Telegram did)
+     and that the alert was DELIVERED (written only when Telegram took it). A
+     send that failed leaves no delivery record, so the next handover tries
+     again; one that succeeded is not repeated. */
   try {
-    const result = await env.DB.prepare(
-      `INSERT OR IGNORE INTO payment_events
-         (payment_id, provider, event_key, event_type, source, status_from, status_to, amount, payload, created_at)
-       VALUES (?1, ?2, ?3, 'order_conflict', 'client', ?4, ?4, ?5, NULL, datetime('now'))`
-    ).bind(payment ? payment.id : null, payment ? (payment.provider || 'paypal') : 'site',
-           'order-conflict:' + (payment ? payment.id : 'ref:' + stored.reference),
-           payment ? payment.status : null, payment ? payment.amount : null).run();
-    if (Number(result?.meta?.changes || 0) === 0) return;
+    await log('order_conflict', 'order-conflict:' + key);
+    const sent = await env.DB.prepare('SELECT 1 AS done FROM payment_events WHERE event_key = ?1')
+      .bind('order-conflict-alerted:' + key).first();
+    if (sent) return;
   } catch (err) {
-    // If the log cannot be written the counter is still told: a second alert is
-    // better than none.
     console.error('conflict log', err && err.message);
   }
-  await sendPaymentConflict(env, payment, stored.reference);
+  const result = await sendPaymentConflict(env, payment, stored.reference);
+  if (result && result.ok) {
+    try { await log('order_conflict_alerted', 'order-conflict-alerted:' + key); }
+    catch (err) { console.error('conflict log', err && err.message); }
+  }
 }
 
 async function announceOrder(request, env, ctx) {
@@ -477,6 +504,12 @@ async function announceOrder(request, env, ctx) {
      payment that settles with no order is listed at /admin (DP-23-01). */
   if (stored.paymentUnsettled) {
     return json({ recorded: false, reason: 'payment_unsettled', reference: stored.reference }, 409);
+  }
+  /* A quiet recovery that found no stored order. Nothing is created from it:
+     the page asks the guest to confirm their details and hands over again,
+     as an order (DP-24-02). */
+  if (stored.detailsNeeded) {
+    return json({ recorded: false, reason: 'details_needed', reference: stored.reference }, 409);
   }
   /* A correction that lost to a different one and still could not be written.
      Never "recorded": the guest's WhatsApp message carries what they typed, and

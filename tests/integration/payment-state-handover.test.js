@@ -259,3 +259,236 @@ test('two stored claims that a handover could both be: nothing stored, and the c
   await call(env, c, '/api/orders/announce', { ...GUEST, ...PICKUP, paymentId: 'made-up-id' });
   assert.equal(alerts().filter((m) => /^BESTELLUNG PRÜFEN/.test(m)).length, 1, 'once');
 });
+
+/* --- Round 24 (DP-24-01, DP-24-02) ------------------------------------------ */
+
+/** Run `change` at the moment the order INSERT is prepared: the state moved
+    between the read and the write. */
+function atInsert(env, change) {
+  const prepare = env.DB.prepare.bind(env.DB);
+  env.DB.prepare = (sql) => {
+    if (/INSERT INTO orders/.test(sql)) change();
+    return prepare(sql);
+  };
+  return () => { env.DB.prepare = prepare; };
+}
+
+for (const [to, reason] of [['captured', 'payment_conflict'], ['pending', 'payment_conflict'], ['approved', 'payment_unsettled']]) {
+  test(`a failed payment that turns ${to} between the read and the claim's write stores no order to be paid on site`, async (t) => {
+    const { env, c, alerts } = world(t);
+    const payment = await created(env, c, PICKUP);
+    env.DB._raw.prepare("UPDATE payments SET status = 'failed' WHERE id = ?").run(payment.id);
+    const undo = atInsert(env, () => env.DB._raw.prepare('UPDATE payments SET status = ? WHERE id = ?').run(to, payment.id));
+    const res = await call(env, c, '/api/orders/announce', { ...GUEST, ...PICKUP, paymentId: payment.id });
+    undo();
+    assert.deepEqual([res.status, res.body.reason, res.body.reference], [409, reason, payment.reference]);
+    assert.equal(rows(env, 'orders').length, 0, 'no onsite row beside the money');
+    assert.equal(alerts().filter((m) => /NICHT BESTÄTIGT|BEI ERHALT/.test(m)).length, 0);
+  });
+}
+
+test('a capture that lands between the read and the write is not announced as still under review', async (t) => {
+  const { env, c, alerts } = world(t);
+  const payment = await created(env, c, PICKUP);
+  await webhook(env, c, payment, 'PAYMENT.CAPTURE.PENDING', 'WH-P');
+  const undo = atInsert(env, () => env.DB._raw.prepare(
+    "UPDATE payments SET status = 'captured', captured_at = datetime('now') WHERE id = ?").run(payment.id));
+  const res = await call(env, c, '/api/orders/announce', { ...GUEST, ...PICKUP, paymentId: payment.id });
+  undo();
+  assert.equal(res.body.reference, payment.reference);
+  assert.equal(rows(env, 'orders')[0].payment_id, payment.id);
+  assert.equal(alerts().filter((m) => /NOCH IN PRÜFUNG/.test(m)).length, 0);
+});
+
+test('a lost answer retried from an empty or different form keeps what the kitchen has; a real correction still lands', async (t) => {
+  const { env, c } = world(t);
+  const payment = await created(env, c, REILINGEN);
+  await webhook(env, c, payment, 'PAYMENT.CAPTURE.COMPLETED', 'WH-C');
+  const first = { ...GUEST, ...REILINGEN, notes: 'Klingel defekt, bitte anrufen', paymentId: payment.id };
+  const stored = await call(env, c, '/api/orders/announce', first);
+  assert.equal(stored.status, 200);
+  const original = rows(env, 'orders')[0];
+  const keep = (row) => [row.customer_name, row.customer_phone, row.customer_address, row.notes, row.requested_time];
+
+  // The answer never arrived; the page reloads with nothing, or with a new basket's form.
+  const basket = { ...REILINGEN, paymentId: payment.id };
+  const retries = [
+    { ...basket, recovery: true },
+    { ...basket, recovery: true, name: 'Jemand Anders', phone: '+49 1', address: 'Andere Straße 9', notes: '', time: '20:00' },
+    { ...basket, name: '', phone: '', address: '', notes: '' }
+  ];
+  for (const retry of retries) {
+    const res = await call(env, c, '/api/orders/announce', retry);
+    assert.deepEqual([res.status, res.body.reference], [200, payment.reference], JSON.stringify(retry));
+    assert.deepEqual(keep(rows(env, 'orders')[0]), keep(original), JSON.stringify(retry));
+  }
+  assert.equal(rows(env, 'orders').length, 1);
+
+  const fixed = await call(env, c, '/api/orders/announce', { ...first, address: 'Hauptstraße 11' });
+  assert.equal(fixed.status, 200);
+  const [now] = rows(env, 'orders');
+  assert.deepEqual([now.customer_address, now.notes, now.customer_phone],
+                   ['Hauptstraße 11', original.notes, original.customer_phone]);
+});
+
+for (const [order, name] of [[REILINGEN, 'delivery'], [PICKUP, 'pickup']]) {
+  test(`${name}: a quiet recovery with nothing stored creates nothing and asks for the guest's details`, async (t) => {
+    const { env, c, alerts } = world(t);
+    const payment = await created(env, c, order);
+    await webhook(env, c, payment, 'PAYMENT.CAPTURE.COMPLETED', 'WH-C');
+    const quiet = await call(env, c, '/api/orders/announce', { ...order, recovery: true, paymentId: payment.id });
+    assert.deepEqual([quiet.status, quiet.body.reason, quiet.body.reference], [409, 'details_needed', payment.reference]);
+    assert.equal(rows(env, 'orders').length, 0, 'no order with no name, phone or address');
+    const before = alerts().length;
+
+    const confirmed = await call(env, c, '/api/orders/announce', { ...GUEST, ...order, paymentId: payment.id });
+    assert.deepEqual([confirmed.status, confirmed.body.reference], [200, payment.reference]);
+    const [row] = rows(env, 'orders');
+    assert.deepEqual([row.customer_name, row.customer_phone, row.payment_id], [GUEST.name, GUEST.phone, payment.id]);
+    assert.equal(alerts().length, before, 'a captured payment was announced by its capture, not again');
+  });
+}
+
+test('a quiet recovery under a claim that is not money creates no order either', async (t) => {
+  const { env, c } = world(t);
+  const res = await call(env, c, '/api/orders/announce', { ...PICKUP, recovery: true, paymentId: 'made-up-id' });
+  assert.deepEqual([res.status, res.body.reason], [409, 'details_needed']);
+  assert.equal(rows(env, 'orders').length, 0);
+});
+
+test('an old town-less linked order is replayed only by its exact old postcode, never by a longer one cut down', async (t) => {
+  const { env, c } = world(t);
+  const id = crypto.randomUUID();
+  const lines = JSON.stringify([{ id: 'feast', dish: 'feast', name: 'Feast', qty: 1, unit: 5300, amount: 5300 }]);
+  env.DB._raw.prepare(
+    `INSERT INTO payments (id, reference, provider, provider_order_id, status, amount, currency,
+       subtotal, discount, fee, order_type, business, postcode, lines, created_at, updated_at)
+     VALUES (?, 'K-LEG1', 'paypal', 'PP-K-LEG1', 'captured', 5300, 'EUR', 5300, 0, 0, 'delivery', 0,
+             '68799 Reilingen', ?, datetime('now'), datetime('now'))`).run(id, lines);
+  const old = { items: { feast: 1 }, type: 'delivery', business: false, postcode: '68799 Reilingen' };
+  const longer = { ...old, postcode: '68799 Reilingen 68766 Hockenheim' };
+  env.DB._raw.prepare(
+    `INSERT INTO orders (id, reference, order_type, business, pay_method, lines, subtotal, discount, fee,
+       total, currency, payment_id, postcode, town, order_identity, created_at)
+     VALUES ('legacy', 'K-LEG1', 'delivery', 0, 'online', ?, 5300, 0, 0, 5300, 'EUR', ?, '68799 Reilingen', NULL, ?, datetime('now'))`
+  ).run(lines, id, orderIdentity(longer));
+
+  const cut = await call(env, c, '/api/orders/announce', { ...GUEST, ...longer, paymentId: id });
+  assert.equal(cut.body.reason, 'payment_conflict');
+
+  env.DB._raw.prepare('UPDATE orders SET order_identity = ?').run(orderIdentity(old));
+  const exact = await call(env, c, '/api/orders/announce', { ...GUEST, ...old, paymentId: id });
+  assert.deepEqual([exact.status, exact.body.reference], [200, 'K-LEG1']);
+  assert.equal(rows(env, 'orders').length, 1);
+});
+
+test('the snapshot invariants: no discount above the food, no blank or repeated line', async (t) => {
+  const { env, c } = world(t);
+  const breaks = [
+    // Adds up, with the fee paying for a discount larger than the food.
+    (p) => ['UPDATE payments SET discount = ?, fee = ? WHERE id = ?', p.subtotal + 100, p.amount + 100, p.id],
+    // A line with no dish, handed over as a basket of no dish.
+    (p) => ['UPDATE payments SET lines = ? WHERE id = ?',
+            JSON.stringify(JSON.parse(p.lines).map((l) => ({ ...l, id: '' }))), p.id],
+    (p) => {
+      const [line] = JSON.parse(p.lines);
+      const half = { ...line, qty: 1, amount: p.subtotal / 2 };
+      return ['UPDATE payments SET lines = ? WHERE id = ?', JSON.stringify([half, half]), p.id];
+    }
+  ];
+  for (const breakIt of breaks) {
+    env.DB._raw.prepare('DELETE FROM payments').run();
+    const payment = await created(env, c, PICKUP);
+    env.DB._raw.prepare("UPDATE payments SET status = 'captured' WHERE id = ?").run(payment.id);
+    const row = env.DB._raw.prepare('SELECT * FROM payments WHERE id = ?').get(payment.id);
+    const [sql, ...args] = breakIt(row);
+    env.DB._raw.prepare(sql).run(...args);
+    const lines = JSON.parse(env.DB._raw.prepare('SELECT lines FROM payments WHERE id = ?').get(payment.id).lines);
+    const items = {};
+    for (const l of lines) items[l.id] = (items[l.id] || 0) + l.qty;
+    // The handover is exactly the basket the snapshot names, so only the snapshot can refuse it.
+    const res = await call(env, c, '/api/orders/announce', { ...GUEST, ...PICKUP, items, paymentId: payment.id });
+    assert.equal(res.body.reason, 'payment_conflict', sql + ' ' + JSON.stringify(args));
+  }
+  assert.equal(rows(env, 'orders').length, 0);
+});
+
+test('a conflict stays on /admin, and an alert Telegram refused is sent again, once', async (t) => {
+  const CREDS = { ADMIN_USER: 'sherif', ADMIN_PASSWORD: 'correct-horse-battery-staple' };
+  const env = workerEnv(MENU, { ...SECRETS, ...CREDS });
+  const c = ctx();
+  let telegramUp = false;
+  const paypal = fakePayPal({
+    '/v2/checkout/orders': () => orderResponse({ id: 'PP-ORDER-1' }),
+    '/v1/notifications/verify-webhook-signature': () => ({ verification_status: 'SUCCESS' }),
+    [SEND]: () => (telegramUp ? { ok: true } : { status: 500, body: { ok: false, description: 'down' } })
+  });
+  t.after(() => paypal.restore());
+  const sends = () => paypal.calls.filter((k) => k.path === SEND).map((k) => k.body.text);
+  const payment = await created(env, c, PICKUP);
+  await webhook(env, c, payment, 'PAYMENT.CAPTURE.COMPLETED', 'WH-C');
+  const other = { ...GUEST, ...PICKUP, items: { koshari: 3 }, paymentId: payment.id };
+
+  const login = await worker.fetch(new Request('https://kairo1980.de/admin/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: 'https://kairo1980.de' },
+    body: new URLSearchParams({ username: CREDS.ADMIN_USER, password: CREDS.ADMIN_PASSWORD })
+  }), env, c);
+  const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
+  assert.ok(cookie, 'signed in');
+  const admin = async () => (await worker.fetch(new Request('https://kairo1980.de/admin/orders', { headers: { cookie } }), env, c)).text();
+
+  await call(env, c, '/api/orders/announce', other);
+  assert.equal(sends().filter((m) => /^ZAHLUNG PRÜFEN/.test(m)).length, 1, 'tried');
+  let html = await admin();
+  assert.ok(html.includes('an order did not match its payment'));
+  assert.ok(html.includes(payment.reference));
+  assert.ok(html.includes('Telegram alert NOT delivered'));
+
+  telegramUp = true;
+  await call(env, c, '/api/orders/announce', other);
+  await call(env, c, '/api/orders/announce', other);
+  assert.equal(sends().filter((m) => /^ZAHLUNG PRÜFEN/.test(m)).length, 2, 'retried once, then never again');
+  html = await admin();
+  assert.ok(html.includes('Telegram alert sent'));
+  assert.ok(!html.includes('Telegram alert NOT delivered'));
+  assert.ok(html.includes('an order did not match its payment'), 'still listed after the alert');
+});
+
+test('the conflict alert names the payment as it is now, not as it was read', async (t) => {
+  const { env, c, alerts } = world(t);
+  const payment = await created(env, c, PICKUP);
+  await webhook(env, c, payment, 'PAYMENT.CAPTURE.COMPLETED', 'WH-C');
+  const undo = atInsert(env, () => env.DB._raw.prepare("UPDATE payments SET status = 'refunded' WHERE id = ?").run(payment.id));
+  await call(env, c, '/api/orders/announce', { ...GUEST, ...PICKUP, paymentId: payment.id });
+  undo();
+  assert.match(alerts().at(-1), /\(erstattet\)/);
+  assert.doesNotMatch(alerts().at(-1), /\(bezahlt\)/);
+});
+
+test('a refund landing after a mismatch was decided is named in the alert as a refund', async (t) => {
+  const { env, c, alerts } = world(t);
+  const payment = await created(env, c, PICKUP);
+  await webhook(env, c, payment, 'PAYMENT.CAPTURE.COMPLETED', 'WH-C');
+  // The mismatch is decided on the payment as read; the refund lands just after.
+  const prepare = env.DB.prepare.bind(env.DB);
+  env.DB.prepare = (sql) => {
+    if (/INSERT OR IGNORE INTO payment_events/.test(sql) || /SELECT id, reference, provider, status, amount, currency FROM payments/.test(sql)) {
+      env.DB._raw.prepare("UPDATE payments SET status = 'refunded' WHERE id = ?").run(payment.id);
+    }
+    return prepare(sql);
+  };
+  await call(env, c, '/api/orders/announce', { ...GUEST, ...PICKUP, items: { koshari: 3 }, paymentId: payment.id });
+  env.DB.prepare = prepare;
+  assert.match(alerts().at(-1), /\(erstattet\)/);
+});
+
+test('the create answer carries the priced lines; the public status still carries no basket', async (t) => {
+  const { env, c } = world(t);
+  const payment = await created(env, c, { ...PICKUP, items: { koshari: 2, feast: 1 } });
+  assert.deepEqual(payment.lines.map((l) => [l.id, l.qty, l.amount]).sort(), [['feast', 1, 5300], ['koshari', 2, 2900]]);
+  assert.equal(payment.lines.reduce((s, l) => s + l.amount, 0), payment.breakdown.subtotal);
+  const res = await worker.fetch(new Request('https://kairo1980.de/api/payments/' + payment.id), env, ctx());
+  const text = await res.text();
+  assert.equal(res.status, 200);
+  for (const leak of ['Koshari', 'Feast', 'koshari', 'lines', 'subtotal']) assert.ok(!text.includes(leak), leak);
+});

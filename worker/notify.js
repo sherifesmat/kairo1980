@@ -213,7 +213,10 @@ export function composePaymentConflictMessage(payment, reference) {
       'Es wurde nichts angelegt. Bitte in /admin prüfen und mit dem Gast klären.'
     ].join('\n');
   }
-  const state = payment.status === 'captured' ? 'bezahlt' : 'in Prüfung beim Anbieter';
+  // The state as the payment stands now, named as the counter will find it.
+  const state = { captured: 'bezahlt', pending: 'in Prüfung beim Anbieter', refunded: 'erstattet',
+                  partially_refunded: 'teilweise erstattet', failed: 'fehlgeschlagen',
+                  cancelled: 'abgebrochen' }[payment.status] || String(payment.status);
   return [
     'ZAHLUNG PRÜFEN',
     '',

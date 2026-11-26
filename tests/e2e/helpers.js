@@ -195,7 +195,7 @@ export async function captureWhatsApp(page) {
  * @param {'approve'|'cancel'|'error'|'decline'|'pending'} outcome
  */
 export async function stubPayments(page, { methods = ['paypal'], outcome = 'approve',
-  amount = 1710, reference = 'K7F3QA' } = {}) {
+  amount = 1710, reference = 'K7F3QA', status = null, created = null } = {}) {
   const id = 'test-payment-id';
 
   /* Loop WEBSITE_ORDERING, W02-05. A stubbed payment is not a payment, so the
@@ -247,17 +247,41 @@ export async function stubPayments(page, { methods = ['paypal'], outcome = 'appr
           message: `stub amount ${amount} is not the Worker quote ${quoted.total}` } })
       });
     }
+    /* The create answer carries the Worker's own breakdown and priced lines,
+       as the real one does (DP-24-02); `created` lets a test spoil them. */
+    const answer = {
+      id, reference, provider: 'paypal', providerOrderId: 'PP-ORDER-1',
+      amount, amountText: (amount / 100).toFixed(2), currency: 'EUR',
+      breakdown: { subtotal: quoted.subtotal, discount: quoted.discount, fee: quoted.fee },
+      lines: quoted.lines
+    };
     return route.fulfill({
       status: 201,
       contentType: 'application/json',
-      body: JSON.stringify({
-        id, reference, provider: 'paypal', providerOrderId: 'PP-ORDER-1',
-        amount, amountText: (amount / 100).toFixed(2), currency: 'EUR'
-      })
+      body: JSON.stringify(created ? created(answer) : answer)
     });
   });
 
+  /* What the server says the payment is now, when the page asks. By default
+     what the outcome left it as; `status` (a value, or a function of how many
+     times it was asked) stands in for a capture or a webhook that landed while
+     the page was not looking. */
+  const settled = { approve: 'captured', pending: 'pending', decline: 'failed', cancel: 'cancelled' }[outcome] || 'approved';
+  stub.asked = 0;
+  await page.route('**/api/payments/' + id, (route) => {
+    stub.asked += 1;
+    const now = typeof status === 'function' ? status(stub.asked) : (status || settled);
+    if (now === 'network') return route.abort();
+    return route.fulfill({ contentType: 'application/json',
+      body: JSON.stringify({ payment: { id, reference, status: now, amount, currency: 'EUR' } }) });
+  });
+
   await page.route('**/api/payments/*/capture', (route) => {
+    // The capture's answer never arrives: a dropped connection after the money moved, or not.
+    if (outcome === 'lost') return route.abort();
+    if (outcome === 'lost500') {
+      return route.fulfill({ status: 502, contentType: 'text/html', body: '<h1>Bad gateway</h1>' });
+    }
     if (outcome === 'decline') {
       return route.fulfill({
         status: 402,
@@ -279,11 +303,14 @@ export async function stubPayments(page, { methods = ['paypal'], outcome = 'appr
     });
   });
 
-  await page.route('**/api/payments/*/cancel', (route) =>
-    route.fulfill({
+  stub.cancelAnswer = 'cancelled';
+  await page.route('**/api/payments/*/cancel', (route) => {
+    if (stub.cancelAnswer === 'network') return route.abort();
+    return route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ payment: { id, reference, status: 'cancelled', amount } })
-    }));
+      body: JSON.stringify({ payment: { id, reference, status: stub.cancelAnswer, amount } })
+    });
+  });
 
   await page.route('**/sdk/js*', (route) =>
     route.fulfill({

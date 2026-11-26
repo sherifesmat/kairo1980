@@ -91,12 +91,28 @@
     try { localStorage.setItem(STORE_KEY, JSON.stringify(record)); } catch (e) { /* private mode */ }
   }
 
+  /* What the device keeps, and for how long (DP-24-02). For the first hour the
+     order the payment is for (the server's own lines and figures, no name, no
+     phone, no address), so a reload can hand it over. After that only the
+     reference, the amount and the id, for a day: enough to tell the guest
+     "this payment exists, do not pay again" and to ask the server what became
+     of it, never enough to hand an order over from. */
+  var DETAIL_MS = 3600000;
+  var REFERENCE_MS = 24 * 3600000;
+
   function remembered() {
     try {
       var raw = localStorage.getItem(STORE_KEY);
       if (!raw) return null;
       var record = JSON.parse(raw);
-      if (!record || !record.id || Date.now() - (record.at || 0) > 3600000) { forget(); return null; }
+      if (!record || !record.id) { localStorage.removeItem(STORE_KEY); return null; }
+      var age = Date.now() - (record.at || 0);
+      if (age > REFERENCE_MS) { localStorage.removeItem(STORE_KEY); return null; }
+      if (age > DETAIL_MS && !record.expired) {
+        record = { id: record.id, reference: record.reference, amount: record.amount,
+                   at: record.at, expired: true };
+        remember(record);
+      }
       return record;
     } catch (e) { return null; }
   }
@@ -110,8 +126,15 @@
     remember(record);
   }
 
-  function forget() {
-    try { localStorage.removeItem(STORE_KEY); } catch (e) { /* nothing to do */ }
+  /* Only the record of THIS payment. A delayed answer about an older payment
+     must never wipe the record of a newer one (DP-24-02). */
+  function forget(id) {
+    try {
+      var raw = localStorage.getItem(STORE_KEY);
+      var record = raw ? JSON.parse(raw) : null;
+      if (record && record.id !== id) return;
+      localStorage.removeItem(STORE_KEY);
+    } catch (e) { /* nothing to do */ }
   }
 
   function statusOf(id) {
@@ -134,47 +157,133 @@
     return api('/api/payments', { method: 'POST', body: body }).then(function (payment) {
       /* The order the payment is for, kept beside it on this device so a reload
          hands over THAT order, not whatever the page shows by then. No name, no
-         phone, no address: only what the server matches the payment by. */
+         phone, no address: only what the server matches the payment by.
+
+         Its lines and figures are the SERVER's, from this answer (DP-24-02):
+         what the payment was priced at, not the page's own arithmetic. Kept
+         only if they are a whole order (sound lines that add up to the amount)
+         and the very basket that was sent; compared field by field with what
+         the page showed, and marked if any figure differs. Otherwise only the
+         reference is kept, and the payment is told by it alone. */
       var o = spec.order || {};
-      var shown = spec.snapshot || {};
-      remember({ id: payment.id, reference: payment.reference, amount: payment.amount, at: Date.now(),
-                 order: { items: o.items, type: o.type, business: !!o.business,
-                          postcode: o.postcode, town: o.town || null,
-                          time: o.time || null, when: o.when || null,
-                          lines: shown.lines, subtotal: shown.subtotal, discount: shown.discount,
-                          fee: shown.fee, total: shown.total } });
+      var b = payment.breakdown || {};
+      var order = { items: o.items, type: o.type, business: !!o.business,
+                    postcode: o.postcode, town: o.town || null,
+                    time: o.time || null, when: o.when || null,
+                    lines: payment.lines, subtotal: b.subtotal, discount: b.discount,
+                    fee: b.fee, total: payment.amount };
+      var record = { id: payment.id, reference: payment.reference, amount: payment.amount, at: Date.now() };
+      if (wholeOrder(order, payment.amount)) {
+        record.order = order;
+        if (!sameFigures(order, spec.snapshot)) record.order.shownDiffers = true;
+      }
+      remember(record);
       return payment;
     });
   }
 
+  /* A complete, self-consistent order: non-empty lines with a dish, a whole
+     positive quantity and whole cents each, no dish twice, the lines summing to
+     the subtotal, the subtotal less the discount plus the fee being the total,
+     the total being the payment's amount, and the lines being exactly the
+     basket. Anything else is not an order this page may tell. */
+  function wholeOrder(o, amount) {
+    var whole = function (n, min) { return typeof n === 'number' && isFinite(n) && Math.floor(n) === n && n >= min; };
+    if (!o || (o.type !== 'delivery' && o.type !== 'pickup')) return false;
+    if (!Array.isArray(o.lines) || !o.lines.length) return false;
+    if (!whole(o.subtotal, 0) || !whole(o.discount, 0) || !whole(o.fee, 0) || !whole(o.total, 1)) return false;
+    if (o.discount > o.subtotal || o.subtotal - o.discount + o.fee !== o.total || o.total !== amount) return false;
+    var seen = {};
+    var sum = 0;
+    for (var i = 0; i < o.lines.length; i++) {
+      var l = o.lines[i];
+      if (!l || typeof l.id !== 'string' || !l.id || seen[l.id] || typeof l.name !== 'string') return false;
+      if (!whole(l.qty, 1) || !whole(l.amount, 0)) return false;
+      seen[l.id] = l.qty;
+      sum += l.amount;
+    }
+    if (sum !== o.subtotal) return false;
+    var items = o.items || {};
+    var keys = Object.keys(items).filter(function (k) { return Number(items[k]) > 0; });
+    if (keys.length !== o.lines.length) return false;
+    return keys.every(function (k) { return seen[k] === Number(items[k]); });
+  }
+
+  function sameFigures(o, shown) {
+    if (!shown) return false;
+    var keys = ['subtotal', 'discount', 'fee', 'total'];
+    if (keys.some(function (k) { return o[k] !== shown[k]; })) return false;
+    if (!Array.isArray(shown.lines) || shown.lines.length !== o.lines.length) return false;
+    var byId = {};
+    shown.lines.forEach(function (l) { byId[l.id] = l; });
+    return o.lines.every(function (l) {
+      var s = byId[l.id];
+      return !!s && s.qty === l.qty && s.amount === l.amount;
+    });
+  }
+
+  /* What became of the capture, from the server. An answer that never came
+     (a dropped connection, a timeout, a server error with no payment in it) is
+     NOT a failure: the capture may have succeeded and its answer been lost, and
+     the webhook settles it later. So the payment is asked about, and until the
+     server names a final state the guest is told "not yet confirmed, do not
+     pay again", never "nothing was charged" (DP-24-01). */
   function settle(payment, spec, errorCode) {
     return api('/api/payments/' + encodeURIComponent(payment.id) + '/capture', { method: 'POST' })
-      .then(function (data) { report(data.payment, spec, errorCode); })
+      .then(function (data) { report(data.payment, spec, errorCode, payment); })
       .catch(function (err) {
-        if (err.data && err.data.payment) { report(err.data.payment, spec, err.data.error); return; }
-        spec.onState('failed', { code: err.code });
+        if (err.data && err.data.payment) { report(err.data.payment, spec, err.data.error, payment); return; }
+        ask(payment, spec, errorCode);
       });
   }
 
-  function report(payment, spec, errorCode) {
-    if (!payment) { spec.onState('failed', {}); return; }
+  /* Ask the server what this payment is now; an unanswered question is an
+     unknown, not a failure. */
+  function ask(payment, spec, errorCode) {
+    return statusOf(payment.id)
+      .then(function (now) { report(now, spec, errorCode, payment); })
+      .catch(function () { spec.onState('uncertain', { payment: payment }); });
+  }
+
+  /* Only a state the server named settles anything. Failed and cancelled are
+     final with no money taken: the record goes, and the guest may pay another
+     way. Captured and pending are money: handed over. Anything else (created,
+     approved, an unreadable answer) may still become money, so the record is
+     kept and the guest is told not to pay again. */
+  function report(payment, spec, errorCode, known) {
+    if (!payment || !payment.status) { spec.onState('uncertain', { payment: known || payment }); return; }
     // Kept, not forgotten: the page forgets it once the server has the order
     // (or has flagged it for a person). Until then a reload can still hand it
     // over (DP-23-02).
     if (payment.status === 'captured') { spec.onState('paid', { payment: payment }); return; }
     if (payment.status === 'pending') { spec.onState('pending', { payment: payment }); return; }
-    if (payment.status === 'cancelled') { forget(); spec.onState('cancelled', { payment: payment }); return; }
-    forget();
-    spec.onState('failed', { payment: payment, code: errorCode || payment.failureCode });
+    if (payment.status === 'cancelled') { forget(payment.id); spec.onState('cancelled', { payment: payment }); return; }
+    if (payment.status === 'failed') {
+      forget(payment.id);
+      spec.onState('failed', { payment: payment, code: errorCode || payment.failureCode });
+      return;
+    }
+    spec.onState('uncertain', { payment: payment });
   }
 
+  /* The guest closed the sheet. Nothing is called cancelled until the server
+     says so: a capture that landed first is money, and is handed over. */
   function cancelled(payment, spec) {
-    if (payment) {
-      api('/api/payments/' + encodeURIComponent(payment.id) + '/cancel', { method: 'POST' })
-        .catch(function () { /* the webhook and reconciliation still cover it */ });
-    }
-    forget();
-    spec.onState('cancelled');
+    if (!payment) { spec.onState('cancelled'); return; }
+    return api('/api/payments/' + encodeURIComponent(payment.id) + '/cancel', { method: 'POST' })
+      .then(function (data) { report(data.payment, spec, null, payment); })
+      .catch(function () { ask(payment, spec); });
+  }
+
+  /* From the page, for a payment it is unsure of: cancel it at the server and
+     go by what the server answers. */
+  function cancel(id) {
+    return api('/api/payments/' + encodeURIComponent(id) + '/cancel', { method: 'POST' })
+      .then(function (data) {
+        var payment = data && data.payment;
+        if (payment && (payment.status === 'cancelled' || payment.status === 'failed')) forget(id);
+        return payment || null;
+      });
   }
 
   function slot(spec, method) {
@@ -277,7 +386,7 @@
             return settle(payment, spec);
           }).catch(function (err) {
             session.completePayment(window.ApplePaySession.STATUS_FAILURE);
-            if (payment) settle(payment, spec, 'declined');
+            if (payment) ask(payment, spec, 'declined');
             else spec.onState('failed', { code: err && err.code });
           });
         };
@@ -356,7 +465,7 @@
         cancelled(payment, spec);
         return;
       }
-      if (payment) settle(payment, spec, 'declined');
+      if (payment) ask(payment, spec, 'declined');
       else spec.onState('failed', { code: err && err.code });
     });
   }
@@ -384,6 +493,7 @@
 
     var host = slot(spec, method);
     var payment = null;
+    var refused = false;   // our own server refused to start it; already told
 
     var buttons = paypal.Buttons({
       fundingSource: funding,
@@ -394,6 +504,7 @@
           payment = created;
           return created.providerOrderId;
         }).catch(function (err) {
+          refused = true;
           spec.onState('failed', { code: err.code });
           throw err;
         });
@@ -405,7 +516,13 @@
       },
 
       onCancel: function () { cancelled(payment, spec); },
-      onError: function () { spec.onState('failed', { code: 'provider_error' }); }
+      /* The SDK reports an error. If a payment exists, its state is the
+         server's to say: the error may have come after the guest approved it
+         (DP-24-01). With none, nothing was started and nothing taken. */
+      onError: function () {
+        if (payment) { ask(payment, spec, 'provider_error'); return; }
+        if (!refused) spec.onState('failed', { code: 'provider_error' });
+      }
     });
 
     if (!buttons.isEligible || !buttons.isEligible()) { host.remove(); return Promise.resolve(false); }
@@ -470,6 +587,8 @@
     statusOf: statusOf,
     remembered: remembered,
     forget: forget,
+    cancel: cancel,
+    wholeOrder: wholeOrder,
     markHandedOver: markHandedOver
   };
 })();

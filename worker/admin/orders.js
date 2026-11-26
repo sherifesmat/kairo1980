@@ -84,7 +84,25 @@ export async function page(request, env, url) {
       ORDER BY p.created_at DESC`
   ).bind(day).all();
 
+  /* Handovers that did not match their payment (DELIVERY_PRICING DP-23-01/24-01).
+     Nothing was stored as an order for them, and Telegram may or may not have
+     delivered the alert, so they are listed here from the event log for the
+     day they were detected, with the payment as it stands now and whether the
+     alert reached the phone. */
+  const { results: conflictRows } = await env.DB.prepare(
+    `SELECT e.created_at, e.event_key, e.payload, p.reference, p.status, p.amount, p.order_type, p.lines,
+            (SELECT o.reference FROM orders o WHERE o.payment_id = p.id) AS linked_reference,
+            EXISTS (SELECT 1 FROM payment_events a
+                     WHERE a.event_key = 'order-conflict-alerted:' || substr(e.event_key, 16)) AS alerted
+       FROM payment_events e
+       LEFT JOIN payments p ON p.id = e.payment_id
+      WHERE e.event_type = 'order_conflict'
+        AND substr(e.created_at, 1, 10) BETWEEN date(?1, '-1 day') AND date(?1, '+1 day')
+      ORDER BY e.created_at DESC`
+  ).bind(day).all();
+
   const orders = rows.filter((o) => berlinDay(o.created_at) === day);
+  const conflicts = (conflictRows || []).filter((c) => berlinDay(c.created_at) === day);
   const orphans = unmatched.filter((o) => berlinDay(o.captured_at) === day);
   const unfinished = unsettled.filter((p) => berlinDay(p.created_at) === day);
 
@@ -96,7 +114,7 @@ export async function page(request, env, url) {
 
   const nonce = newNonce();
   return new Response(
-    render({ day, orders, orphans, unfinished, totals, nonce }),
+    render({ day, orders, orphans, unfinished, totals, nonce, conflicts }),
     { headers: adminHeaders(nonce) }
   );
 }
@@ -185,7 +203,7 @@ function shiftDay(day, n) {
   return date.toISOString().slice(0, 10);
 }
 
-export function render({ day, orders, orphans, unfinished, totals, nonce }) {
+export function render({ day, orders, orphans, unfinished, totals, nonce, conflicts = [] }) {
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
   const prev = shiftDay(day, -1);
   const next = shiftDay(day, 1);
@@ -273,6 +291,27 @@ export function render({ day, orders, orphans, unfinished, totals, nonce }) {
     </div>`;
   };
 
+  const conflictCard = (c) => {
+    let reference = c.reference;
+    if (!reference) { try { reference = JSON.parse(c.payload || '{}').reference; } catch { reference = null; } }
+    const money_ = c.amount != null ? money(c.amount) : '';
+    return `<div class="order unfin">
+    <div class="otop">
+      <span class="ref">${esc(reference || '?')}</span>
+      <span class="when">${clock(c.created_at)}</span>
+      ${c.order_type ? `<span class="tag">${c.order_type === 'pickup' ? 'Pickup' : 'Delivery'}</span>` : ''}
+      ${c.status ? `<span class="tag ${c.status === 'captured' ? 'paid' : 'unfin'}">${esc(String(c.status).toUpperCase())}</span>` : ''}
+      <span class="amt">${money_}</span>
+    </div>
+    <p class="gone">${c.status
+      ? 'The order handed over does not match what was paid for. Nothing was stored for it. Do not charge again.'
+      : 'A repeated order matches more than one stored order. Nothing new was stored.'}
+      ${c.linked_reference ? ` Linked order: <b>${esc(c.linked_reference)}</b>.` : ''}
+      ${c.alerted ? ' Telegram alert sent.' : ' <b>Telegram alert NOT delivered.</b>'}</p>
+    ${c.lines ? `<div class="items">${itemsOf(c.lines)}</div>` : ''}
+  </div>`;
+  };
+
   const orphanCard = (o) => `<div class="order cash">
     <div class="otop">
       <span class="ref">${esc(o.reference)}</span>
@@ -326,6 +365,10 @@ export function render({ day, orders, orphans, unfinished, totals, nonce }) {
   <div class="card"><span>Pay on arrival</span><b>${totals.cash}</b></div>
   <div class="card"><span>Unfinished</span><b>${unfinished.length}</b></div>
 </div>
+
+${conflicts.length ? `<div class="warn"><b>Check with the guest: an order did not match its payment.</b>
+  Resolve each one in the chat. Never ask for a second payment.</div>
+  ${conflicts.map(conflictCard).join('')}` : ''}
 
 ${orphans.length ? `<div class="warn"><b>Paid, but no order details.</b> The money
   arrived and the browser closed before it could say who it was for. The guest

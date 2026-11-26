@@ -324,3 +324,119 @@ test('a refresh after paying does not ask the guest to pay again', async ({ page
   const stored = await page.evaluate(() => localStorage.getItem('kairo.payment.v1'));
   expect(stored).toBeNull();
 });
+
+/* --- an outcome nobody has confirmed (DELIVERY_PRICING DP-24-01) ------------
+   A capture whose answer is lost may still have taken the money, and the
+   webhook may settle it later. Until the server names a final state the guest
+   is told "not yet confirmed, do not pay again": never "nothing was charged",
+   never a way to pay on arrival or start another payment for this checkout. */
+
+const unconfirmed = async (page) => {
+  const step = page.locator('.cart-pay-step');
+  await expect(step).toContainText('Zahlung noch nicht bestätigt', { timeout: 15000 });
+  await expect(step).not.toContainText('nichts abgebucht');
+  await expect(page.locator('[data-payact="onsite"]')).toHaveCount(0);
+  await expect(page.locator('[data-payact="retry"]')).toHaveCount(0);
+};
+
+for (const outcome of ['lost', 'lost500']) {
+  test(`a capture answer that never arrives (${outcome}), with the money in, is handed over as paid`, async ({ page }) => {
+    const whatsapp = await captureWhatsApp(page);
+    await stubPayments(page, { outcome, status: 'captured' });
+    await reachPaymentStep(page);
+    await page.locator('.fake-pay-button').first().click();
+    await expect(page.locator('.cart-sent.is-paid')).toBeVisible();
+    const message = decodeURIComponent((await whatsapp()).split('?text=')[1]);
+    expect(message).toMatch(/ONLINE BEZAHLT|PAID ONLINE/);
+  });
+}
+
+test('a lost capture answer with the payment still open says do not pay again, and checking again finds the money', async ({ page }) => {
+  const whatsapp = await captureWhatsApp(page);
+  // Approved when first asked; captured (by webhook) by the time the guest asks again.
+  const stub = await stubPayments(page, { outcome: 'lost', status: (n) => (n < 2 ? 'approved' : 'captured') });
+  await reachPaymentStep(page);
+  await page.locator('.fake-pay-button').first().click();
+  await unconfirmed(page);
+  await expect(page.locator('.cart-pay-step')).toContainText('K7F3QA');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('kairo.payment.v1')).id)).toBe('test-payment-id');
+
+  await page.locator('[data-payact="recheck"]').click();
+  await expect(page.locator('.cart-sent.is-paid')).toBeVisible();
+  const message = decodeURIComponent((await whatsapp()).split('?text=')[1]);
+  expect(message).toContain('17,10');
+  expect(stub.created.length).toBe(1);   // one payment, never a second
+});
+
+test('a lost capture answer and a status nobody can read is still not called a failure', async ({ page }) => {
+  await stubPayments(page, { outcome: 'lost', status: 'network' });
+  await reachPaymentStep(page);
+  await page.locator('.fake-pay-button').first().click();
+  await unconfirmed(page);
+});
+
+test('an SDK error after the payment was started asks the server; one never approved can be cancelled, then paid on arrival', async ({ page }) => {
+  await stubPayments(page, { outcome: 'error', status: 'created' });
+  await reachPaymentStep(page);
+  await page.locator('.fake-pay-button').first().click();
+  await unconfirmed(page);
+  await page.locator('[data-payact="cancelpay"]').click();
+  // The server confirmed the cancellation: nothing taken, the old ways forward return.
+  await expect(page.locator('[data-payact="onsite"]')).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('kairo.payment.v1'))).toBeNull();
+});
+
+test('a cancel the server answers with captured money is handed over as paid', async ({ page }) => {
+  const stub = await stubPayments(page, { outcome: 'cancel' });
+  stub.cancelAnswer = 'captured';
+  await captureWhatsApp(page);
+  await reachPaymentStep(page);
+  await page.locator('.fake-pay-button').first().click();
+  await expect(page.locator('.cart-sent.is-paid')).toBeVisible();
+});
+
+test('a cancel that gets no answer, with the payment approved, is not called cancelled', async ({ page }) => {
+  const stub = await stubPayments(page, { outcome: 'cancel', status: 'approved' });
+  stub.cancelAnswer = 'network';
+  await reachPaymentStep(page);
+  await page.locator('.fake-pay-button').first().click();
+  await unconfirmed(page);
+  await expect(page.locator('.cart-pay-step')).not.toContainText('abgebrochen');
+});
+
+test('paid, with a create answer whose figures do not hold, is told by its reference and never from the basket', async ({ page }) => {
+  const whatsapp = await captureWhatsApp(page);
+  // Same total, but the lines say something else than was priced.
+  await stubPayments(page, { created: (a) => ({ ...a, lines: a.lines.map((l) => ({ ...l, amount: l.amount + 100 })) }) });
+  await reachPaymentStep(page);
+  await page.locator('.fake-pay-button').first().click();
+  const step = page.locator('.cart-pay-step');
+  await expect(step).toContainText('Bitte nicht noch einmal bezahlen');
+  await expect(step).toContainText('K7F3QA');
+  // The chat way out names the payment, not a basket.
+  const href = decodeURIComponent(await page.locator('a.cart-send-wa').getAttribute('href'));
+  expect(href).toContain('K7F3QA');
+  expect(href).not.toContain('Hummus');
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.__waUrl)).toBeNull();
+  void whatsapp;
+});
+
+test('a new payment is not started over one this device has not settled', async ({ page }) => {
+  const stub = await stubPayments(page, { status: 'approved' });
+  await page.goto('/');
+  await page.evaluate(() => localStorage.setItem('kairo.payment.v1', JSON.stringify(
+    { id: 'test-payment-id', reference: 'K7F3QA', amount: 1710, at: Date.now() })));
+  await page.reload();
+  await expect(page.locator('.cart-pay-step')).toContainText('noch nicht bestätigt', { timeout: 15000 });
+  await page.locator('#cartClose, .cart-close').first().click().catch(() => {});
+  await addItem(page, 'hummus', 2);
+  await openBasket(page);
+  await choosePickup(page);
+  await fillContact(page, {});
+  await page.locator('[data-pay="online"]').click();
+  await page.locator('#cartSend').click();
+  await unconfirmed(page);
+  await expect(page.locator('.fake-pay-button')).toHaveCount(0);
+  expect(stub.created || []).toHaveLength(0);
+});

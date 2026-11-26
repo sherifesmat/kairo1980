@@ -189,7 +189,14 @@ const ORDER_ROW = `${REPEAT_COLUMNS}, order_identity, lines, order_type, busines
        payment_id, claimed_payment_id`;
 
 function isThisOrder(row, body, identity) {
-  return sameOrder(row, body) || (row.town == null && row.order_identity === identity);
+  if (sameOrder(row, body)) return true;
+  /* The identity holds the postcode as the old column clipped it (16
+     characters). A request longer than that would only match by being cut
+     down, so it never does: the shortcut is for the exact old handover, as
+     it was sent then (DP-24-01). */
+  const uncut = body.type !== 'delivery' || body.postcode == null
+    || (typeof body.postcode === 'string' && body.postcode.trim().length <= 16);
+  return row.town == null && uncut && row.order_identity === identity;
 }
 
 /** Every order stored under this payment id, as paid or as claimed. */
@@ -235,18 +242,25 @@ const IN_FLIGHT = new Set(['created', 'approved']);
    is not is a matter for a person, never a reason to price it again. */
 function wholeSnapshot(payment) {
   const cents = (n, min) => Number.isSafeInteger(n) && n >= min;
-  if ((payment.currency || 'EUR') !== 'EUR') return false;
+  // The currency column is NOT NULL and every payment this site made is EUR.
+  if (payment.currency !== 'EUR') return false;
   if (!cents(payment.amount, 1) || !cents(payment.subtotal, 0)
       || !cents(payment.discount, 0) || !cents(payment.fee, 0)) return false;
+  // A discount is on food, so never more than the food it is taken from.
+  if (payment.discount > payment.subtotal) return false;
   if (payment.subtotal - payment.discount + payment.fee !== payment.amount) return false;
   if (payment.order_type !== 'delivery' && payment.order_type !== 'pickup') return false;
   let lines;
   try { lines = JSON.parse(payment.lines || ''); } catch { return false; }
   if (!Array.isArray(lines) || !lines.length) return false;
+  const seen = new Set();
   let sum = 0;
   for (const line of lines) {
-    if (!line || typeof line.id !== 'string' || !cents(line.qty, 1) || !cents(line.amount, 0)) return false;
+    if (!line || typeof line.id !== 'string' || !line.id || seen.has(line.id)) return false;
+    if (!cents(line.qty, 1) || !cents(line.amount, 0)) return false;
+    seen.add(line.id);
     sum += line.amount;
+    if (!Number.isSafeInteger(sum)) return false;
   }
   return sum === payment.subtotal;
 }
@@ -284,8 +298,24 @@ const AMENDABLE = [
   ['notes', (b) => clip(b.notes, 500), 'Anmerkung']
 ];
 
+/* Only what the guest actually sent counts as a correction. A field left empty
+   or missing -- a page that lost its form on a reload, a quiet retry of a
+   handover whose answer never arrived -- is not an instruction to erase the
+   address or the phone the kitchen already has (DP-24-02). And a handover the
+   page marks as a recovery corrects nothing at all: its form may belong to a
+   different basket the guest has started since. */
+const isRecovery = (body) => !!body && body.recovery === true;
+
+/* A recovery is the page asking, after a reload or a lost answer, whether the
+   order for its payment is in. It carries the basket and where it goes, never
+   the guest's details (the page keeps none). It finds a stored order and is
+   answered with its reference; it never creates one, because an order with no
+   name, phone or address is no order the kitchen can cook. With nothing stored
+   the page is told so and asks the guest to confirm their details (DP-24-02). */
 function corrections(row, body) {
+  if (isRecovery(body)) return [];
   return AMENDABLE
+    .filter(([, read]) => read(body) !== null)
     .filter(([column, read]) => (row[column] ?? null) !== read(body))
     .map(([column, read, label]) => ({ column, before: row[column] ?? null, after: read(body), label }));
 }
@@ -355,6 +385,7 @@ async function correctOrder(env, stored, body, ip) {
  * @returns {Promise<object | null>} the order, or one of
  *          { paymentConflict, reference, payment? }  a person must resolve it,
  *          { paymentUnsettled, reference }           the money is not in yet,
+ *          { detailsNeeded, reference }              a recovery found no order,
  *          { closed: true }                          nothing new while closed,
  *          null                                      throttled
  */
@@ -386,6 +417,7 @@ export async function recordOrder(env, body, ip, { recoveryOnly = false } = {}) 
     if (already && already.ambiguous) return { paymentConflict: true, reference: already.reference };
     if (already) return correctOrder(env, already, body, ip);
   }
+  if (isRecovery(body)) return { detailsNeeded: true, reference: payment ? payment.reference : null };
 
   if (await throttled(env, ip)) return null;
   await recordAttempt(env, ip);
@@ -428,6 +460,8 @@ async function handOverPaid(env, body, ip, payment, claimed, identity) {
   // here, and it is not answered as if it were settled: a person reconciles it.
   if (rows.length) return conflict;
   if (!wholeSnapshot(payment) || !sameOrder(payment, body)) return conflict;
+  // A quiet recovery finds an order; it never makes one without the guest.
+  if (isRecovery(body)) return { detailsNeeded: true, reference: payment.reference };
   return insertOrder(env, body, asPaid(payment), payment, claimed, identity);
 }
 
@@ -447,9 +481,12 @@ async function insertOrder(env, body, priced, payment, claimed, identity) {
          order_identity, created_at, town)
        SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,'EUR',?13,?14,?15,?16,?17,?18,
               ?19,?20,?21, datetime('now'), ?22
-        WHERE ?3 IS NULL OR EXISTS (
-              SELECT 1 FROM payments WHERE id = ?3 AND amount = ?23
-                 AND status IN ('captured', 'pending'))`
+        WHERE (?3 IS NULL AND (?19 IS NULL OR NOT EXISTS (
+                SELECT 1 FROM payments WHERE id = ?19
+                   AND status IN ('created', 'approved', 'captured', 'pending'))))
+           OR (?3 IS NOT NULL AND EXISTS (
+                SELECT 1 FROM payments WHERE id = ?3 AND amount = ?23
+                   AND status IN ('captured', 'pending')))`
     ).bind(
       id, reference, link ? link.id : null,
       body.type === 'pickup' ? 'pickup' : 'delivery',
@@ -470,24 +507,31 @@ async function insertOrder(env, body, priced, payment, claimed, identity) {
       priced.destination ? priced.destination.town : null,
       link ? link.amount : null
     ).run();
-    if (link && Number(result?.meta?.changes || 0) === 0) return null;
-    return {
-      id,
-      reference,
-      total: priced.total,
-      /* A captured payment was announced the moment the money arrived, and
-         announcing it again would buzz the phone twice for one dinner. Every
-         other order is announced here, because nothing else will: cash, a
-         payment still under review, a claim that did not check out. */
-      alerted: !link || link.status !== 'captured'
-    };
+    if (Number(result?.meta?.changes || 0) === 0) return null;
+    /* A captured payment was announced the moment the money arrived, and
+       announcing it again would buzz the phone twice for one dinner. Every
+       other order is announced here, because nothing else will: cash, a
+       payment still under review, a claim that did not check out. The state is
+       read as it is now: a capture that landed since the first read was already
+       announced by the capture itself. */
+    let now = link ? link.status : null;
+    if (link) {
+      const current = await env.DB.prepare('SELECT status FROM payments WHERE id = ?1').bind(link.id).first();
+      now = current ? current.status : now;
+    }
+    return { id, reference, total: priced.total, alerted: !link || now !== 'captured' };
   };
 
   try {
     const stored = await insert(payment);
     if (stored) return stored;
-    // The payment changed between the read and the write: a person looks at it.
-    return { paymentConflict: true, reference: payment.reference, payment };
+    /* Nothing was written: the payment changed between the read and the write.
+       Money that arrived (or may yet) beside a claim is never answered with an
+       order to be paid on site; a paid link that no longer stands goes to a
+       person (DP-24-01). */
+    const now = await paymentRow(env, payment ? payment.id : claimed);
+    if (now && IN_FLIGHT.has(now.status)) return { paymentUnsettled: true, reference: now.reference };
+    return { paymentConflict: true, reference: (now || payment).reference, payment: now || payment };
   } catch (err) {
     /* Only a race the unique indexes settled is answered here; any other failure
        is a failure. The winner is found the way a replay is, so two spellings of
