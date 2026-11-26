@@ -347,6 +347,8 @@
       payFailTitle: 'Zahlung fehlgeschlagen',
       payFailText: 'Es wurde nichts abgebucht. Bitte versuchen Sie eine andere Zahlungsart — oder bezahlen Sie bei Erhalt.',
       payDeclined: 'Ihre Bank hat die Zahlung abgelehnt. Es wurde nichts abgebucht.',
+      sentPaymentUnsettled: 'Ihre Zahlung ist noch nicht bestätigt. Bitte nicht noch einmal bezahlen: das Restaurant prüft sie und meldet sich im Chat.',
+      sentNotConfirmed: 'Noch nicht im System bestätigt. Bitte senden Sie die Nachricht: das Restaurant bestätigt Ihre Bestellung im Chat.',
       totalFoodOnly: 'Essen, ohne Lieferung',
       payReloadText: 'Diese Seite ist nicht mehr aktuell. Es wurde nichts abgebucht. Bitte laden Sie die Seite neu und prüfen Sie Ihre Bestellung.',
       payReload: 'Seite neu laden',
@@ -515,6 +517,8 @@
       payFailTitle: 'Payment failed',
       payFailText: 'Nothing was charged. Please try another payment method — or pay on arrival.',
       payDeclined: 'Your bank declined the payment. Nothing was charged.',
+      sentPaymentUnsettled: 'Your payment is not confirmed yet. Please do not pay again: the restaurant will check it and reply in the chat.',
+      sentNotConfirmed: 'Not confirmed in our system yet. Please send the message: the restaurant will confirm your order in the chat.',
       totalFoodOnly: 'Food, delivery not included',
       payReloadText: 'This page is out of date. Nothing was charged. Please reload the page and check your order.',
       payReload: 'Reload the page',
@@ -683,6 +687,8 @@
       payFailTitle: 'الدفع ما تمّش',
       payFailText: 'مفيش أي مبلغ اتخصم. جرّب طريقة دفع تانية — أو ادفع عند الاستلام.',
       payDeclined: 'البنك رفض العملية. مفيش أي مبلغ اتخصم.',
+      sentPaymentUnsettled: 'الدفع بتاعك لسه ما اتأكدش. من فضلك ما تدفعش تاني: المطعم هيراجعه ويرد عليك في الشات.',
+      sentNotConfirmed: 'الطلب لسه ما اتأكدش عندنا. من فضلك ابعت الرسالة: المطعم هيأكد طلبك في الشات.',
       totalFoodOnly: 'الأكل، من غير التوصيل',
       payReloadText: 'الصفحة دي مش محدّثة. مفيش أي مبلغ اتخصم. من فضلك حمّل الصفحة تاني وراجع طلبك.',
       payReload: 'حمّل الصفحة تاني',
@@ -2982,6 +2988,11 @@
     paintSums();
   }
 
+  /* A handover screen or a pay step is on screen: background repaints leave it. */
+  function showingOutcome() {
+    return !!(els.body && els.body.querySelector('.cart-sent, .cart-pay-step'));
+  }
+
   function paintPanel() {
     if (!els.body || els.panel.hidden) return;
     var L = t();
@@ -3100,7 +3111,7 @@
     }
     // The panel stays open when the last line is removed — it shows the empty
     // state, which is clearer than the drawer vanishing under the guest.
-    if (els.panel && !els.panel.hidden) { rememberForm(); paintPanel(); }
+    if (els.panel && !els.panel.hidden && !showingOutcome()) { rememberForm(); paintPanel(); }
 
     /* Last, and not only at boot. The basket's copy of the notice and the send
        button both live inside a panel that does not exist until buildPanel()
@@ -3142,8 +3153,10 @@
       .then(function (data) {
         if (!data || !data.online) return;
         payCfg = data;
-        // The option only now became known; redraw whatever is on screen.
-        if (els.panel && !els.panel.hidden) paintPanel();
+        // The option only now became known; redraw the basket if it is what is
+        // on screen. A handover or a pay step is never drawn over: after a
+        // reload this answer arrives just after the recovered order is shown.
+        if (els.panel && !els.panel.hidden && !showingOutcome()) paintPanel();
         renderPaymentNote();
         applyConfig();
       })
@@ -3257,19 +3270,67 @@
      Never a truncation: each is a complete, readable order. The full text
      reaches the clipboard regardless, so nothing is lost — only moved out of
      the URL and into the paste. */
+  /* The order a payment was made for, from the server's own record of it, in
+     the euros the page shows. Null when there is no payment or the record does
+     not carry one (DP-23-02). */
+  /* The payment, with the order it was made for attached, when that order's
+     total is exactly the payment's own amount. Anything else is not attached:
+     that payment is told by its reference and amount alone. */
+  function withOrder(payment, order) {
+    if (!payment || !order || !order.lines || order.total !== payment.amount) return payment;
+    return Object.assign({}, payment, { order: order });
+  }
+
+  function paidSnapshot(payment) {
+    var o = payment && payment.order;
+    if (!o || !o.lines || !o.lines.length || o.total !== payment.amount) return null;
+    var subtotal = o.subtotal / 100;
+    var discount = o.discount / 100;
+    return {
+      lines: o.lines,
+      type: o.type,
+      business: !!o.business,
+      postcode: o.postcode || '',
+      town: o.town || null,
+      sums: {
+        subtotal: subtotal,
+        discount: discount,
+        discountPercent: subtotal > 0 ? Math.round(discount * 100 / subtotal) : 0,
+        fee: o.fee / 100,
+        total: o.total / 100,
+        zone: null,
+        belowMinimum: false
+      },
+      count: o.lines.reduce(function (n, l) { return n + Number(l.qty || 0); }, 0)
+    };
+  }
+
   function buildMessage(data, payment, density) {
     var L = t();
     var mode = density || 'full';
-    var sums = totals();
-    var outside = isOutsideArea();
+    /* A paid order is told as it was paid for: its dishes, its figures, its type
+       and its destination, whatever the menu, the basket, the list or the
+       service mode say now. Only who and when come from the form. */
+    var paid = paidSnapshot(payment);
+    if (paid) {
+      data = Object.assign({}, data, { type: paid.type, business: paid.business,
+                                        plz: paid.postcode, town: paid.town });
+    }
+    var sums = paid ? paid.sums : totals();
+    var outside = paid ? false : isOutsideArea();
     var out = ['*' + (outside ? L.msgTitleRequest : L.msgTitle) + '*'];
 
     if (data.business) out.push('*' + L.msgBusiness + '*');
     out.push('');
 
     if (mode === 'summary') {
-      out.push(fill(L.mItemCount, { n: count() }));
+      out.push(fill(L.mItemCount, { n: paid ? paid.count : count() }));
       out.push(L.mListFollows);
+    } else if (paid) {
+      paid.lines.forEach(function (line) {
+        out.push(line.qty + '× ' + line.name +
+          (mode === 'compact' ? '' : ' — ' + money(line.amount / 100)));
+      });
     } else {
       Object.keys(cart).forEach(function (key) {
         var line = lineOf(key);
@@ -3284,7 +3345,7 @@
     if (sums.discount > 0) {
       out.push(L.mDiscount + ' ' + sums.discountPercent + ' %: −' + money(sums.discount));
     }
-    if (data.type === 'delivery' && sums.zone) {
+    if (data.type === 'delivery' && (paid || sums.zone)) {
       out.push(L.deliveryFee + ': ' + (sums.fee > 0 ? money(sums.fee) : money(0)));
     }
     // An enquiry has no agreed delivery price: its sum is the food alone.
@@ -3294,7 +3355,8 @@
     // Whoever answers the chat has to know whether the money is already in —
     // and if so, under which reference — or whether to take the terminal to
     // the counter or send the driver out for cash.
-    out.push(L.mPayment + ': ' + paymentLine(data, payment));
+    // An enquiry is not an order: nothing is to be paid, so no way to pay is named.
+    if (!outside) out.push(L.mPayment + ': ' + paymentLine(data, payment));
     out.push(L.mName + ': ' + data.name);
     out.push(L.mPhone + ': ' + data.phone);
     if (data.type === 'delivery') {
@@ -3304,8 +3366,8 @@
       // Flags the restaurant acts on. Neither one blocked the guest, and the
       // minimum is only ever raised with someone it is actually asked of —
       // a company order or a collected one must not arrive flagged for it.
-      if (!sums.zone) out.push(warn(L.mOutsideArea));
-      else if (sums.belowMinimum) {
+      if (!paid && !sums.zone) out.push(warn(L.mOutsideArea));
+      else if (!paid && sums.belowMinimum) {
         out.push(warn(fill(L.mUnderMin, { min: sums.zone.minOrder })));
       }
     }
@@ -3512,7 +3574,7 @@
   function loadPay(done) {
     if (window.KairoPay) { done(true); return; }
     var script = document.createElement('script');
-    script.src = 'pay.js?v=po15-2';
+    script.src = 'pay.js?v=po15-3';
     script.onload = function () { done(!!window.KairoPay); };
     script.onerror = function () { done(false); };
     document.head.appendChild(script);
@@ -3530,9 +3592,27 @@
       type: pending.data.type,
       business: !!pending.data.business,
       postcode: pending.data.plz,
-      town: pending.data.town || null
+      town: pending.data.town || null,
+      time: pending.data.time,
+      when: pending.data.when || null
     };
-    pending.expectedTotal = Math.round(total * 100);
+    /* And what it costs, line by line, in cents, exactly as shown. The server
+       starts the payment only for this total (G5), so these figures ARE what is
+       paid: the message after paying, and after a reload, is told from them and
+       never from the menu or the basket as they are by then (DP-23-02). The
+       server's payment status deliberately discloses no basket. */
+    var shown = totals();
+    pending.order.lines = Object.keys(pending.order.items).map(function (key) {
+      var line = lineOf(key);
+      var qty = pending.order.items[key];
+      return { id: key, name: line ? line.name : key, qty: qty,
+               amount: line ? Math.round(line.unit * qty * 100) : 0 };
+    });
+    pending.order.subtotal = Math.round(shown.subtotal * 100);
+    pending.order.discount = Math.round(shown.discount * 100);
+    pending.order.fee = Math.round(shown.fee * 100);
+    pending.order.total = Math.round(total * 100);
+    pending.expectedTotal = pending.order.total;
 
     payScreen(
       '<h3>' + escapeHtml(L.payTitle) + '</h3>' +
@@ -3563,8 +3643,10 @@
           postcode: pending.order.postcode,
           town: pending.order.town,
           // Which moment this order is for, so the server can apply the same
-          // closure rule the basket did. Never a price — only a wish.
-          when: requestedWhen(),
+          // closure rule the basket did. Never a price — only a wish. Frozen with
+          // the rest at the pay step, and remembered with the payment.
+          when: pending.order.when,
+          time: pending.order.time,
           lang: lang(),
           // The total the guest was just shown, in cents. Not a price: the server
           // prices the order itself and refuses to start a payment for any other
@@ -3572,6 +3654,8 @@
           // (DELIVERY_PRICING round 21, G5).
           expectedTotal: pending.expectedTotal
         },
+        // The frozen order with its figures, kept on this device with the payment.
+        snapshot: pending.order,
         // In cents, and only so the wallet sheet can show the guest the same
         // figure the panel does. The charge is still the server's number.
         amount: Math.round(total * 100),
@@ -3592,14 +3676,18 @@
     var info = detail || {};
 
     if (state === 'ready' || state === 'paying') return;
-    if (state === 'paid' || state === 'pending') { handOver(info.payment); return; }
+    if (state === 'paid' || state === 'pending') {
+      handOver(withOrder(info.payment, pending && pending.order));
+      return;
+    }
     if (state === 'cancelled') { paymentStopped(L.payCancelTitle, L.payCancelText); return; }
     if (state === 'unavailable') { paymentUnavailable(); return; }
 
     /* The server priced another total, or this page is too old to say which one
        it showed. Nothing was charged, and the old figure is not offered again,
        neither online nor to pay on arrival: the page is reloaded (DP-22-03). */
-    if (info.code === 'total_changed' || info.code === 'reload_required') {
+    if (info.code === 'total_changed' || info.code === 'reload_required' ||
+        info.code === 'postcode_not_listed') {
       paymentReload(info.code === 'total_changed' ? L.payTotalChanged : L.payReloadText);
       return;
     }
@@ -3668,9 +3756,10 @@
      not, nothing is worse than it was: the chat is still the route, exactly as
      before. An order must never be lost to our own bookkeeping. */
   function announceOrder(data, payment) {
-    // A paid order is handed over as it was paid for (frozen at the pay step, or
-    // remembered with the payment); anything else is the basket as it stands.
-    var paidFor = payment && pending && pending.order;
+    // A paid order is handed over as it was paid for: the server's record of the
+    // payment, or what was frozen at the pay step; anything else is the basket.
+    var paidFor = (payment && payment.order && payment.order.items) ? payment.order
+      : (payment && pending && pending.order);
     try {
       return fetch('/api/orders/announce', {
         method: 'POST',
@@ -3699,22 +3788,30 @@
      already opened, so nothing here stops it; it stops the screen from calling
      an order kept that the server did not keep. A failure to reach the server
      says nothing: the chat is the route, as it always was (DP-22-01). */
-  function noteAnnounceAnswer(answer) {
-    if (!answer || answer.ok || answer.status === 202) return;
+  function noteAnnounceAnswer(answer, box, payment) {
     var L = t();
-    var text = answer.status === 409 ? L.sentPaymentConflict
-      : answer.status === 400 ? L.sentNotRecorded : null;
-    var box = els.body.querySelector('.cart-sent');
-    if (!text || !box || box.querySelector('.cart-sent-check')) return;
-    if (answer.status === 409) {
-      // 409 is also a correction that could not be written; only a payment
-      // conflict is the guest's to hear.
-      answer.json().then(function (body) {
-        if (body && body.reason === 'payment_conflict') addNote(box, text);
-      }).catch(function () {});
-      return;
+    var forget = function () { if (payment && window.KairoPay) window.KairoPay.forget(); };
+    // Recorded, or answered with the order already stored: nothing to add.
+    if (answer && answer.ok && answer.status !== 202) { forget(); return; }
+    /* The screen this answer belongs to: for a payment, the one that carries its
+       id (the panel may have been drawn again since); otherwise the one it was
+       given, if it is still on the page. Never whichever screen is current. */
+    if (payment && payment.id) {
+      var link = els.body.querySelector('[data-handover="' + String(payment.id).replace(/"/g, '') + '"]');
+      box = link ? link.closest('.cart-sent') : null;
     }
-    addNote(box, text);
+    if (!box || !box.isConnected || box.querySelector('.cart-sent-check')) box = null;
+    var say = function (text) { if (box && text) addNote(box, text); };
+    // Unreachable, throttled, closed or failed: the chat carries the order, and
+    // the screen does not claim the system has it. The payment stays for a retry.
+    if (!answer || answer.status === 202 || answer.status >= 500) { say(L.sentNotConfirmed); return; }
+    if (answer.status === 400) { say(L.sentNotRecorded); return; }
+    answer.json().then(function (body) {
+      var reason = body && body.reason;
+      if (reason === 'payment_conflict') { forget(); say(L.sentPaymentConflict); return; }
+      if (reason === 'payment_unsettled') { say(L.sentPaymentUnsettled); return; }
+      say(L.sentNotConfirmed);
+    }).catch(function () { say(L.sentNotConfirmed); });
   }
 
   function addNote(box, text) {
@@ -3724,7 +3821,7 @@
     box.insertBefore(note, box.children[2] || null);
   }
 
-  function handOver(payment) {
+  function handOver(payment, recovered) {
     if (!pending) return;
     var L = t();
     var data = pending.data;
@@ -3809,16 +3906,29 @@
       '</div>';
 
     pending = null;
-    cart = {};
-    draft = {};
-    saveCart();
-    paintMenu();
-    if (els.fab) els.fab.hidden = true;
-    if (window.KairoPay) window.KairoPay.forget();
+    /* A recovered payment is its own order: a basket the guest has started since
+       is theirs and stays (DP-23-02). */
+    if (!recovered) {
+      cart = {};
+      draft = {};
+      saveCart();
+      paintMenu();
+      if (els.fab) els.fab.hidden = true;
+    }
+    /* The payment stays remembered on this device until the server has the order
+       or has flagged it for a person; until then a reload hands it over again,
+       quietly. */
+    if (payment && window.KairoPay) {
+      if (window.KairoPay.markHandedOver) window.KairoPay.markHandedOver(payment.id);
+      else window.KairoPay.forget();
+    }
 
     var reset = document.getElementById('cartReset');
     if (reset) reset.addEventListener('click', closePanel);
-    if (announced && announced.then) announced.then(noteAnnounceAnswer);
+    var screen = els.body.querySelector('.cart-sent');
+    if (announced && announced.then) {
+      announced.then(function (answer) { noteAnnounceAnswer(answer, screen, payment); });
+    }
   }
 
   /* Practical ceiling for a URL a browser or mobile OS will actually follow.
@@ -3866,35 +3976,47 @@
 
       window.KairoPay.statusOf(record.id).then(function (payment) {
         if (!payment) return;
+        // Created or approved may still settle: keep it (the record expires on
+        // its own after an hour) and look again next time.
+        if (payment.status === 'created' || payment.status === 'approved') return;
         if (payment.status !== 'captured' && payment.status !== 'pending') {
           window.KairoPay.forget();
           return;
         }
         // Paid, but the handover never happened. The basket still holds the
         // order, so it can still reach the kitchen.
-        /* The order the payment was made for, remembered with it: never the
-           selection on the page now, which may have changed or (on a page
-           from before the list) no longer hold the typed postcode. */
-        var remembered = record.order && record.order.items ? record.order : null;
-        if (remembered) {
-          Object.keys(cart).forEach(function (id) { delete cart[id]; });
-          Object.keys(remembered.items).forEach(function (id) { cart[id] = remembered.items[id]; });
+        /* The order the payment was made for, remembered with it on this device
+           at the pay step, and used only if its total is the payment's own
+           amount: never the basket or the selection on the page now, which may
+           have changed or (on a page from before the list) no longer hold the
+           typed postcode. A payment remembered without its order (an older page)
+           is not handed over from here at all; it is listed at /admin under its
+           reference, and the guest is not asked to pay again. */
+        payment = withOrder(payment, record.order);
+        var paidFor = payment.order || null;
+        if (!paidFor) return;
+        var data = restoreOrderData(paidFor, record);
+        // Already shown to the guest: only the server's answer was missing.
+        if (record.handedOver) {
+          var retry = announceOrder(data, payment);
+          if (retry && retry.then) retry.then(function (answer) { noteAnnounceAnswer(answer, null, payment); });
+          return;
         }
-        if (!Object.keys(cart).length) { window.KairoPay.forget(); return; }
-        pending = pending || { data: restoreOrderData(remembered), outside: remembered ? false : isOutsideArea(),
-                               order: remembered };
+        pending = { data: data, outside: false, order: paidFor };
         openPanel();
-        handOver(payment);
+        handOver(payment, true);
       }).catch(function () { /* leave it; the webhook remains the record */ });
     });
   }
 
   // The form as the guest left it before the payment sheet. The draft survives
   // in memory and in the inputs; this rebuilds the shape buildMessage expects.
-  function restoreOrderData(paidFor) {
+  function restoreOrderData(paidFor, record) {
     var where = paidFor
       ? { postcode: paidFor.postcode || '', town: paidFor.town || null }
       : { postcode: destination().postcode || '', town: destination().town || null };
+    // The time the guest asked for, as it was asked at the pay step.
+    var asked = record && record.order ? record.order : {};
     return {
       type: paidFor ? paidFor.type : form.type,
       pay: form.pay,
@@ -3902,7 +4024,7 @@
       name: draft.fName || val('fName'), phone: draft.fPhone || val('fPhone'),
       address: draft.fAddress || val('fAddress'),
       plz: where.postcode, town: where.town,
-      time: whenText(), when: requestedWhen(),
+      time: asked.time || whenText(), when: asked.when !== undefined ? asked.when : requestedWhen(),
       company: draft.fCompany || '', notes: draft.fNotes || ''
     };
   }

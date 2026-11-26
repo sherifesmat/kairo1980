@@ -1047,6 +1047,9 @@ test('an order whose payment never completed is not shown to the kitchen as paid
   t.after(() => paypal.restore());
 
   const payment = await (await worker.fetch(post('/api/payments', BASKET), env, c)).json();
+  // The provider refused it (DP-23-01: a created/approved payment may still
+  // settle and stores nothing; a failed one is a claim, as this test is about).
+  env.DB._raw.prepare("UPDATE payments SET status = 'failed' WHERE id = ?").run(payment.id);
   // The guest sends the order anyway, naming the payment that never completed.
   await worker.fetch(post('/api/orders/announce', {
     items: { koshari: 2 }, type: 'pickup', name: 'Sherif Esmat',

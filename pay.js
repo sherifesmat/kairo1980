@@ -101,6 +101,15 @@
     } catch (e) { return null; }
   }
 
+  /* The handover screen was shown; only the server's answer is outstanding. A
+     reload then retries the handover quietly instead of showing it again. */
+  function markHandedOver(id) {
+    var record = remembered();
+    if (!record || record.id !== id) return;
+    record.handedOver = true;
+    remember(record);
+  }
+
   function forget() {
     try { localStorage.removeItem(STORE_KEY); } catch (e) { /* nothing to do */ }
   }
@@ -127,9 +136,13 @@
          hands over THAT order, not whatever the page shows by then. No name, no
          phone, no address: only what the server matches the payment by. */
       var o = spec.order || {};
+      var shown = spec.snapshot || {};
       remember({ id: payment.id, reference: payment.reference, amount: payment.amount, at: Date.now(),
                  order: { items: o.items, type: o.type, business: !!o.business,
-                          postcode: o.postcode, town: o.town || null } });
+                          postcode: o.postcode, town: o.town || null,
+                          time: o.time || null, when: o.when || null,
+                          lines: shown.lines, subtotal: shown.subtotal, discount: shown.discount,
+                          fee: shown.fee, total: shown.total } });
       return payment;
     });
   }
@@ -145,7 +158,10 @@
 
   function report(payment, spec, errorCode) {
     if (!payment) { spec.onState('failed', {}); return; }
-    if (payment.status === 'captured') { forget(); spec.onState('paid', { payment: payment }); return; }
+    // Kept, not forgotten: the page forgets it once the server has the order
+    // (or has flagged it for a person). Until then a reload can still hand it
+    // over (DP-23-02).
+    if (payment.status === 'captured') { spec.onState('paid', { payment: payment }); return; }
     if (payment.status === 'pending') { spec.onState('pending', { payment: payment }); return; }
     if (payment.status === 'cancelled') { forget(); spec.onState('cancelled', { payment: payment }); return; }
     forget();
@@ -408,6 +424,8 @@
     var inner = {
       host: spec.host,
       order: spec.order,
+      // What is kept on this device beside the payment; never sent anywhere.
+      snapshot: spec.snapshot || null,
       amount: spec.amount,
       labels: spec.labels || {},
       onState: onState
@@ -451,6 +469,7 @@
     mount: mount,
     statusOf: statusOf,
     remembered: remembered,
-    forget: forget
+    forget: forget,
+    markHandedOver: markHandedOver
   };
 })();

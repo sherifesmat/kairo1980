@@ -11,3 +11,7 @@ fonts/google.css
 
 # Scratch: a pasted API token, for tools/check-token.mjs. Never committed.
 token.txt
+
+# Python interpreter caches (DELIVERY_PRICING round 23)
+__pycache__/
+*.pyc

@@ -391,6 +391,29 @@ async function capturePayment(request, env, id, ctx) {
    did before. A throttled caller, an unpriceable basket or a database that will
    not answer must never be able to lose an order — that is the problem this
    route was added to solve, not a new way to reproduce it. */
+/* The counter hears about a conflict once per payment (or per order reference
+   when no money is involved), however often a page hands the order over again.
+   The record of it goes into the payment's own event log, which is append-only,
+   so it is also the audit trail of who was told what and when (DP-23-01). */
+async function alertConflictOnce(env, stored) {
+  const payment = stored.payment || null;
+  try {
+    const result = await env.DB.prepare(
+      `INSERT OR IGNORE INTO payment_events
+         (payment_id, provider, event_key, event_type, source, status_from, status_to, amount, payload, created_at)
+       VALUES (?1, ?2, ?3, 'order_conflict', 'client', ?4, ?4, ?5, NULL, datetime('now'))`
+    ).bind(payment ? payment.id : null, payment ? (payment.provider || 'paypal') : 'site',
+           'order-conflict:' + (payment ? payment.id : 'ref:' + stored.reference),
+           payment ? payment.status : null, payment ? payment.amount : null).run();
+    if (Number(result?.meta?.changes || 0) === 0) return;
+  } catch (err) {
+    // If the log cannot be written the counter is still told: a second alert is
+    // better than none.
+    console.error('conflict log', err && err.message);
+  }
+  await sendPaymentConflict(env, payment, stored.reference);
+}
+
 async function announceOrder(request, env, ctx) {
   const body = await readJson(request);
   const ip = request.headers.get('CF-Connecting-IP') || '';
@@ -445,8 +468,15 @@ async function announceOrder(request, env, ctx) {
      stored as an order; the counter is told to resolve it with the guest, and
      never to ask for a second payment (DP-22-02). */
   if (stored.paymentConflict) {
-    if (stored.payment) ctx.waitUntil(sendPaymentConflict(env, stored.payment));
+    ctx.waitUntil(alertConflictOnce(env, stored));
     return json({ recorded: false, reason: 'payment_conflict', reference: stored.reference }, 409);
+  }
+  /* The guest was sent to the provider, but the money has not been seen yet.
+     Nothing is stored: an order to be paid on site now would stand beside the
+     payment once it settles. The page keeps the payment and asks again; a
+     payment that settles with no order is listed at /admin (DP-23-01). */
+  if (stored.paymentUnsettled) {
+    return json({ recorded: false, reason: 'payment_unsettled', reference: stored.reference }, 409);
   }
   /* A correction that lost to a different one and still could not be written.
      Never "recorded": the guest's WhatsApp message carries what they typed, and

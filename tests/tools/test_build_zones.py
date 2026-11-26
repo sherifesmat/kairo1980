@@ -159,7 +159,13 @@ class TheCommittedFiles(unittest.TestCase):
             self.assertEqual(committed.read(), text)
 
     def test_every_tariff_is_the_one_that_was_live_before_the_towns(self):
-        """PO-15 changed no price: all 33 [postcode, label, km, minimum, fee] as at 5e71675."""
+        """PO-15 changed no price: all 33 [postcode, label, km, minimum, fee] as at 5e71675.
+
+        A release pin, not a ban on prices changing. When the owner approves a tariff
+        change, the change goes into data/delivery_zones.xlsx, and in the same commit
+        this fixture is regenerated from the new zones.js and renamed for the commit
+        it pins, with the owner's decision cited in the commit message. A fee that
+        moves without that is what this test exists to stop."""
         with io.open(os.path.join(ROOT, 'tests', 'fixtures', 'tariffs-5e71675.json'),
                      encoding='utf-8') as pinned:
             before = json.load(pinned)['rows']

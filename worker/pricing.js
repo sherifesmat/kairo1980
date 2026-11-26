@@ -53,14 +53,7 @@ function minimumApplies(type, business) {
  *                    fee: number, total: number, zone: object|null, belowMinimum: boolean}>}
  */
 export async function quote(env, req) {
-  /* Delivery or pickup, said in so many words: a request that leaves the type
-     out, or names another, is not priced as a delivery (DP-22-01). */
-  if (!req || (req.type !== 'delivery' && req.type !== 'pickup')) {
-    throw new PricingError('invalid_type', 'Please choose delivery or pickup.');
-  }
-  if (req.business != null && typeof req.business !== 'boolean') {
-    throw new PricingError('invalid_request', 'The request could not be read.');
-  }
+  checkRequestShape(req);
   const published = await menuData(env);
 
   /* THE ONE REFUSAL ON THIS SITE. An unknown postcode, a closed slot and a
@@ -259,6 +252,20 @@ function resolveLine(key, dishes, addonGroups, soldOut, price = (id) => priceOf(
     (own.length ? ' (' + own.join(', ') + ')' : '') +
     extras.map((n) => ' + ' + n).join('');
   return { dish: parsed.dish, name, unit, choices };
+}
+
+/* What a request must say before anything is read from it, for every route that
+   reads one (quote, payment, handover): delivery or pickup in so many words, and
+   a company flag that is true, false, or absent. Absent (undefined or null) is
+   not a company order. A request that leaves the type out is not taken for a
+   delivery. One function, so the routes cannot drift apart. DP-22-01, DP-23. */
+export function checkRequestShape(req) {
+  if (!req || (req.type !== 'delivery' && req.type !== 'pickup')) {
+    throw new PricingError('invalid_type', 'Please choose delivery or pickup.');
+  }
+  if (req.business != null && typeof req.business !== 'boolean') {
+    throw new PricingError('invalid_request', 'The request could not be read.');
+  }
 }
 
 export class PricingError extends Error {

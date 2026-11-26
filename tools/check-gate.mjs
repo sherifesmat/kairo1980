@@ -3,7 +3,7 @@
 
    Playwright exits 0 when everything it RAN passed, which is not the same as
    the gate having held: a skipped test, a grep that matched three tests, or a
-   renamed title would all pass silently. So the four scenarios are named here,
+   renamed title would all pass silently. So the scenarios are named here,
    and the gate holds only if each ran exactly once and passed, nothing was
    skipped, and nothing else failed.
 
@@ -15,7 +15,14 @@ const REQUIRED = [
   /@gate a pickup Extras order is priced, sent to WhatsApp and recorded in the books/,
   /@gate after a failed payment the order can still be sent, and says pay on arrival/,
   /@gate an order scheduled past the closure goes through untouched/,
-  /@gate switching back restores the delivery UI and hides the temporary guide/
+  /@gate switching back restores the delivery UI and hides the temporary guide/,
+  // PO-15 (DELIVERY_PRICING round 23): choosing from the list, an enquiry that
+  // is never paid for or recorded, a paid order told after a reload as it was
+  // paid for, and a changed total that charges nothing.
+  /@gate a chosen town shows its fee, and the order names the postcode and the town/,
+  /@gate an enquiry for 68723 is never paid for and never recorded as an order/,
+  /@gate a paid delivery is told as it was paid for: its dishes, its prices, its fee, its town/,
+  /@gate when the server prices another total, nothing is charged and the guest is told to look again/
 ];
 
 const report = JSON.parse(readFileSync(process.argv[2] || 'gate-results.json', 'utf8'));

@@ -19,7 +19,16 @@ test.beforeEach(async ({ page }) => {
   await setMode(page, 'pickup');
 });
 
-test.afterEach(async ({ page }) => { await setMode(page, 'pickup'); });
+/* Leave the shared database in the mode the run found it in. Always leaving it
+   in pickup made every delivery scenario after this file skip itself: in the
+   deploy gate that was the PO-15 delivery checks (DELIVERY_PRICING round 23). */
+let startedIn = null;
+test.beforeAll(async ({ request }) => {
+  const status = await (await request.get('/api/status')).json();
+  startedIn = status.serviceMode || 'delivery';
+});
+
+test.afterEach(async ({ page }) => { await setMode(page, startedIn); });
 
 for (const language of ['de', 'en', 'ar']) {
   for (const width of [390, 1280]) {

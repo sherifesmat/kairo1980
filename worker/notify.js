@@ -200,7 +200,19 @@ export async function sendOrderCorrection(env, order, changed, options) {
 /** A payment handed over with an order that is not what was paid for. Plain
  *  text, no personal data (as composeCashOrderMessage): the reference, the
  *  amount and the payment's state, and what to do about it. */
-export function composePaymentConflictMessage(payment) {
+export function composePaymentConflictMessage(payment, reference) {
+  /* Two stored orders that this handover could both be, under a payment id that
+     is not money. Nothing was stored; a person picks the right one at /admin. */
+  if (!payment) {
+    return [
+      'BESTELLUNG PRÜFEN',
+      '',
+      `Referenz: ${reference}`,
+      '',
+      'Eine erneut gesendete Bestellung passt zu mehr als einer gespeicherten.',
+      'Es wurde nichts angelegt. Bitte in /admin prüfen und mit dem Gast klären.'
+    ].join('\n');
+  }
   const state = payment.status === 'captured' ? 'bezahlt' : 'in Prüfung beim Anbieter';
   return [
     'ZAHLUNG PRÜFEN',
@@ -214,9 +226,9 @@ export function composePaymentConflictMessage(payment) {
   ].join('\n');
 }
 
-export async function sendPaymentConflict(env, payment) {
-  if (!notifyConfigured(env) || !payment) return { ok: false, error: 'not configured' };
-  return post(env, composePaymentConflictMessage(payment));
+export async function sendPaymentConflict(env, payment, reference) {
+  if (!notifyConfigured(env) || (!payment && !reference)) return { ok: false, error: 'not configured' };
+  return post(env, composePaymentConflictMessage(payment, reference));
 }
 
 export async function sendOrderNotification(env, payment) {

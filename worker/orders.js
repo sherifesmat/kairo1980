@@ -18,7 +18,7 @@
    this file existed. Losing an order to our own bookkeeping would be worse than
    the problem this solves. */
 
-import { quote, PricingError } from './pricing.js';
+import { quote, PricingError, checkRequestShape } from './pricing.js';
 import { newReference } from './payments/store.js';
 import { readPostcode, townsOf } from './site-data.js';
 
@@ -130,7 +130,11 @@ function placeOf(postcode, town) {
     return typeof postcode === 'string' && typeof town === 'string'
       ? { code: postcode, town, listed: true } : { code: null };
   }
-  const read = readPostcode(clip(postcode, 16));
+  /* Read as written. A stored row already holds what it was clipped to then; a
+     request is never cut down here, so a conflicting suffix beyond the old
+     16-character column cannot be dropped to make it match (DP-23-01). */
+  if (typeof postcode !== 'string' || postcode.length > 64) return { code: null };
+  const read = readPostcode(postcode);
   return { code: read.code, town: read.town, listed: false };
 }
 
@@ -169,45 +173,38 @@ function sameOrder(row, body) {
   return body.type !== 'delivery' || sameDestination(row.postcode, row.town, body);
 }
 
-/* What a request must say before anything is read from it: delivery or pickup
-   in so many words, and a company flag that is a flag. A request that leaves
-   the type out is not taken for a delivery. DP-22-01. */
-export function checkRequestShape(body) {
-  if (!body || (body.type !== 'delivery' && body.type !== 'pickup')) {
-    throw new PricingError('invalid_type', 'Please choose delivery or pickup.');
-  }
-  if (body.business != null && typeof body.business !== 'boolean') {
-    throw new PricingError('invalid_request', 'The request could not be read.');
-  }
-}
+export { checkRequestShape };
 
 /* The order this handover repeats, if it is a repeat.
    ---------------------------------------------------------------------------
    A handover is a replay only if it names the same payment AND carries the
-   same order. It does not matter whether that payment was verified for the
-   order or only claimed.
-
-   A different basket, type or destination under a known payment id is a NEW
-   order. It is stored and announced as one. It never inherits another order's
-   payment or reference, and it is never swallowed as a repeat. R3-01. */
+   same order. A row is that order when it is the same order read from its own
+   columns (sameOrder), or, for a row from before the towns, when its identity
+   is exactly this handover's: that is how an old order whose typed postcode no
+   longer reads as a place is still answered with its own reference. A row with
+   a town is never matched on its identity alone (DP-23-01). */
 const REPEAT_COLUMNS = `id, reference, total, requested_time, customer_address,
        customer_phone, notes, details_purged_at`;
+const ORDER_ROW = `${REPEAT_COLUMNS}, order_identity, lines, order_type, business, postcode, town,
+       payment_id, claimed_payment_id`;
 
-/* Every order stored under this payment id, as paid or as claimed, that this
-   handover is. A row is this order when its identity is this handover's, or
-   when it is the same order read from its own columns (sameOrder): that finds
-   an order stored before 0006 (no identity), one stored under another spelling
-   of the same postcode, and one stored before the towns. Two candidates is not
-   a guess to make: it is answered as a conflict for a person. On a match the
-   identity is written onto a row that has none, once. R4-01, DP-22-02. */
-async function repeatedOrder(env, paymentId, body, identity) {
-  if (!paymentId) return null;
+function isThisOrder(row, body, identity) {
+  return sameOrder(row, body) || (row.town == null && row.order_identity === identity);
+}
+
+/** Every order stored under this payment id, as paid or as claimed. */
+async function ordersUnder(env, paymentId) {
   const { results } = await env.DB.prepare(
-    `SELECT ${REPEAT_COLUMNS}, order_identity, lines, order_type, business, postcode, town
-       FROM orders WHERE payment_id = ?1 OR claimed_payment_id = ?1`
+    `SELECT ${ORDER_ROW} FROM orders WHERE payment_id = ?1 OR claimed_payment_id = ?1`
   ).bind(paymentId).all();
-  const matches = (results || []).filter((row) =>
-    row.order_identity === identity || sameOrder(row, body));
+  return results || [];
+}
+
+/* The one row among `rows` that this handover is, or a conflict when two are.
+   On a match the identity is written onto a row that has none, once; a stored
+   identity is never rewritten. R4-01, DP-22-02. */
+async function repeatAmong(env, rows, body, identity) {
+  const matches = rows.filter((row) => isThisOrder(row, body, identity));
   if (matches.length > 1) return { ambiguous: true, reference: matches[0].reference };
   const match = matches[0];
   if (!match) return null;
@@ -219,15 +216,39 @@ async function repeatedOrder(env, paymentId, body, identity) {
   return match;
 }
 
-/* A payment that is real money or money under review, as the provider left it. */
-async function knownPayment(env, paymentId) {
+/* The payment this id names, in whatever state the provider left it. */
+async function paymentRow(env, paymentId) {
   if (!paymentId) return null;
-  const row = await env.DB.prepare(
-    `SELECT id, reference, status, amount, currency, subtotal, discount, fee,
+  return env.DB.prepare(
+    `SELECT id, reference, provider, status, amount, currency, subtotal, discount, fee,
             order_type, business, postcode, town, lines
        FROM payments WHERE id = ?1`
   ).bind(paymentId).first();
-  return row && LINKABLE.has(row.status) ? row : null;
+}
+
+/* States in which the money may still arrive: the guest was sent to the
+   provider, or approved there, and the capture has not been seen yet. */
+const IN_FLIGHT = new Set(['created', 'approved']);
+
+/* Is a payment's own snapshot whole enough to stand for an order? Whole cents,
+   in euros, the figures adding up, and lines that name dishes. A snapshot that
+   is not is a matter for a person, never a reason to price it again. */
+function wholeSnapshot(payment) {
+  const cents = (n, min) => Number.isSafeInteger(n) && n >= min;
+  if ((payment.currency || 'EUR') !== 'EUR') return false;
+  if (!cents(payment.amount, 1) || !cents(payment.subtotal, 0)
+      || !cents(payment.discount, 0) || !cents(payment.fee, 0)) return false;
+  if (payment.subtotal - payment.discount + payment.fee !== payment.amount) return false;
+  if (payment.order_type !== 'delivery' && payment.order_type !== 'pickup') return false;
+  let lines;
+  try { lines = JSON.parse(payment.lines || ''); } catch { return false; }
+  if (!Array.isArray(lines) || !lines.length) return false;
+  let sum = 0;
+  for (const line of lines) {
+    if (!line || typeof line.id !== 'string' || !cents(line.qty, 1) || !cents(line.amount, 0)) return false;
+    sum += line.amount;
+  }
+  return sum === payment.subtotal;
 }
 
 /* The order as it was paid for: the payment's own lines and money, and its own
@@ -283,12 +304,6 @@ async function amend(env, row, changes) {
   return Number(result?.meta?.changes || 0) > 0;
 }
 
-/** Is this payment already the payment of some order? */
-async function paymentTaken(env, paymentId) {
-  const row = await env.DB.prepare('SELECT 1 AS taken FROM orders WHERE payment_id = ?1')
-    .bind(paymentId).first();
-  return !!row;
-}
 
 const CORRECTION_ATTEMPTS = 3;
 
@@ -337,50 +352,43 @@ async function correctOrder(env, stored, body, ip) {
 /**
  * Store one order and answer with the reference to print in the chat.
  *
- * @returns {Promise<{id: string, reference: string, total: number,
- *                    alerted: boolean, replay?: boolean} | null>}
- *          null when nothing was stored (throttled)
+ * @returns {Promise<object | null>} the order, or one of
+ *          { paymentConflict, reference, payment? }  a person must resolve it,
+ *          { paymentUnsettled, reference }           the money is not in yet,
+ *          { closed: true }                          nothing new while closed,
+ *          null                                      throttled
  */
 export async function recordOrder(env, body, ip, { recoveryOnly = false } = {}) {
   checkRequestShape(body);
   const claimed = clip(body.paymentId, 64);
   const identity = orderIdentity(body);
 
-  /* One payment, one order. This is asked before the throttle.
+  /* The payment is read first, and its state decides (DP-23-01):
+     - real money (captured, or pending with the provider): handed over only as
+       the order its own snapshot is, linked once. Anything else under that id,
+       linked or not, is a conflict for a person, never another order;
+     - money that may still arrive (created, approved): nothing is stored yet;
+       the guest's page keeps the payment and asks again;
+     - no money (failed, cancelled, refunded) or an id that is not a payment: a
+       claim, stored to be paid on site and flagged, as before (R3-01, W01-05). */
+  const payment = await paymentRow(env, claimed);
+  if (payment && LINKABLE.has(payment.status)) return handOverPaid(env, body, ip, payment, claimed, identity);
+  if (payment && IN_FLIGHT.has(payment.status)) {
+    return { paymentUnsettled: true, reference: payment.reference };
+  }
 
-     After a reload, the browser's recovery path hands a paid order over again.
-     That is the same dinner, so it must get the same reference back. Not a
-     second row, not a second alert, and not a 202 that reads like a refusal.
-     W02-04, R3-03.
-
-     A replay that changes when, where to, how to reach the guest or what to
-     cook differently is a correction. It counts against the throttle like any
-     other write, and it reaches the kitchen. R4-02. */
-  const already = await repeatedOrder(env, claimed, body, identity);
-  if (already && already.ambiguous) return { paymentConflict: true, reference: already.reference };
-  if (already) return correctOrder(env, already, body, ip);
+  /* One claimed id, one order. Asked before the throttle: after a reload the
+     browser hands the same dinner over again, and it gets the same reference
+     back, not a second row and not a 202. A replay that changes when, where to,
+     how to reach the guest or a note is a correction. W02-04, R3-03, R4-02. */
+  if (claimed) {
+    const already = await repeatAmong(env, await ordersUnder(env, claimed), body, identity);
+    if (already && already.ambiguous) return { paymentConflict: true, reference: already.reference };
+    if (already) return correctOrder(env, already, body, ip);
+  }
 
   if (await throttled(env, ip)) return null;
   await recordAttempt(env, ip);
-
-  /* A payment that is real (captured, or pending with the provider) and pays for
-     no order yet. Its own snapshot is the agreed order: the same basket, type,
-     company flag and destination link it, at the money it was paid for, whatever
-     the menu, the tariff or the list says now. Anything else is NOT this
-     payment's order, and it is not guessed at: nothing is stored, the guest's
-     payment keeps its reference and status, and a person resolves it. It is
-     never turned into an order to be paid on site. DP-22-02.
-
-     A payment already linked to another order, or a payment id that is not real
-     money, is a claim, as before (R3-01, W01-05): the order below is stored to be
-     paid on site and flagged. */
-  const payment = await knownPayment(env, claimed);
-  if (payment && !(await paymentTaken(env, payment.id))) {
-    if (!sameOrder(payment, body) || (payment.currency || 'EUR') !== 'EUR') {
-      return { paymentConflict: true, reference: payment.reference, payment };
-    }
-    return insertOrder(env, body, asPaid(payment), payment, claimed, identity);
-  }
 
   /* While the restaurant is closed, only money already taken is recorded. */
   if (recoveryOnly) return { closed: true };
@@ -397,19 +405,51 @@ export async function recordOrder(env, body, ip, { recoveryOnly = false } = {}) 
   return insertOrder(env, body, priced, null, claimed, identity);
 }
 
+/* Real money handed over with an order.
+   ---------------------------------------------------------------------------
+   Its own snapshot is the agreed order. The same basket, type, company flag and
+   destination link it, at the money it was paid for, whatever the menu, the
+   tariff, the list or the service mode says now; a replay of it is answered
+   with its reference (and a correction reaches the kitchen). Everything else is
+   NOT this payment's order and is not guessed at: a different order under the
+   same id, an order claimed under it before the money arrived, two candidates,
+   or a snapshot that does not add up. Nothing is stored, the payment keeps its
+   reference and status, the counter is told once, and a person resolves it.
+   It is never turned into an order to be paid on site. DP-22-02, DP-23-01. */
+async function handOverPaid(env, body, ip, payment, claimed, identity) {
+  const conflict = { paymentConflict: true, reference: payment.reference, payment };
+  const rows = await ordersUnder(env, payment.id);
+  const linked = rows.filter((row) => row.payment_id === payment.id);
+  if (linked.length) {
+    const already = await repeatAmong(env, linked, body, identity);
+    return already && !already.ambiguous ? correctOrder(env, already, body, ip) : conflict;
+  }
+  // An order claimed under this id while the money was not in. It is not linked
+  // here, and it is not answered as if it were settled: a person reconciles it.
+  if (rows.length) return conflict;
+  if (!wholeSnapshot(payment) || !sameOrder(payment, body)) return conflict;
+  return insertOrder(env, body, asPaid(payment), payment, claimed, identity);
+}
+
 async function insertOrder(env, body, priced, payment, claimed, identity) {
   const insert = async (link) => {
     const id = crypto.randomUUID();
     const reference = link ? link.reference : newReference();
     const unverified = !!claimed && !link;
-    await env.DB.prepare(
+    /* A linked order is written only while the payment still stands as it was
+       read: the same status family and the same amount, checked in the same
+       statement. A payment refunded or failed in between writes nothing. */
+    const result = await env.DB.prepare(
       `INSERT INTO orders (id, reference, payment_id, order_type, business,
          pay_method, postcode, lines, subtotal, discount, fee, total, currency,
          requested_time, customer_name, customer_phone, customer_address,
          customer_company, notes, claimed_payment_id, payment_check,
          order_identity, created_at, town)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,'EUR',?13,?14,?15,?16,?17,?18,
-               ?19,?20,?21, datetime('now'), ?22)`
+       SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,'EUR',?13,?14,?15,?16,?17,?18,
+              ?19,?20,?21, datetime('now'), ?22
+        WHERE ?3 IS NULL OR EXISTS (
+              SELECT 1 FROM payments WHERE id = ?3 AND amount = ?23
+                 AND status IN ('captured', 'pending'))`
     ).bind(
       id, reference, link ? link.id : null,
       body.type === 'pickup' ? 'pickup' : 'delivery',
@@ -427,8 +467,10 @@ async function insertOrder(env, body, priced, payment, claimed, identity) {
       unverified ? claimed : null,
       unverified ? 'unverified' : null,
       identity,
-      priced.destination ? priced.destination.town : null
+      priced.destination ? priced.destination.town : null,
+      link ? link.amount : null
     ).run();
+    if (link && Number(result?.meta?.changes || 0) === 0) return null;
     return {
       id,
       reference,
@@ -442,15 +484,20 @@ async function insertOrder(env, body, priced, payment, claimed, identity) {
   };
 
   try {
-    return await insert(payment);
+    const stored = await insert(payment);
+    if (stored) return stored;
+    // The payment changed between the read and the write: a person looks at it.
+    return { paymentConflict: true, reference: payment.reference, payment };
   } catch (err) {
     /* Only a race the unique indexes settled is answered here; any other failure
-       is a failure. The winner is found the way a replay is (sameOrder), so two
-       spellings of one dinner racing each other are one order. A paid handover
-       that lost to something that is NOT this order is a conflict for a person:
-       it is never stored again as an order to be paid on site. DP-22-02. */
+       is a failure. The winner is found the way a replay is, so two spellings of
+       one dinner racing each other are one order. A paid handover that lost to
+       something that is NOT this order is a conflict for a person: it is never
+       stored again as an order to be paid on site. DP-22-02. */
     if (!/UNIQUE/i.test(String(err && err.message))) throw err;
-    const winner = await repeatedOrder(env, claimed, body, identity);
+    const rows = claimed ? await ordersUnder(env, claimed) : [];
+    const winner = await repeatAmong(env, payment ? rows.filter((r) => r.payment_id === payment.id) : rows,
+                                     body, identity);
     if (winner && !winner.ambiguous) {
       return { id: winner.id, reference: winner.reference, total: winner.total,
                alerted: false, replay: true };

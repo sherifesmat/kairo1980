@@ -34,7 +34,7 @@ test('the list offers every town of 68723, each with its postcode in sight', asy
   await expect(select.locator('option').last()).toHaveAttribute('value', 'not-listed');
 });
 
-test('a chosen town shows its fee, and the order names the postcode and the town', async ({ page }, testInfo) => {
+test('@gate a chosen town shows its fee, and the order names the postcode and the town', async ({ page }, testInfo) => {
   const whatsapp = await captureWhatsApp(page);
   await deliveryBasket(page, testInfo);
   await fillContact(page, { address: 'Hauptstraße 1', postcode: '68723', town: 'Oftersheim' });
@@ -82,7 +82,7 @@ test('"postcode not listed" is an enquiry: its own field, its own wording, no fe
 });
 
 for (const typed of ['69118', '68723']) {
-  test(`an enquiry for ${typed} is never paid for and never recorded as an order`, async ({ page }, testInfo) => {
+  test(`${typed === '68723' ? '@gate ' : ''}an enquiry for ${typed} is never paid for and never recorded as an order`, async ({ page }, testInfo) => {
     const announced = [];
     const paymentsAsked = [];
     await page.route('**/api/orders/announce', (route) => {

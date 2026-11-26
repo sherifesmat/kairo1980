@@ -38,7 +38,19 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(() => { try { localStorage.clear(); sessionStorage.clear(); } catch (e) { /* fine */ } });
 });
 
-test.afterEach(async () => { resetOrderRate(); });
+/* Leave the shared database in the mode the run found it in, or every delivery
+   scenario after this file skips itself (the deploy gate's PO-15 checks did).
+   DELIVERY_PRICING round 23. */
+let startedIn = null;
+test.beforeAll(async ({ request }) => {
+  const status = await (await request.get('/api/status')).json();
+  startedIn = status.serviceMode || 'delivery';
+});
+
+test.afterEach(async ({ page }) => {
+  resetOrderRate();
+  if (startedIn && startedIn !== 'pickup') await setServiceMode(page, startedIn);
+});
 
 /** The first open slot from tomorrow on, read from /api/status — the hours the
  *  Worker actually serves (admin-saved or the config fallback), never typed.

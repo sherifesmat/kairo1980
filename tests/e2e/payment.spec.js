@@ -172,7 +172,7 @@ test('the payment is asked for the total on screen, and a changed total stops it
   expect(stub.created[0].expectedTotal).toBe(1710);
 });
 
-test('when the server prices another total, nothing is charged and the guest is told to look again', async ({ page }) => {
+test('@gate when the server prices another total, nothing is charged and the guest is told to look again', async ({ page }) => {
   await stubPayments(page);
   // Registered last, so it answers first: the Worker's refusal of a stale figure.
   await page.route('**/api/payments', (route) => route.fulfill({
@@ -204,36 +204,7 @@ test('a page too old to name its total is asked to reload, and is charged nothin
   await expect(page.locator('#cartFabCount')).toHaveText('2', { timeout: 10000 });
 });
 
-test('a reload after paying hands over the order that was paid for, not the basket as it is now', async ({ page }) => {
-  const whatsapp = await captureWhatsApp(page);
-  const announced = [];
-  await page.route('**/api/payments/config', (route) => route.fulfill({
-    contentType: 'application/json', body: JSON.stringify({ online: true, methods: ['paypal'] }) }));
-  await page.route('**/api/payments/PAY-REMEMBERED', (route) => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({ payment: { id: 'PAY-REMEMBERED', reference: 'K-PAID1', status: 'captured', amount: 1710 } }) }));
-  await page.route('**/api/orders/announce', (route) => {
-    announced.push(route.request().postDataJSON());
-    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ recorded: true, reference: 'K-PAID1' }) });
-  });
-  await page.goto('/');
-  // The basket now holds something else; the payment remembers what it paid for.
-  await page.evaluate(() => {
-    localStorage.setItem('kairo.payment.v1', JSON.stringify({
-      id: 'PAY-REMEMBERED', reference: 'K-PAID1', amount: 1710, at: Date.now(),
-      order: { items: { hummus: 2 }, type: 'pickup', business: false, postcode: null, town: null }
-    }));
-  });
-  await addItem(page, 'koshary', 1);
-  await page.reload();
-  await expect.poll(() => announced.length, { timeout: 15000 }).toBe(1);
-  expect(announced[0].items).toEqual({ hummus: 2 });
-  expect(announced[0].type).toBe('pickup');
-  expect(announced[0].paymentId).toBe('PAY-REMEMBERED');
-  const message = decodeURIComponent((await whatsapp()).split('?text=')[1]);
-  expect(message).toContain('Hummus');
-  expect(message).not.toContain('Koshary');
-});
+// The reload-after-paying cases live in payment-recovery.spec.js (DP-23-02).
 
 test('a paid handover the server could not match tells the guest not to pay again', async ({ page }) => {
   const stub = await stubPayments(page);

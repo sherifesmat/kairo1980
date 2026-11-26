@@ -36,8 +36,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from zone_sheet import read_zone_postcodes  # noqa: E402
 
 
-def localities(postcode):
-    names, page = [], 1
+def localities(postcode, evidence):
+    names, page, rows = [], 1, 0
     while True:
         request = urllib.request.Request(
             ENDPOINT % (postcode, page), headers={'User-Agent': 'postcode-snapshot'})
@@ -52,18 +52,22 @@ def localities(postcode):
                 if row.get('postalCode') != postcode:
                     sys.exit('directory answered %r for %s' % (row.get('postalCode'), postcode))
                 names.append(row['name'])
+                rows += 1
         if page >= pages:
+            # What the directory said, kept with the snapshot: how many pages it
+            # declared, how many it was asked for, and how many rows came back.
+            evidence[postcode] = {'pages_declared': pages, 'pages_read': page, 'rows': rows}
             return sorted(set(names))
         page += 1
 
 
 def main():
     postcodes = read_zone_postcodes()
-    places = {}
+    places, evidence = {}, {}
     for postcode in postcodes:
         if not re.fullmatch(r'[0-9]{5}', postcode):
             sys.exit('not a postcode: %r' % postcode)
-        found = localities(postcode)
+        found = localities(postcode, evidence)
         if not found:
             sys.exit('the directory knows no town for %s -- check the spreadsheet' % postcode)
         places[postcode] = found
@@ -75,6 +79,7 @@ def main():
                        'validation. Not the Deutsche Post directory.',
         'retrieved': datetime.date.today().isoformat(),
         'places': dict(sorted(places.items())),
+        'evidence': dict(sorted(evidence.items())),
     }
     io.open(TARGET, 'w', encoding='utf-8', newline='\n').write(
         json.dumps(snapshot, ensure_ascii=False, indent=2) + '\n')

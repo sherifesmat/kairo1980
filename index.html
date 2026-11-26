@@ -194,10 +194,10 @@
      `defer` keeps that order while letting all four download in parallel
      without blocking the parser. -->
 <script src="lang.js" defer></script>
-<script src="zones.js?v=po15-2" defer></script>
-<script src="postcode.js?v=po15-2" defer></script>
-<script src="config.js?v=po15-2" defer></script>
-<script src="order.js?v=po15-2" defer></script>
+<script src="zones.js?v=po15-3" defer></script>
+<script src="postcode.js?v=po15-3" defer></script>
+<script src="config.js?v=po15-3" defer></script>
+<script src="order.js?v=po15-3" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body>
@@ -911,6 +911,13 @@
     <p class="areas-note t"
        data-de="Ihr Ort ist nicht dabei? Schreiben Sie uns — bei größeren Bestellungen liefern wir auch darüber hinaus."
        data-en="Your town is not listed? Message us — for larger orders we deliver beyond this area too." data-ar="مدينتك مش موجودة؟ ابعتلنا — في الطلبات الكبيرة بنوصّل لأبعد من كده كمان." data-pickup-de="Frisch gekochte ägyptische Küche zum Abholen in Hockenheim: Koshary, Hummus, Hawawshy und mehr. Online bestellen, in der Rostocker Straße 20a abholen." data-pickup-en="Fresh Egyptian food for pickup in Hockenheim. Order for yourself or your team lunch and collect at Rostocker Straße 20a. No delivery." data-pickup-ar="أكل مصري طازة للاستلام من المطعم في هوكنهايم. اطلب لنفسك أو لغدا فريقك واستلم من Rostocker Straße 20a. مفيش توصيل.">Ihr Ort ist nicht dabei? Schreiben Sie uns — bei größeren Bestellungen liefern wir auch darüber hinaus.</p>
+    <!-- Which towns belong to each postcode comes from open data, and says so
+         (DELIVERY_PRICING round 23, DP-21-01). The prices are ours. -->
+    <p class="areas-source"><span class="t" data-de="Orte je Postleitzahl:" data-en="Towns per postcode:" data-ar="المدن حسب الرمز البريدي:">Orte je Postleitzahl:</span>
+      <a href="https://www.openplzapi.org" target="_blank" rel="noopener">OpenPLZ API</a>,
+      <span class="t" data-de="aus Daten von" data-en="from data by" data-ar="من بيانات">aus Daten von</span>
+      <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a> (ODbL)
+      <span class="t" data-de="und des Statistischen Bundesamts." data-en="and the Federal Statistical Office." data-ar="ومكتب الإحصاء الاتحادي.">und des Statistischen Bundesamts.</span></p>
   </div>
 </section>
 

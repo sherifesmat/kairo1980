@@ -1150,6 +1150,8 @@ summary:focus-visible {
   font-size: 12px; letter-spacing: 0.05em;
 }
 .areas-note { margin: 34px 0 0; font-size: 13px; color: #7a6030; }
+.areas-source { margin: 10px 0 0; font-size: 11px; color: #8a7a5c; }
+.areas-source a { color: inherit; }
 
 /* Below this the 190px tier label costs more than it gives: stacking it
    frees the full width for the towns, which buys back a whole column. */

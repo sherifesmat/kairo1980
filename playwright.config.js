@@ -79,12 +79,15 @@ export default defineConfig({
       use: { ...devices['Pixel 7'] }
     },
 
-    /* The deploy gate (deploy.yml, jobs.gate). Exactly the four scenarios that
+    /* The deploy gate (deploy.yml, jobs.gate). Exactly the eight scenarios that
        must hold before production changes — a pickup order recorded in the
        books, a failed payment falling back to on-site, an order scheduled past
-       a closure, and pickup with switch-back — on one worker, in a disposable
-       local D1. Only defined when the gate asks for it, so an ordinary run does
-       not repeat them. Loop WEBSITE_ORDERING, F / W02-06. */
+       a closure, and pickup with switch-back; and for PO-15 a town chosen from
+       the list, an enquiry never paid for, a paid order told after a reload as
+       it was paid for, and a changed total that charges nothing — on one
+       worker, in a disposable local D1. Only defined when the gate asks for it,
+       so an ordinary run does not repeat them. Loop WEBSITE_ORDERING, F / W02-06;
+       DELIVERY_PRICING round 23. */
     ...(process.env.KAIRO_GATE
       ? [{
           name: 'gate',

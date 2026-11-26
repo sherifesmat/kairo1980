@@ -36,7 +36,7 @@ jobs:
   # report token below are throwaway values that exist only on this runner.
   #
   # tools/check-gate.mjs reads the JSON report and fails the gate unless each
-  # of the four ran exactly once and passed: Playwright's own exit code is 0
+  # of the eight ran exactly once and passed: Playwright's own exit code is 0
   # for a run that skipped everything.
   gate:
     runs-on: ubuntu-latest
@@ -60,14 +60,14 @@ jobs:
       - name: Disposable local database
         run: npx wrangler d1 migrations apply kairo1980-payments --local --persist-to ../.kairo1980-dev-state
 
-      - name: Run the four ordering scenarios
+      - name: Run the eight ordering scenarios
         env:
           KAIRO_GATE: '1'
           PLAYWRIGHT_JSON_OUTPUT_NAME: gate-results.json
           KAIRO_PW_OUT: ${{ runner.temp }}/test-results
         run: npx playwright test --project=gate --reporter=list,json
 
-      - name: The gate held only if all four ran and passed
+      - name: The gate held only if all eight ran and passed
         if: always()
         run: node tools/check-gate.mjs gate-results.json
 
