@@ -149,7 +149,7 @@ test('a captured payment for a different basket of the same price does not link'
 test('a captured pickup payment does not pay for a delivery', async (t) => {
   const { env, c } = world(t);
   const payment = await paymentIn(env, c, 'captured');
-  await announce(env, c, { ...HANDOVER, type: 'delivery', postcode: '68766', paymentId: payment.id });
+  await announce(env, c, { ...HANDOVER, type: 'delivery', postcode: '68766', town: 'Hockenheim', paymentId: payment.id });
   const [row] = orders(env);
   assert.equal(row.payment_check, 'unverified');
   assert.equal(row.payment_id, null);
@@ -219,7 +219,7 @@ test('/admin flags a captured payment that does not match its order, and never a
   t.after(() => paypal.restore());
   const payment = await paymentIn(env, c, 'captured');
   // Money taken for a pickup; the handover says delivery — a mismatch.
-  await announce(env, c, { ...HANDOVER, type: 'delivery', postcode: '68766', name: 'Mismatch Gast', paymentId: payment.id });
+  await announce(env, c, { ...HANDOVER, type: 'delivery', postcode: '68766', town: 'Hockenheim', name: 'Mismatch Gast', paymentId: payment.id });
 
   const login = await worker.fetch(new Request('https://kairo1980.de/admin/login', {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: 'https://kairo1980.de' },
@@ -240,8 +240,8 @@ test('/admin flags a captured payment that does not match its order, and never a
    Loop WEBSITE_ORDERING, R3-01 .. R3-04. On a3041508 each of these got through
    silently, because the payment id alone decided what an announce was. */
 
-const DELIVERY_PAID = { items: { koshari: 2 }, type: 'delivery', postcode: '68766', business: false, method: 'paypal' };
-const DELIVERY_HANDOVER = { ...HANDOVER, type: 'delivery', postcode: '68766', address: 'Hauptstraße 1' };
+const DELIVERY_PAID = { items: { koshari: 2 }, type: 'delivery', postcode: '68766', town: 'Hockenheim', business: false, method: 'paypal' };
+const DELIVERY_HANDOVER = { ...HANDOVER, type: 'delivery', postcode: '68766', town: 'Hockenheim', address: 'Hauptstraße 1' };
 
 test('R3-01: a different basket under a paid order payment id is a new, flagged order, never swallowed', async (t) => {
   const { env, c, alerts } = world(t);
@@ -281,7 +281,7 @@ test('R3-01: the same payment id with a changed delivery postcode is a new order
   const payment = await paymentIn(env, c, 'captured', DELIVERY_PAID);
   const first = await announce(env, c, { ...DELIVERY_HANDOVER, paymentId: payment.id });
   assert.equal(first.body.reference, payment.reference, 'the paid delivery links');
-  const moved = await announce(env, c, { ...DELIVERY_HANDOVER, postcode: '68799', paymentId: payment.id });
+  const moved = await announce(env, c, { ...DELIVERY_HANDOVER, postcode: '68799', town: 'Reilingen', paymentId: payment.id });
   assert.notEqual(moved.body.reference, payment.reference);
   assert.equal(orders(env).length, 2);
   assert.equal(alerts().length, 1);
@@ -306,7 +306,7 @@ test('R3-02: a paid delivery does not pay for a delivery to another postcode wit
      address differs. */
   const { env, c, alerts } = world(t);
   const payment = await paymentIn(env, c, 'captured', DELIVERY_PAID);
-  const res = await announce(env, c, { ...DELIVERY_HANDOVER, postcode: '68799', paymentId: payment.id });
+  const res = await announce(env, c, { ...DELIVERY_HANDOVER, postcode: '68799', town: 'Reilingen', paymentId: payment.id });
   assert.equal(res.body.recorded, true);
   assert.notEqual(res.body.reference, payment.reference);
   const [row] = orders(env);
@@ -466,7 +466,7 @@ test('R4-01: an old delivery handed over to another postcode is a new order', as
   const payment = await paymentIn(env, c, 'captured', DELIVERY_PAID);
   await announce(env, c, { ...DELIVERY_HANDOVER, paymentId: payment.id });
   forgetIdentity(env);
-  const moved = await announce(env, c, { ...DELIVERY_HANDOVER, postcode: '68799', paymentId: payment.id });
+  const moved = await announce(env, c, { ...DELIVERY_HANDOVER, postcode: '68799', town: 'Reilingen', paymentId: payment.id });
   assert.notEqual(moved.body.reference, payment.reference);
   assert.equal(orders(env).length, 2);
 });

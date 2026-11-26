@@ -1012,7 +1012,7 @@ const CASH_ORDER = {
   items: { koshari: 2 },
   type: 'delivery',
   business: false,
-  postcode: '68766',
+  postcode: '68766', town: 'Hockenheim',
   time: 'Heute 19:30',
   name: 'Sherif Esmat',
   phone: '+49 176 79906621',

@@ -22,6 +22,7 @@
 import './browser-globals.js';
 import '../zones.js';
 import '../config.js';
+import '../postcode.js';
 
 export const CONFIG = globalThis.KAIRO_CONFIG;
 export const ZONES = globalThis.KAIRO_ZONES;
@@ -309,10 +310,18 @@ function decodeEntities(text) {
   return text.replace(/&(amp|lt|gt|quot|#39);/g, (whole, key) => ENTITIES[key] || whole);
 }
 
-/** The delivery zone for a postcode, or null when we do not serve it. */
-export function zoneFor(postcode) {
-  const plz = String(postcode || '').trim();
-  if (!/^\d{5}$/.test(plz)) return null;
-  const row = ZONES.find((z) => z[0] === plz);
-  return row ? { postcode: row[0], place: row[1], minimum: row[3], fee: row[4] } : null;
+/** The delivery zone of a postcode-and-town pair chosen from the list, or null.
+ *  Strict (postcode.js pairFor): exactly what the list offers, no trimming, no
+ *  coercion -- the same answer the basket gives, because it is the same function.
+ *  PO-15; KBOSS DELIVERY_PRICING round 21 (G3). */
+export function zoneFor(postcode, town) {
+  const pair = globalThis.KAIRO_POSTCODE.pairFor(postcode, town, ZONES);
+  if (!pair) return null;
+  const row = pair.zone;
+  return { postcode: row[0], town: pair.town, place: pair.town, minimum: row[3], fee: row[4] };
+}
+
+/** The postcode an already-stored value stands for (legacy, permissive), or null. */
+export function legacyPostcode(value) {
+  return globalThis.KAIRO_POSTCODE.legacyCode(value);
 }

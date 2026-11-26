@@ -18,8 +18,9 @@
    this file existed. Losing an order to our own bookkeeping would be worse than
    the problem this solves. */
 
-import { quote } from './pricing.js';
+import { quote, PricingError } from './pricing.js';
 import { newReference } from './payments/store.js';
+import { legacyPostcode } from './site-data.js';
 
 /* Ten announcements from one address in ten minutes is far beyond a person
    ordering dinner and far below anything a real guest could trip. Counting
@@ -93,12 +94,30 @@ export function orderIdentity(body) {
     .filter(([, qty]) => Number.isFinite(qty) && qty > 0)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   const delivery = !!body && body.type !== 'pickup';
-  return JSON.stringify({
+  const identity = {
     items,
     type: delivery ? 'delivery' : 'pickup',
     business: !!(body && body.business),
     postcode: delivery ? clip(body.postcode, 16) : null
-  });
+  };
+  /* A delivery chosen from the list also names its town (PO-15): 68723 is three
+     towns, and two of them are not the same destination. A request without a
+     town -- every order from before the list -- keeps exactly the identity it
+     always had, so an old order is still found by its replay. */
+  if (delivery && typeof body.town === 'string') identity.town = clip(body.town, 80);
+  return JSON.stringify(identity);
+}
+
+/* Is this the destination an old payment was made for?
+   ---------------------------------------------------------------------------
+   A payment made before the list stored the postcode as typed ("68799
+   Reilingen") and no town. It is the same destination as a request only when the
+   two agree as written, or both read as the same five-digit postcode. Two values
+   that hold no postcode ("Schwetzingen", "") are never the same place. */
+function sameLegacyDestination(stored, requested) {
+  if (clip(stored, 16) === clip(requested, 16) && clip(stored, 16) !== null) return true;
+  const code = legacyPostcode(stored);
+  return code !== null && code === legacyPostcode(requested);
 }
 
 /* Does this payment pay for exactly this order?
@@ -118,7 +137,7 @@ async function verifiedPayment(env, paymentId, priced, body) {
   if (!paymentId) return null;
   const row = await env.DB.prepare(
     `SELECT id, reference, status, amount, currency, subtotal, discount, fee,
-            order_type, business, postcode, lines
+            order_type, business, postcode, town, lines
        FROM payments WHERE id = ?1`
   ).bind(paymentId).first();
   if (!row || !LINKABLE.has(row.status)) return null;
@@ -126,11 +145,16 @@ async function verifiedPayment(env, paymentId, priced, body) {
   let lines;
   try { lines = JSON.stringify(JSON.parse(row.lines || '[]')); } catch { return null; }
   const delivery = body.type !== 'pickup';
+  // A payment made from the list names its pair, and only that pair matches. One
+  // from before the list is matched by its recoverable postcode (above).
+  const sameDestination = !delivery || (row.town != null
+    ? row.postcode === body.postcode && row.town === body.town
+    : sameLegacyDestination(row.postcode, body.postcode));
   const same =
     lines === JSON.stringify(priced.lines) &&
     row.order_type === (delivery ? 'delivery' : 'pickup') &&
     !!row.business === !!body.business &&
-    (!delivery || clip(row.postcode, 16) === clip(body.postcode, 16)) &&
+    sameDestination &&
     row.amount === priced.total &&
     row.subtotal === priced.subtotal &&
     row.discount === priced.discount &&
@@ -314,9 +338,22 @@ export async function recordOrder(env, body, ip) {
   if (await throttled(env, ip)) return null;
   await recordAttempt(env, ip);
 
+  /* A delivery paid for before the list existed, handed over after it.
+     Its payment is the agreed price: it is linked as it was paid, never priced
+     again, never charged again, and never made to choose a town it did not
+     have. DELIVERY_PRICING round 21, G4 / DP-21-03. */
+  const paidBefore = await paidBeforeTheList(env, claimed, body);
+  if (paidBefore) return insertOrder(env, body, paidBefore.priced, paidBefore.payment, claimed, identity);
+
   // Prices come from the menu, never from the browser. Throws PricingError for
   // an unknown dish or an empty basket, which the route turns into a plain 400.
   const priced = await quote(env, body);
+  // A new delivery goes only to a listed postcode-and-town pair. An enquiry for
+  // any other postcode is a question in the chat, not an order in the books
+  // (PO-15). Nothing is stored and nobody is told an order is real.
+  if (!priced.deliverable) {
+    throw new PricingError('postcode_not_listed', 'Please choose your postcode and town from the list.');
+  }
 
   /* A payment counts only when it is real, is for this food, and is not
      already the payment of another order. An order paid online reuses the
@@ -332,7 +369,46 @@ export async function recordOrder(env, body, ip) {
      claim or charging a guest twice. W01-05. */
   let payment = await verifiedPayment(env, claimed, priced, body);
   if (payment && await paymentTaken(env, payment.id)) payment = null;
+  return insertOrder(env, body, priced, payment, claimed, identity);
+}
 
+/* The payment, and its own priced snapshot, of a delivery paid before the list
+   (town NULL) that this request repeats: same basket, type, company flag and a
+   recoverable same postcode. Anything less is not that payment's order, and
+   takes the ordinary path. */
+async function paidBeforeTheList(env, paymentId, body) {
+  if (!paymentId || body.type === 'pickup') return null;
+  const row = await env.DB.prepare(
+    `SELECT id, reference, status, amount, currency, subtotal, discount, fee,
+            order_type, business, postcode, town, lines
+       FROM payments WHERE id = ?1`
+  ).bind(paymentId).first();
+  if (!row || !LINKABLE.has(row.status) || row.order_type !== 'delivery' || row.town != null) {
+    return null;
+  }
+  if (!!row.business !== !!body.business || !sameLegacyDestination(row.postcode, body.postcode)) {
+    return null;
+  }
+  let lines;
+  try { lines = JSON.parse(row.lines || '[]'); } catch { return null; }
+  if (!Array.isArray(lines)) return null;
+  const paidItems = {};
+  for (const line of lines) paidItems[line.id] = (paidItems[line.id] || 0) + Number(line.qty);
+  const asked = orderIdentity({ items: body.items, type: 'delivery', business: body.business, postcode: '' });
+  const paid = orderIdentity({ items: paidItems, type: 'delivery', business: body.business, postcode: '' });
+  if (asked !== paid || (row.currency || 'EUR') !== 'EUR') return null;
+  if (await paymentTaken(env, row.id)) return null;
+  return {
+    payment: row,
+    priced: {
+      lines, subtotal: row.subtotal, discount: row.discount, fee: row.fee, total: row.amount,
+      // Stored as it was paid for: the postcode as typed then, no town.
+      destination: { postcode: row.postcode, town: null }
+    }
+  };
+}
+
+async function insertOrder(env, body, priced, payment, claimed, identity) {
   const insert = async (link) => {
     const id = crypto.randomUUID();
     const reference = link ? link.reference : newReference();
@@ -342,15 +418,15 @@ export async function recordOrder(env, body, ip) {
          pay_method, postcode, lines, subtotal, discount, fee, total, currency,
          requested_time, customer_name, customer_phone, customer_address,
          customer_company, notes, claimed_payment_id, payment_check,
-         order_identity, created_at)
+         order_identity, created_at, town)
        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,'EUR',?13,?14,?15,?16,?17,?18,
-               ?19,?20,?21, datetime('now'))`
+               ?19,?20,?21, datetime('now'), ?22)`
     ).bind(
       id, reference, link ? link.id : null,
       body.type === 'pickup' ? 'pickup' : 'delivery',
       body.business ? 1 : 0,
       link ? 'online' : 'onsite',
-      clip(body.postcode, 16),
+      priced.destination ? clip(priced.destination.postcode, 16) : null,
       JSON.stringify(priced.lines),
       priced.subtotal, priced.discount, priced.fee, priced.total,
       clip(body.time, 120),
@@ -361,7 +437,8 @@ export async function recordOrder(env, body, ip) {
       clip(body.notes, 500),
       unverified ? claimed : null,
       unverified ? 'unverified' : null,
-      identity
+      identity,
+      priced.destination ? priced.destination.town : null
     ).run();
     return {
       id,

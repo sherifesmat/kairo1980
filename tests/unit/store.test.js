@@ -22,7 +22,7 @@ function newPayment(overrides = {}) {
     fee: 200,
     orderType: 'delivery',
     business: false,
-    postcode: '69168',
+    postcode: '69168', town: 'Wiesloch',
     lines: [{ id: 'hummus', name: 'Hummus', qty: 2, unit: 950, amount: 1900 }],
     ...overrides
   };

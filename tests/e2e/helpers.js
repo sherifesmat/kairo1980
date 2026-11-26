@@ -117,12 +117,32 @@ export async function chooseDelivery(page) {
 }
 
 export async function fillContact(page, {
-  name = 'Test Gast', phone = '+49 176 1234567', address = null, postcode = null
+  name = 'Test Gast', phone = '+49 176 1234567', address = null, postcode = null, town = null
 } = {}) {
   await page.locator('#fName').fill(name);
   await page.locator('#fPhone').fill(phone);
   if (address) await page.locator('#fAddress').fill(address);
-  if (postcode) await page.locator('#fPlz').fill(postcode);
+  if (postcode) await choosePostcode(page, postcode, town);
+}
+
+/** Choose where a delivery goes, from the list (PO-15). A postcode that is not on
+ *  the list is chosen as "not listed" and typed into the enquiry's own field.
+ *  Without a town, a single-town postcode's one town is taken from the page's
+ *  own list; a postcode with several towns must name the town. */
+export async function choosePostcode(page, postcode, town = null) {
+  const listed = await page.evaluate(([code, wanted]) => {
+    const row = (window.KAIRO_ZONES || []).find((z) => z[0] === code);
+    if (!row) return null;
+    if (wanted) return row[5].includes(wanted) ? wanted : null;
+    return row[5].length === 1 ? row[5][0] : 'AMBIGUOUS';
+  }, [postcode, town]);
+  if (listed === 'AMBIGUOUS') throw new Error(postcode + ' has several towns: name one');
+  if (listed) {
+    await page.locator('#fPlz').selectOption(postcode + '|' + listed);
+    return;
+  }
+  await page.locator('#fPlz').selectOption('not-listed');
+  await page.locator('#fPlzOther').fill(postcode);
 }
 
 /** Intercept the WhatsApp handover. window.open would otherwise leave the

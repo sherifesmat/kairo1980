@@ -194,6 +194,9 @@ async function quoteOnly(request, env) {
     total: q.total,
     currency: 'EUR',
     zone: q.zone ? { place: q.zone.place, fee: Math.round(q.zone.fee * 100), minimum: Math.round(q.zone.minimum * 100) } : null,
+    // False for a delivery that is not a listed postcode-and-town pair. Such a
+    // quote is not a price with no fee: it is not an order at all (PO-15).
+    deliverable: q.deliverable,
     belowMinimum: q.belowMinimum
   });
 }
@@ -233,6 +236,11 @@ async function createPayment(request, env, url) {
   if (!provider) return fail(503, 'payments_off', 'That payment method is not available.');
 
   const q = await quote(env, body);
+  // Before the provider is asked for anything: no payment is ever started for a
+  // delivery the list does not offer (PO-15, DELIVERY_PRICING round 21 G3).
+  if (!q.deliverable) {
+    return fail(400, 'postcode_not_listed', 'Please choose your postcode and town from the list.');
+  }
 
   const id = crypto.randomUUID();
   const reference = store.newReference();
@@ -259,7 +267,8 @@ async function createPayment(request, env, url) {
     fee: q.fee,
     orderType: body.type === 'pickup' ? 'pickup' : 'delivery',
     business: !!body.business,
-    postcode: body.postcode || null,
+    postcode: q.destination ? q.destination.postcode : null,
+    town: q.destination ? q.destination.town : null,
     lines: q.lines
   });
 
@@ -939,7 +948,7 @@ async function ordersReport(request, env, url) {
   const endsAt = sqliteUTC(instantOf(to, '00:00') + 24 * 60 * 60 * 1000);
 
   const { results } = await env.DB.prepare(
-    `SELECT o.id, o.reference, o.order_type, o.business, o.pay_method, o.postcode,
+    `SELECT o.id, o.reference, o.order_type, o.business, o.pay_method, o.postcode, o.town,
             o.lines, o.subtotal, o.discount, o.fee, o.total, o.currency,
             o.requested_time, o.created_at, o.cancelled_at, o.cancelled_reason,
             o.customer_name, o.customer_phone, o.customer_address,
@@ -990,6 +999,8 @@ async function ordersReport(request, env, url) {
         business: !!o.business,
         payMethod: o.pay_method,          // onsite | online
         postcode: o.postcode,
+        // The town the guest chose (PO-15). NULL on orders from before it.
+        town: o.town || null,
         requestedTime: o.requested_time,
         // Cents, exactly as the server priced it. `total` is what the guest
         // owes: food, less the discount that applies only to food, plus the

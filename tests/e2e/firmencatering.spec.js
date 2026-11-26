@@ -100,6 +100,10 @@ test('the delivery towns are rendered from the zone list, not retyped', async ({
   const list = page.locator('#areasList');
   await expect(list).toContainText('Walldorf');
   await expect(list).toContainText('69190');
+  // A postcode that is several towns names every one (68723: the sheet's label
+  // says only "Schwetzingen / Plankstadt").
+  await expect(list.locator('.area', { hasText: '68723' }))
+    .toContainText('Oftersheim / Plankstadt / Schwetzingen');
 
   // Every postcode in the spreadsheet reaches the page, and the copy counts
   // them rather than claiming a round number.
@@ -208,8 +212,9 @@ test('the Service markup parses, and its provider is the existing restaurant',
     // areaServed comes from the zone list, so it can never name a town we do
     // not deliver to.
     const towns = await page.evaluate(() =>
-      [...new Set(window.KAIRO_ZONES.map(
-        (row) => String(row[1]).replace(/\s*\(.*\)$/, '').split(' / ')[0]))]);
+      [...new Set(window.KAIRO_ZONES.flatMap((row) => row[5]))]);
+    // 68723 is three towns, and every one of them is served.
+    expect(towns).toEqual(expect.arrayContaining(['Oftersheim', 'Plankstadt', 'Schwetzingen']));
     expect(data.areaServed.map((place) => place.name)).toEqual(towns);
     expect(data.areaServed.every((place) => place['@type'] === 'City')).toBe(true);
 

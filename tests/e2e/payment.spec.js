@@ -8,7 +8,7 @@
 import { test, expect } from '@playwright/test';
 import {
   addItem, openBasket, fillContact, captureWhatsApp, stubPayments, choosePickup,
-  chooseDelivery, serviceMode
+  chooseDelivery, serviceMode, choosePostcode
 } from './helpers.js';
 
 /** Basket → contact filled → "pay online" chosen → submitted. */
@@ -61,7 +61,7 @@ test('the button says what pressing it obliges you to (§ 312j Abs. 3 BGB)', asy
   // Only a delivery outside the area is an enquiry; pickup always has a price.
   if (await serviceMode(page) === 'pickup') return;
   await chooseDelivery(page);
-  await page.locator('#fPlz').fill('10115');
+  await choosePostcode(page, '10115');
   await expect(button).toHaveText('Unverbindliche Anfrage senden');
 });
 

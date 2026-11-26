@@ -935,7 +935,7 @@ test('the kitchen page shows the name, the phone number and the address', async 
   t.after(() => paypal.restore());
 
   const { reference } = await (await worker.fetch(post('/api/orders/announce', {
-    items: { koshari: 2 }, type: 'delivery', postcode: '68766',
+    items: { koshari: 2 }, type: 'delivery', postcode: '68766', town: 'Hockenheim',
     time: 'Heute 19:30', name: 'Sherif Esmat', phone: '+49 176 79906621',
     address: 'Hauptstrasse 12', notes: 'Bitte 2x klingeln'
   }), env, c)).json();

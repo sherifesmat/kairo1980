@@ -5,7 +5,7 @@
    warning given, what reaches the restaurant — not pixels. */
 
 import { test, expect } from '@playwright/test';
-import { addItem, openBasket, captureWhatsApp, fillContact, choosePickup, chooseDelivery, requireDelivery } from './helpers.js';
+import { addItem, openBasket, captureWhatsApp, fillContact, choosePickup, chooseDelivery, requireDelivery, choosePostcode } from './helpers.js';
 
 test('the menu shows a price for every dish that can be ordered', async ({ page }) => {
   await page.goto('/');
@@ -69,7 +69,7 @@ test('a postcode we deliver to shows its fee before the guest commits', async ({
   await openBasket(page);
 
   await chooseDelivery(page);
-  await page.locator('#fPlz').fill('69168');   // Wiesloch: 20 € minimum, 2 € fee
+  await choosePostcode(page, '69168');   // Wiesloch: 20 € minimum, 2 € fee
 
   const body = page.locator('#cartBody');
   await expect(body).toContainText('Wiesloch');
@@ -82,7 +82,7 @@ test('a sub-minimum order is warned about but never blocked', async ({ page }, t
   await addItem(page, 'hummus', 1);          // 9.50, under the 20 € minimum
   await openBasket(page);
   await chooseDelivery(page);
-  await page.locator('#fPlz').fill('69168');
+  await choosePostcode(page, '69168');
 
   // Warned…
   await expect(page.locator('.cart-zone')).toHaveClass(/is-below-min/);
@@ -96,7 +96,7 @@ test('a postcode outside the area becomes an enquiry rather than a refusal', asy
   await addItem(page, 'hummus', 2);
   await openBasket(page);
   await chooseDelivery(page);
-  await page.locator('#fPlz').fill('10115');   // Berlin
+  await choosePostcode(page, '10115');   // Berlin: not listed
 
   await expect(page.locator('.cart-zone')).toHaveClass(/is-unknown/);
   await expect(page.locator('#cartSend')).toBeEnabled();
@@ -291,7 +291,7 @@ test('free delivery is announced to everyone once the threshold is reached', asy
   await addItem(page, 'etwas-von-allem', 4);  // 4 × 26.00 = 104.00, over 80 €
   await openBasket(page);
   await chooseDelivery(page);
-  await page.locator('#fPlz').fill('69168');  // Wiesloch would otherwise cost 2 €
+  await choosePostcode(page, '69168');  // Wiesloch would otherwise cost 2 €
 
   const body = page.locator('#cartBody');
   await expect(body).toContainText('kostenfrei');
@@ -304,7 +304,7 @@ test('below the threshold the basket says how much is missing', async ({ page },
   await addItem(page, 'hummus', 2);           // 19.00
   await openBasket(page);
   await chooseDelivery(page);
-  await page.locator('#fPlz').fill('69168');
+  await choosePostcode(page, '69168');
 
   // Free from 80 € on every channel (owner, 26.11.2026): 80.00 − 19.00 = 61.00 still to go.
   await expect(page.locator('#cartBody')).toContainText('61,00');
@@ -319,7 +319,7 @@ test('a company delivery is held to its zone minimum, on screen and in the chat'
     await addItem(page, 'hummus', 1);         // 9.50, far under Wiesloch's 20 €
     await openBasket(page);
     await chooseDelivery(page);
-    await page.locator('#fPlz').fill('69168');
+    await choosePostcode(page, '69168');
 
     const zone = page.locator('.cart-zone');
     await expect(zone).toContainText('Mindestbestellwert');
@@ -498,7 +498,7 @@ for (const lang of ['de', 'en', 'ar']) {
     await addItem(page, 'hummus', 2);
     await openBasket(page);
     await chooseDelivery(page);
-    await page.locator('#fPlz').fill('68766');
+    await choosePostcode(page, '68766');
     await page.locator('#fBusiness').check();
     await expect(page.locator('#cartBody')).not.toContainText(NOTICE[lang]);
     await expect(page.locator('#cartLeadNote')).toHaveCount(0);

@@ -41,6 +41,8 @@
   Cache-Control: public, max-age=0, must-revalidate
 /zones.js
   Cache-Control: public, max-age=0, must-revalidate
+/postcode.js
+  Cache-Control: public, max-age=0, must-revalidate
 /reviews.json
   Cache-Control: public, max-age=0, must-revalidate
 

@@ -1543,7 +1543,19 @@ body.cart-open { overflow: hidden; }
   outline: none; border-color: #b8914a;
 }
 .cart-field textarea { resize: vertical; min-height: 62px; }
-.cart-field .is-invalid { border-color: #b4442c; background: #fff6f3; }
+/* The delivery postcode is chosen, not typed (PO-15): the same box as the
+   fields around it, full width, with its own arrow on the reading side's end. */
+.cart-field select {
+  width: 100%; min-height: 44px; padding: 11px 36px 11px 12px;
+  font-family: 'DM Sans', sans-serif; font-size: 14px; color: #1c1409;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23b8914a' stroke-width='1.6'/%3E%3C/svg%3E") no-repeat right 12px center;
+  border: 1px solid rgba(200,165,90,0.35); border-radius: 2px;
+  -webkit-appearance: none; appearance: none;
+  transition: border-color 0.2s;
+}
+[dir="rtl"] .cart-field select { padding: 11px 12px 11px 36px; background-position: left 12px center; }
+.cart-field select:focus { outline: none; border-color: #b8914a; }
+.cart-field .is-invalid { border-color: #b4442c; background-color: #fff6f3; }
 
 /* iOS Safari zooms the whole page in whenever a focused input is set below
    16px, and it does not zoom back out afterwards. At 14px that meant every
@@ -1552,7 +1564,7 @@ body.cart-open { overflow: hidden; }
    out between fields. 16px on touch pointers only, so the desktop form keeps
    its proportions. */
 @media (pointer: coarse) {
-  .cart-field input, .cart-field textarea { font-size: 16px; }
+  .cart-field input, .cart-field textarea, .cart-field select { font-size: 16px; }
 }
 /* Safari gives date and time inputs their own intrinsic height, which left the
    two sitting at different heights side by side. */

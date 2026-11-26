@@ -88,7 +88,7 @@ test('pickup-only refuses delivery, unknown and missing types before money or or
   assert.equal(q.fee, 0);
   assert.equal(q.belowMinimum, false);
   await writeServiceMode(env, 'delivery');
-  assert.ok((await quote(env, { items: { hummus: 1 }, type: 'delivery', postcode: '69168' })).fee > 0);
+  assert.ok((await quote(env, { items: { hummus: 1 }, type: 'delivery', postcode: '69168', town: 'Wiesloch' })).fee > 0);
   } finally { CONFIG.payment.prepayOnline = online; }
 });
 
@@ -186,7 +186,7 @@ test('another worker binding cannot accept delivery using a cached mode after th
   const guest = { ...owner, DB: { prepare: (...args) => owner.DB.prepare(...args) } };
   assert.equal((await readSettings(guest)).serviceMode, 'delivery');
   await writeServiceMode(owner, 'pickup');
-  await assert.rejects(quote(guest, { items: { hummus: 1 }, type: 'delivery', postcode: '69168' }), error => error.code === 'pickup_only');
+  await assert.rejects(quote(guest, { items: { hummus: 1 }, type: 'delivery', postcode: '69168', town: 'Wiesloch' }), error => error.code === 'pickup_only');
   const pickup = await quote(guest, { items: { hummus: 1 }, type: 'pickup' });
   assert.equal(pickup.fee, 0);
 });

@@ -14,7 +14,12 @@
      - the per-zone minimum is asked of every order that has to be driven out,
        private or company (owner, 23.10.2026); a pickup is never held to it.
        It is advisory: a sub-minimum order is flagged, never refused
-     - an unknown postcode charges no fee; that is agreed in the chat instead */
+     - a delivery goes to a postcode-and-town pair chosen from the list (PO-15).
+       Anything else is not deliverable: the quote says so, and a payment or an
+       order is refused for it. An enquiry for an unlisted postcode is agreed in
+       the chat, never priced here. Until 26.11.2026 an unrecognised postcode
+       was priced as an order with no fee, which is how "68799 Reilingen" was
+       charged nothing (KBOSS DELIVERY_PRICING round 20). */
 
 import { CONFIG, menuData, effectiveMenu, effectiveSoldOut, zoneFor } from './site-data.js';
 import { readSettings, forgetCache } from './settings.js';
@@ -100,7 +105,7 @@ export async function quote(env, req) {
     : (order.directDiscountPercent || 0);
   const discount = Math.round(subtotal * percent / 100);
 
-  const zone = type === 'delivery' ? zoneFor(req.postcode) : null;
+  const zone = type === 'delivery' ? zoneFor(req.postcode, req.town) : null;
   const waived = freeDeliveryQualifies(subtotal);
   const fee = (zone && !waived) ? Math.round(zone.fee * 100) : 0;
 
@@ -115,6 +120,9 @@ export async function quote(env, req) {
     fee,
     total,
     zone,
+    // A pickup always is; a delivery only to a listed pair.
+    deliverable: type === 'pickup' || !!zone,
+    destination: zone ? { postcode: zone.postcode, town: zone.town } : null,
     freeDelivery: waived,
     // Advisory only, exactly as in the browser: a sub-minimum order is flagged
     // in the chat, never refused. It must not block a payment either — and it

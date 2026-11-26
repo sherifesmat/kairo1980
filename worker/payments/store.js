@@ -43,13 +43,13 @@ export async function create(db, payment) {
   await db.prepare(
     `INSERT INTO payments (id, reference, provider, provider_order_id, status,
        amount, currency, subtotal, discount, fee, order_type, business, postcode,
-       lines, created_at, updated_at)
-     VALUES (?1,?2,?3,?4,'created',?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?14)`
+       lines, created_at, updated_at, town)
+     VALUES (?1,?2,?3,?4,'created',?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?14,?15)`
   ).bind(
     payment.id, payment.reference, payment.provider, payment.providerOrderId,
     payment.amount, payment.currency, payment.subtotal, payment.discount, payment.fee,
     payment.orderType, payment.business ? 1 : 0, payment.postcode || null,
-    JSON.stringify(payment.lines), ts
+    JSON.stringify(payment.lines), ts, payment.town || null
   ).run();
 
   await logEvent(db, {

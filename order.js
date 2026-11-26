@@ -264,6 +264,9 @@
       name: 'Name', phone: 'Telefon', address: 'Straße & Hausnummer',
       addressPh: 'z. B. Rostocker Straße 20a',
       postcode: 'Postleitzahl', postcodePh: '68766',
+      postcodeChoose: 'Bitte wählen', postcodeOther: 'Ihre PLZ fehlt? Anfrage senden',
+      postcodeOtherLabel: 'Ihre Postleitzahl (5 Ziffern)',
+      postcodeEnquiry: 'Ihre Postleitzahl ist nicht in der Liste. Sie senden uns eine unverbindliche Lieferanfrage — das ist noch keine Bestellung. Liefergebühr und Lieferung klären wir im Chat.',
       deliveryFee: 'Lieferung',
       zoneOk: 'Wir liefern nach {city}.',
       zoneFee: 'Lieferung nach {city}: {fee}.',
@@ -434,6 +437,9 @@
       name: 'Name', phone: 'Phone', address: 'Street & number',
       addressPh: 'e.g. Rostocker Straße 20a',
       postcode: 'Postcode', postcodePh: '68766',
+      postcodeChoose: 'Please choose', postcodeOther: 'Postcode not listed? Send an enquiry',
+      postcodeOtherLabel: 'Your postcode (5 digits)',
+      postcodeEnquiry: 'Your postcode is not on the list. You are sending us a non-binding delivery enquiry — this is not an order yet. We agree the delivery fee and whether we can deliver in the chat.',
       deliveryFee: 'Delivery',
       zoneOk: 'We deliver to {city}.',
       zoneFee: 'Delivery to {city}: {fee}.',
@@ -593,6 +599,9 @@
       name: 'الاسم', phone: 'التليفون', address: 'الشارع ورقم البيت',
       addressPh: 'مثال: Rostocker Straße 20a',
       postcode: 'الرمز البريدي', postcodePh: '68766',
+      postcodeChoose: 'اختار من فضلك', postcodeOther: 'الرمز البريدي بتاعك مش موجود؟ ابعت استفسار',
+      postcodeOtherLabel: 'الرمز البريدي بتاعك (5 أرقام)',
+      postcodeEnquiry: 'الرمز البريدي بتاعك مش في اللستة. إنت بتبعتلنا استفسار توصيل من غير أي التزام — ده لسه مش طلب. هنتفق على رسوم التوصيل وإمكانية التوصيل في الشات.',
       deliveryFee: 'التوصيل',
       zoneOk: 'بنوصّل لـ {city}.',
       zoneFee: 'التوصيل لـ {city}: {fee}.',
@@ -1249,19 +1258,28 @@
     } catch (e) { /* malformed JSON-LD — leave the original untouched */ }
   }
 
+  // How a delivery row is named in the public list. A postcode that is several
+  // towns names all of them (68723 is Oftersheim, Plankstadt and Schwetzingen,
+  // and the sheet's label names only two); a one-town postcode keeps its label,
+  // which may carry the district ("Heidelberg (Altstadt)").
+  function areaName(row) {
+    var towns = row[5] || [];
+    return towns.length > 1 ? towns.join(' / ') : String(row[1]);
+  }
+
   // The delivery towns, derived once from the zone list and shared by both
   // structured-data blocks: the Restaurant on the ordering page and the
   // catering Service on /firmencatering. Two derivations would be two chances
   // for the site to name different towns in different places.
-  // A postcode covering two places ("Schwetzingen / Plankstadt") is filed
-  // under the first, and a district suffix ("Heidelberg (Altstadt)") is
-  // dropped: schema.org wants the town, not our delivery bookkeeping.
+  // The towns are the directory's own (row[5], PO-15), so a postcode that is
+  // three towns names all three and no district label ("Heidelberg (Altstadt)")
+  // reaches schema.org, which wants the town, not our delivery bookkeeping.
   function areaServedCities() {
     var zones = (CFG.delivery && CFG.delivery.zones) || [];
     var seen = {};
-    return zones.map(function (row) {
-      return String(row[1]).replace(/\s*\(.*\)$/, '').split(' / ')[0];
-    }).filter(function (city) {
+    return zones.reduce(function (all, row) {
+      return all.concat(row[5] || []);
+    }, []).filter(function (city) {
       if (seen[city]) return false;
       seen[city] = true;
       return true;
@@ -1622,18 +1640,38 @@
     return (name || node.textContent).trim();
   }
 
-  // Postcode -> zone. Advisory only: an unknown postcode is reported, never
-  // used to refuse an order (see the rationale in config.js).
-  function zoneFor(postcode) {
-    var code = String(postcode || '').replace(/\D/g, '');
-    if (code.length !== 5) return null;
-    var rows = (CFG.delivery && CFG.delivery.zones) || [];
-    for (var i = 0; i < rows.length; i++) {
-      if (rows[i][0] === code) {
-        return { plz: rows[i][0], city: rows[i][1], km: rows[i][2], minOrder: rows[i][3], fee: rows[i][4] };
-      }
+  /* Where a delivery goes: chosen from the list, never typed (PO-15).
+     -------------------------------------------------------------------------
+     The postcode used to be free text, and the basket read "68799 Reilingen" as
+     68799 while the server called it outside the area and charged no fee. Now the
+     guest picks a postcode and a town from the list the fee is computed from
+     (postcode.js), or says their postcode is not listed and sends an enquiry.
+
+       pickup      -- no destination
+       unselected  -- delivery, nothing chosen yet (the placeholder)
+       listed      -- a postcode-and-town pair on the list: an order, priced
+       enquiry     -- "not listed": a question with no agreed fee, never an order
+
+     The select's value is the pair's id ("68723|Oftersheim"); a postcode alone
+     would not do, since 68723 is three towns. */
+  var PC = window.KAIRO_POSTCODE;
+  var NOT_LISTED = 'not-listed';
+
+  function destination() {
+    if (form.type !== 'delivery') return { kind: 'pickup' };
+    var chosen = draft.fPlz != null ? draft.fPlz : val('fPlz');
+    if (chosen === NOT_LISTED) {
+      var typed = String(draft.fPlzOther != null ? draft.fPlzOther : val('fPlzOther')).trim();
+      return { kind: 'enquiry', postcode: /^[0-9]{5}$/.test(typed) ? typed : '' };
     }
-    return null;
+    var id = PC.fromChoiceId(chosen);
+    var pair = id && PC.pairFor(id.postcode, id.town);
+    if (!pair) return { kind: 'unselected' };
+    var row = pair.zone;
+    return {
+      kind: 'listed', postcode: pair.postcode, town: pair.town,
+      zone: { plz: row[0], city: pair.town, km: row[2], minOrder: row[3], fee: row[4] }
+    };
   }
 
   /* --- the two delivery rules ---------------------------------------------
@@ -1677,7 +1715,7 @@
     // food, not on driving. It is waived once the food subtotal reaches the
     // threshold, for every order alike. An unknown zone charges nothing here;
     // that fee is agreed in the chat rather than guessed by the page.
-    var zone = form.type === 'delivery' ? zoneFor(draft.fPlz) : null;
+    var zone = destination().zone || null;
     var qualifies = freeDeliveryQualifies(subtotal);
     var fee = (zone && !qualifies) ? zone.fee : 0;
 
@@ -2486,6 +2524,36 @@
     }
   }
 
+  /* The delivery postcode: one option per town of every served postcode, grouped
+     by town (KBOSS DELIVERY_PRICING round 21, G-Q1), the postcode visible in every
+     option, and a last choice for a postcode that is not listed (G-Q2). */
+  function postcodeField(L) {
+    var groups = PC.choices();
+    var options = '<option value="">' + escapeHtml(L.postcodeChoose) + '</option>' +
+      groups.map(function (g) {
+        return '<optgroup label="' + escapeHtml(g.town) + '">' +
+          g.options.map(function (o) {
+            // The left-to-right mark keeps a German address in its own order on
+            // the Arabic page: without it "68723 Oftersheim" reads
+            // "Oftersheim 68723", the digits pushed behind the town.
+            return '<option value="' + escapeHtml(o.id) + '">' +
+              '\u200E' + escapeHtml(o.postcode + ' ' + o.town) + '</option>';
+          }).join('') + '</optgroup>';
+      }).join('') +
+      '<option value="' + NOT_LISTED + '">' + escapeHtml(L.postcodeOther) + '</option>';
+    return '<label class="cart-field">' +
+        '<span class="cart-label">' + L.postcode + ' *</span>' +
+        '<select id="fPlz" required>' + options + '</select>' +
+      '</label>' +
+      '<div id="fPlzOtherWrap" hidden>' +
+        '<label class="cart-field">' +
+          '<span class="cart-label">' + L.postcodeOtherLabel + '</span>' +
+          '<input id="fPlzOther" type="text" inputmode="numeric" maxlength="5" ' +
+            'autocomplete="postal-code" pattern="[0-9]{5}" placeholder="' + L.postcodePh + '">' +
+        '</label>' +
+      '</div>';
+  }
+
   function field(id, label, type, placeholder, required) {
     return '<label class="cart-field">' +
       '<span class="cart-label">' + label + (required ? ' *' : '') + '</span>' +
@@ -2680,9 +2748,7 @@
   // whole flow then relabels itself as an enquiry, so nobody can believe they
   // placed an order we never agreed to.
   function isOutsideArea() {
-    if (form.type !== 'delivery') return false;
-    var typed = String(draft.fPlz || '').replace(/\D/g, '');
-    return typed.length === 5 && !zoneFor(typed);
+    return destination().kind === 'enquiry';
   }
 
   function paintSendButton() {
@@ -2729,15 +2795,16 @@
     var L = t();
     var sums = totals();
     var zone = sums.zone;
-    var typed = String(draft.fPlz || '').replace(/\D/g, '');
+    var where = destination();
+    var other = document.getElementById('fPlzOtherWrap');
+    if (other) other.hidden = where.kind !== 'enquiry';
 
-    if (typed.length < 5) { host.className = 'cart-zone'; host.textContent = ''; return; }
-
-    if (!zone) {
+    if (where.kind === 'enquiry') {
       host.className = 'cart-zone is-unknown';
-      host.textContent = L.zoneUnknown;
+      host.textContent = L.postcodeEnquiry;
       return;
     }
+    if (!zone) { host.className = 'cart-zone'; host.textContent = ''; return; }
 
     /* Free delivery is now every guest's, so this is where they find out.
        Three different things can be true and they must not be confused:
@@ -2946,7 +3013,7 @@
         field('fPhone', L.phone, 'tel', '', true) +
         '<div id="fAddressWrap"' + (form.type === 'delivery' ? '' : ' hidden') + '>' +
           field('fAddress', L.address, 'text', L.addressPh, true) +
-          field('fPlz', L.postcode, 'text', L.postcodePh, true) +
+          postcodeField(L) +
           '<div class="cart-zone" id="cartZoneHint"></div>' +
         '</div>' +
         whenHtml() +
@@ -2973,7 +3040,7 @@
   // Repainting the panel (language switch, quantity change) rebuilds its DOM,
   // so anything the guest already typed has to be carried across.
   var draft = {};
-  var DRAFT_FIELDS = ['fName', 'fPhone', 'fAddress', 'fPlz', 'fDate', 'fTime', 'fCompany', 'fNotes'];
+  var DRAFT_FIELDS = ['fName', 'fPhone', 'fAddress', 'fPlz', 'fPlzOther', 'fDate', 'fTime', 'fCompany', 'fNotes'];
   function rememberForm() {
     DRAFT_FIELDS.forEach(function (id) {
       var el = document.getElementById(id);
@@ -2981,10 +3048,16 @@
     });
   }
   function restoreForm() {
+    if (draft.fPlz && draft.fPlz !== NOT_LISTED) {
+      var id = PC.fromChoiceId(draft.fPlz);
+      if (!id || !PC.pairFor(id.postcode, id.town)) draft.fPlz = '';
+    }
     Object.keys(draft).forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.value = draft[id];
     });
+    var other = document.getElementById('fPlzOtherWrap');
+    if (other) other.hidden = draft.fPlz !== NOT_LISTED;
   }
 
   function escapeHtml(value) {
@@ -3206,7 +3279,7 @@
     out.push(L.mPhone + ': ' + data.phone);
     if (data.type === 'delivery') {
       out.push(L.mAddress + ': ' + data.address + ', ' + data.plz +
-        (sums.zone ? ' ' + sums.zone.city : ''));
+        (data.town ? ' ' + data.town : ''));
 
       // Flags the restaurant acts on. Neither one blocked the guest, and the
       // minimum is only ever raised with someone it is actually asked of —
@@ -3372,17 +3445,26 @@
       pay: form.pay,
       business: !!document.getElementById('fBusiness') && document.getElementById('fBusiness').checked,
       name: val('fName'), phone: val('fPhone'), address: val('fAddress'),
-      plz: val('fPlz'), time: whenText(), when: requestedWhen(),
+      plz: '', town: null, time: whenText(), when: requestedWhen(),
       company: val('fCompany'), notes: val('fNotes')
     };
+    var where = destination();
+    if (where.kind === 'listed' || where.kind === 'enquiry') {
+      data.plz = where.postcode;
+      data.town = where.town || null;
+    }
 
     var required = ['fName', 'fPhone'];
-    if (data.type === 'delivery') required.push('fAddress', 'fPlz');
+    if (data.type === 'delivery') {
+      required.push('fAddress', 'fPlz');
+      if (where.kind === 'enquiry') required.push('fPlzOther');
+    }
     var bad = null;
     required.forEach(function (id) {
       var el = document.getElementById(id);
       if (!el) return;
-      var empty = !el.value.trim();
+      var empty = !el.value.trim() ||
+        (id === 'fPlzOther' && !/^[0-9]{5}$/.test(el.value.trim()));
       el.classList.toggle('is-invalid', empty);
       if (empty && !bad) bad = el;
     });
@@ -3447,6 +3529,7 @@
           type: pending.data.type,
           business: pending.data.business,
           postcode: pending.data.plz,
+          town: pending.data.town || null,
           // Which moment this order is for, so the server can apply the same
           // closure rule the basket did. Never a price — only a wish.
           when: requestedWhen(),
@@ -3538,6 +3621,7 @@
           type: data.type,
           business: !!data.business,
           postcode: data.plz,
+          town: data.town || null,
           time: data.time,
           when: data.when || null,
           name: data.name,
@@ -3714,7 +3798,8 @@
       pay: form.pay,
       business: form.business,
       name: draft.fName || val('fName'), phone: draft.fPhone || val('fPhone'),
-      address: draft.fAddress || val('fAddress'), plz: draft.fPlz || val('fPlz'),
+      address: draft.fAddress || val('fAddress'),
+      plz: destination().postcode || '', town: destination().town || null,
       time: whenText(), when: requestedWhen(),
       company: draft.fCompany || '', notes: draft.fNotes || ''
     };
@@ -3833,7 +3918,7 @@
       }
       // The postcode changes the fee and therefore the total, so the summary
       // is repainted in place — a full repaint would steal the caret.
-      if (e.target.id === 'fPlz') paintSums();
+      if (e.target.id === 'fPlz' || e.target.id === 'fPlzOther') paintSums();
       // A new time can move the order into or out of the collection-only lunch
       // window, so the delivery/pickup control is repainted with the hint.
       if (e.target.id === 'fDate' || e.target.id === 'fTime') { paintWhen(); paintTypes(); }
@@ -4240,7 +4325,7 @@
     host.innerHTML = areaSteps(rows).map(function (step) {
       var towns = step.towns.map(function (row) {
         return '<li class="area">' +
-          '<span class="area-city">' + escapeHtml(row[1]) + '</span>' +
+          '<span class="area-city">' + escapeHtml(areaName(row)) + '</span>' +
           '<span class="area-plz">' + escapeHtml(row[0]) + '</span>' +
           '</li>';
       }).join('');
