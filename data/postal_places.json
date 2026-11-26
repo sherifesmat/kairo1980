@@ -1,0 +1,109 @@
+{
+  "source": "OpenPLZ API, https://openplzapi.org/de/Localities?postalCode=<code>",
+  "derived_from": "OpenStreetMap (ODbL 1.0, (c) OpenStreetMap contributors) and the municipality list of the Federal Statistical Office",
+  "limitations": "Municipalities only: no city districts, no street or building validation. Not the Deutsche Post directory.",
+  "retrieved": "2026-11-26",
+  "places": {
+    "67105": [
+      "Schifferstadt"
+    ],
+    "67346": [
+      "Speyer"
+    ],
+    "68167": [
+      "Mannheim"
+    ],
+    "68169": [
+      "Mannheim"
+    ],
+    "68199": [
+      "Mannheim"
+    ],
+    "68259": [
+      "Mannheim"
+    ],
+    "68305": [
+      "Mannheim"
+    ],
+    "68309": [
+      "Mannheim"
+    ],
+    "68526": [
+      "Ladenburg"
+    ],
+    "68535": [
+      "Edingen-Neckarhausen"
+    ],
+    "68723": [
+      "Oftersheim",
+      "Plankstadt",
+      "Schwetzingen"
+    ],
+    "68753": [
+      "Waghäusel"
+    ],
+    "68766": [
+      "Hockenheim"
+    ],
+    "68775": [
+      "Ketsch"
+    ],
+    "68782": [
+      "Brühl"
+    ],
+    "68789": [
+      "St. Leon-Rot"
+    ],
+    "68794": [
+      "Oberhausen-Rheinhausen"
+    ],
+    "68799": [
+      "Reilingen"
+    ],
+    "68804": [
+      "Altlußheim"
+    ],
+    "68809": [
+      "Neulußheim"
+    ],
+    "69115": [
+      "Heidelberg"
+    ],
+    "69117": [
+      "Heidelberg"
+    ],
+    "69120": [
+      "Heidelberg"
+    ],
+    "69123": [
+      "Heidelberg"
+    ],
+    "69124": [
+      "Heidelberg"
+    ],
+    "69126": [
+      "Heidelberg"
+    ],
+    "69168": [
+      "Wiesloch"
+    ],
+    "69190": [
+      "Walldorf"
+    ],
+    "69207": [
+      "Sandhausen"
+    ],
+    "69214": [
+      "Eppelheim"
+    ],
+    "69231": [
+      "Rauenberg"
+    ],
+    "76646": [
+      "Bruchsal"
+    ],
+    "76661": [
+      "Philippsburg"
+    ]
+  }
+}

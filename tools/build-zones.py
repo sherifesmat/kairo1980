@@ -1,148 +1,108 @@
 #!/usr/bin/env python3
-"""Generate zones.js from the delivery-zone spreadsheet.
+"""Generate zones.js from the delivery-zone spreadsheet and the postcode directory snapshot.
 
-The spreadsheet at data/delivery_zones.xlsx is the single source of truth for
-the delivery area. It is the same table used for the Lieferando zones, it is
-easy to edit, and it is the file the business already maintains. This script
-compiles it into zones.js, which the website loads.
+The spreadsheet at data/delivery_zones.xlsx is the single source of truth for the delivery
+area and its prices. data/postal_places.json (tools/fetch-postal-places.py) says which towns
+each postcode covers. This script joins the two into zones.js, which the website and its
+server both load.
 
     python tools/build-zones.py
 
-Never edit zones.js by hand — the next run overwrites it. Edit the spreadsheet
-and re-run. The script refuses to write a broken file: duplicate postcodes,
-malformed postcodes and non-numeric prices are reported as errors.
+Never edit zones.js by hand -- the next run overwrites it. The script refuses to write a broken
+file: a malformed or duplicate postcode, an amount that is not euros and cents, a postcode the
+snapshot does not know, or a snapshot postcode the spreadsheet no longer has.
 
 Expected columns (header row, any order, extra columns ignored):
     PLZ | City | Distance | Minimum Value | Delivery Fee
+
+One postcode has one price. One town may have several postcodes with different prices
+(Heidelberg, Mannheim): that is expected, and is not an error.
 """
 
 import io
+import json
 import os
-import re
 import sys
 
-try:
-    import openpyxl
-except ImportError:
-    sys.exit("openpyxl is required:  python -m pip install openpyxl")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from zone_sheet import ROOT, read_zone_rows  # noqa: E402
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SOURCE = os.path.join(ROOT, 'data', 'delivery_zones.xlsx')
 TARGET = os.path.join(ROOT, 'zones.js')
-
-WANTED = {
-    'plz': 'plz',
-    'city': 'city',
-    'distance': 'km',
-    'minimum value': 'min_order',
-    'delivery fee': 'fee',
-}
+PLACES = os.path.join(ROOT, 'data', 'postal_places.json')
 
 
-def number(value, field, row_no, errors, required=True):
-    if value is None or str(value).strip() == '':
-        if required:
-            errors.append('row %d: %s is empty' % (row_no, field))
-        return None
-    try:
-        num = float(str(value).replace(',', '.'))
-    except ValueError:
-        errors.append('row %d: %s is not a number (%r)' % (row_no, field, value))
-        return None
-    return int(num) if num == int(num) else num
+def js_number(value):
+    """An exact amount as a JavaScript number literal: 15, 7.5, 2.9."""
+    if value is None:
+        return 'null'
+    text = format(value.normalize(), 'f')
+    return text
 
 
-def read_rows():
-    sheet = openpyxl.load_workbook(SOURCE, data_only=True).worksheets[0]
-    rows = sheet.iter_rows(values_only=True)
-
-    header = next(rows)
-    index = {}
-    for position, label in enumerate(header):
-        key = WANTED.get(str(label or '').strip().lower())
-        if key:
-            index[key] = position
-
-    missing = {'plz', 'city', 'min_order', 'fee'} - set(index)
-    if missing:
-        sys.exit('spreadsheet is missing column(s): %s' % ', '.join(sorted(missing)))
-
-    zones, errors, seen = [], [], {}
-
-    for offset, row in enumerate(rows, start=2):
-        if not any(cell is not None and str(cell).strip() for cell in row):
+def join_places(zones, snapshot, errors):
+    places = snapshot.get('places') or {}
+    for zone in zones:
+        found = places.get(zone['plz'])
+        if not found:
+            errors.append('postcode %s is not in data/postal_places.json -- run '
+                          'python tools/fetch-postal-places.py' % zone['plz'])
             continue
-
-        plz = re.sub(r'\D', '', str(row[index['plz']] or ''))
-        city = str(row[index['city']] or '').strip()
-
-        if len(plz) != 5:
-            errors.append('row %d: %r is not a 5-digit postcode' % (offset, row[index['plz']]))
+        if len(set(found)) != len(found) or not all(isinstance(p, str) and p.strip() for p in found):
+            errors.append('postcode %s has empty or repeated towns in the snapshot' % zone['plz'])
             continue
-        if not city:
-            errors.append('row %d: city is empty' % offset)
-        if plz in seen:
-            errors.append(
-                'row %d: postcode %s is already used in row %d (%s vs %s) — '
-                'one postcode can only have one price'
-                % (offset, plz, seen[plz][0], seen[plz][1], city))
-            continue
-        seen[plz] = (offset, city)
+        zone['places'] = sorted(found)
+    stale = sorted(set(places) - {z['plz'] for z in zones})
+    if stale:
+        errors.append('the snapshot has postcode(s) the spreadsheet no longer lists: %s -- '
+                      're-run python tools/fetch-postal-places.py' % ', '.join(stale))
 
-        zones.append({
-            'plz': plz,
-            'city': city,
-            'km': number(row[index['km']], 'distance', offset, [], required=False)
-                  if 'km' in index else None,
-            'min_order': number(row[index['min_order']], 'minimum value', offset, errors),
-            'fee': number(row[index['fee']], 'delivery fee', offset, errors),
-        })
 
-    return zones, errors
+def render(zones, retrieved):
+    lines = []
+    for zone in zones:
+        lines.append('  [%s, %s, %s, %s, %s, %s]' % (
+            json.dumps(zone['plz']), json.dumps(zone['city'], ensure_ascii=False),
+            js_number(zone['km']), js_number(zone['min_order']), js_number(zone['fee']),
+            json.dumps(zone['places'], ensure_ascii=False)))
+    # Nothing here may vary between two runs over the same inputs: the deploy workflow rebuilds
+    # this file and diffs it against the committed one.
+    return (
+        '/* AUTO-GENERATED — DO NOT EDIT.\n'
+        '   Source : data/delivery_zones.xlsx + data/postal_places.json (retrieved %s)\n'
+        '   Rebuild: python tools/build-zones.py\n'
+        '   Zones  : %d postcodes, %d towns\n'
+        '\n'
+        '   Edit the spreadsheet, re-run the command, commit both files.\n'
+        '   Columns: [ postcode, label, km, minimum order EUR, delivery fee EUR, towns ]\n'
+        '   The label is ours (it may name a district); the towns are the directory\'s.\n'
+        '*/\n'
+        'window.KAIRO_ZONES = [\n%s\n];\n'
+    ) % (retrieved, len(zones), sum(len(z['places']) for z in zones), ',\n'.join(lines))
+
+
+def build(zones, snapshot):
+    """The text of zones.js, or (None, errors)."""
+    errors = []
+    join_places(zones, snapshot, errors)
+    if errors:
+        return None, errors
+    zones.sort(key=lambda z: (z['km'] is None, z['km'] if z['km'] is not None else 0, z['plz']))
+    return render(zones, snapshot.get('retrieved', '?')), []
 
 
 def main():
-    if not os.path.exists(SOURCE):
-        sys.exit('missing source spreadsheet: %s' % SOURCE)
-
-    zones, errors = read_rows()
-
+    zones, errors = read_zone_rows()
+    snapshot = json.load(io.open(PLACES, encoding='utf-8')) if os.path.exists(PLACES) else {}
+    text = None
+    if not errors:
+        text, errors = build(zones, snapshot)
     if errors:
-        print('zones.js NOT written — fix the spreadsheet first:\n', file=sys.stderr)
+        print('zones.js NOT written — fix the inputs first:\n', file=sys.stderr)
         for problem in errors:
             print('  * %s' % problem, file=sys.stderr)
         sys.exit(1)
-
-    zones.sort(key=lambda z: (z['km'] is None, z['km'] if z['km'] is not None else 0, z['plz']))
-
-    width = max(len(z['city']) for z in zones) + 2
-    lines = []
-    for zone in zones:
-        lines.append("  ['%s', %-*s %5s, %3s, %s]," % (
-            zone['plz'], width, "'" + zone['city'] + "',",
-            'null' if zone['km'] is None else zone['km'],
-            zone['min_order'], zone['fee']))
-    lines[-1] = lines[-1].rstrip(',')
-
-    # Nothing here may vary between two runs over the same spreadsheet: the
-    # deploy workflow rebuilds this file and diffs it against the committed
-    # one. A build date in the header made every deploy fail the day after
-    # zones.js was last committed. `git log zones.js` dates it accurately.
-    body = (
-        '/* AUTO-GENERATED — DO NOT EDIT.\n'
-        '   Source : data/delivery_zones.xlsx\n'
-        '   Rebuild: python tools/build-zones.py\n'
-        '   Zones  : %d postcodes\n'
-        '\n'
-        '   Edit the spreadsheet, re-run the command, commit both files.\n'
-        '   Columns: [ postcode, place, km, minimum order EUR, delivery fee EUR ]\n'
-        '*/\n'
-        'window.KAIRO_ZONES = [\n%s\n];\n'
-    ) % (len(zones), '\n'.join(lines))
-
-    io.open(TARGET, 'w', encoding='utf-8', newline='\n').write(body)
-    print('zones.js written — %d postcodes, %s'
-          % (len(zones), 'up to %.1f km' % max(z['km'] for z in zones if z['km'] is not None)))
+    io.open(TARGET, 'w', encoding='utf-8', newline='\n').write(text)
+    print('zones.js written — %d postcodes' % len(zones))
 
 
 if __name__ == '__main__':
