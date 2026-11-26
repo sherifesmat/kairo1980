@@ -179,6 +179,14 @@ jobs:
           sys.exit(1 if n else 0)
           '
 
+      # The zone tools' own tests, including the pin of every tariff to the one that
+      # was live before the towns were added (DELIVERY_PRICING DP-21-01, DP-22).
+      # Before the migrations, so a failure here changes nothing in production.
+      - name: Zone tools tests
+        run: |
+          python -m pip install --quiet openpyxl
+          python -m unittest tests/tools/test_build_zones.py
+
       # The schema has to exist before the Worker that writes to it goes live.
       # Applying migrations is idempotent: already-applied ones are skipped.
       - name: Apply database migrations

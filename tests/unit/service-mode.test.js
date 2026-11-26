@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import worker from '../../worker/index.js';
+import worker from '../helpers/page-worker.js';
 import { CONFIG } from '../../worker/site-data.js';
 import { readSettings, writeHours, writeServiceMode, closeOrdering } from '../../worker/settings.js';
 import { quote } from '../../worker/pricing.js';
@@ -75,11 +75,13 @@ test('pickup-only refuses delivery, unknown and missing types before money or or
   CONFIG.payment.prepayOnline = true;
   try {
   await writeServiceMode(env, 'pickup');
-  for (const type of ['delivery', 'something-else', undefined]) {
+  // A type that is not delivery or pickup is refused as unreadable before the
+  // mode is asked (DP-22-01); a delivery is refused as pickup-only.
+  for (const [type, code] of [['delivery', 'pickup_only'], ['something-else', 'invalid_type'], [undefined, 'invalid_type']]) {
     for (const path of ['/api/payments/quote', '/api/payments', '/api/orders/announce']) {
       const r = await worker.fetch(post(path, { items: { hummus: 1 }, method: 'paypal', type, business: true }), env, { waitUntil() {} });
       assert.equal(r.status, 400, path + ':' + type);
-      assert.equal((await r.json()).error.code, 'pickup_only');
+      assert.equal((await r.json()).error.code, code, path + ':' + type);
     }
   }
   assert.equal(env.DB._raw.prepare('select count(*) as n from payments').get().n, 0);

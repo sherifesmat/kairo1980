@@ -322,6 +322,17 @@ export function zoneFor(postcode, town) {
 }
 
 /** The postcode an already-stored value stands for (legacy, permissive), or null. */
+/** The towns the list has for one postcode, in list order; none if unlisted. */
+export function townsOf(code) {
+  const row = (globalThis.KAIRO_ZONES || []).find((zone) => zone[0] === code);
+  return row ? row[5].slice() : [];
+}
+
+/** A stored postcode field read: {status, code, town}. */
+export function readPostcode(value) {
+  return globalThis.KAIRO_POSTCODE.parse(value);
+}
+
 export function legacyPostcode(value) {
   return globalThis.KAIRO_POSTCODE.legacyCode(value);
 }

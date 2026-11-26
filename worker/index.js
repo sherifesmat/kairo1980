@@ -20,7 +20,7 @@ import * as admin from './admin/index.js';
 import { readSettings, orderingNow } from './settings.js';
 import { withLiveData, liveETag } from './page-render.js';
 import { dayOf, timeOf, instantOf } from './berlin.js';
-import { sendOrderNotification, sendCashOrderNotification, sendOrderCorrection } from './notify.js';
+import { sendOrderNotification, sendCashOrderNotification, sendOrderCorrection, sendPaymentConflict } from './notify.js';
 import { runRetention } from './retention.js';
 import { recordOrder, getOrder } from './orders.js';
 
@@ -186,6 +186,19 @@ function paymentConfig(env, url) {
 async function quoteOnly(request, env) {
   const body = await readJson(request);
   const q = await quote(env, body);
+  /* A delivery that is not a listed postcode-and-town pair has no price: not a
+     total with no fee, no total at all. Only the food is stated, as the food
+     (PO-15, DP-22-01). */
+  if (!q.deliverable) {
+    return json({
+      deliverable: false,
+      reason: 'postcode_not_listed',
+      food: { subtotal: q.subtotal, discount: q.discount, discountPercent: q.discountPercent },
+      fee: null,
+      total: null,
+      currency: 'EUR'
+    });
+  }
   return json({
     subtotal: q.subtotal,
     discount: q.discount,
@@ -241,11 +254,16 @@ async function createPayment(request, env, url) {
   if (!q.deliverable) {
     return fail(400, 'postcode_not_listed', 'Please choose your postcode and town from the list.');
   }
-  // The guest is asked to pay only the total they were shown. A page holding an
-  // older menu or tariff shows another figure; the payment is then not started,
-  // and the guest is told to look again. A page from before this check sends no
-  // figure and is priced as before (round 21, G5).
-  if (body.expectedTotal !== undefined && body.expectedTotal !== q.total) {
+  /* The guest is asked to pay only the total they were shown, in whole cents.
+     A page that names no total (a page from before this check) is asked to
+     reload, never charged a figure it did not show; one holding an older menu
+     or tariff shows another figure and is told so. Neither reaches the
+     provider. Settling a payment already created needs none of this
+     (DELIVERY_PRICING G5, DP-22-03). */
+  if (!Number.isSafeInteger(body.expectedTotal) || body.expectedTotal <= 0) {
+    return fail(409, 'reload_required', 'Please reload the page and check your order.');
+  }
+  if (body.expectedTotal !== q.total) {
     return fail(409, 'total_changed', 'The amount has changed. Please check your order.');
   }
 
@@ -401,20 +419,35 @@ async function announceOrder(request, env, ctx) {
      ignoring it by design. The restaurant reads it and says no, as it would
      to a telephone call. What changes is that a closed kitchen is no longer
      told an order is real, and no longer has one in its books. */
+  /* Money already taken is the exception: a guest who paid before the switch
+     and hands the order over now is recorded against that payment, to be dealt
+     with by the counter, rather than leaving a payment with no order. Nothing
+     new is admitted while closed (DP-22-02). */
   const ordering = orderingNow(await readSettings(env));
-  if (!ordering.open && !wantedAfterClosure(ordering.resumesAt, body.when)) {
+  const closed = !ordering.open && !wantedAfterClosure(ordering.resumesAt, body && body.when);
+  if (closed && !(body && body.paymentId)) {
     return fail(503, 'ordering_closed', 'The restaurant is not taking orders right now.');
   }
 
   let stored;
   try {
-    stored = await recordOrder(env, body, ip);
+    stored = await recordOrder(env, body, ip, { recoveryOnly: closed });
   } catch (err) {
     if (err instanceof PricingError) return fail(400, err.code, err.message);
     throw err;
   }
   // Throttled. Not an error the guest should ever see or act on.
   if (!stored) return json({ recorded: false }, 202);
+  if (stored.closed) {
+    return fail(503, 'ordering_closed', 'The restaurant is not taking orders right now.');
+  }
+  /* A real payment handed over with an order it does not pay for. Nothing is
+     stored as an order; the counter is told to resolve it with the guest, and
+     never to ask for a second payment (DP-22-02). */
+  if (stored.paymentConflict) {
+    if (stored.payment) ctx.waitUntil(sendPaymentConflict(env, stored.payment));
+    return json({ recorded: false, reason: 'payment_conflict', reference: stored.reference }, 409);
+  }
   /* A correction that lost to a different one and still could not be written.
      Never "recorded": the guest's WhatsApp message carries what they typed, and
      the counter reads it there. R5-01. */

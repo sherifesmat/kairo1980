@@ -47,8 +47,13 @@ def join_places(zones, snapshot, errors):
             errors.append('postcode %s is not in data/postal_places.json -- run '
                           'python tools/fetch-postal-places.py' % zone['plz'])
             continue
-        if len(set(found)) != len(found) or not all(isinstance(p, str) and p.strip() for p in found):
-            errors.append('postcode %s has empty or repeated towns in the snapshot' % zone['plz'])
+        # A list of distinct, non-empty town names exactly as written; a string is
+        # not a list of towns (it would iterate as letters), nor is an object.
+        if (not isinstance(found, list)
+                or not all(isinstance(p, str) and p and p.strip() == p for p in found)
+                or len(set(found)) != len(found)):
+            errors.append('postcode %s has malformed, empty or repeated towns in the snapshot'
+                          % zone['plz'])
             continue
         zone['places'] = sorted(found)
     stale = sorted(set(places) - {z['plz'] for z in zones})
@@ -70,11 +75,14 @@ def render(zones, retrieved):
         '/* AUTO-GENERATED — DO NOT EDIT.\n'
         '   Source : data/delivery_zones.xlsx + data/postal_places.json (retrieved %s)\n'
         '   Rebuild: python tools/build-zones.py\n'
-        '   Zones  : %d postcodes, %d towns\n'
+        '   Zones  : %d postcodes, %d postcode-town pairs\n'
         '\n'
         '   Edit the spreadsheet, re-run the command, commit both files.\n'
         '   Columns: [ postcode, label, km, minimum order EUR, delivery fee EUR, towns ]\n'
         '   The label is ours (it may name a district); the towns are the directory\'s.\n'
+        '   Towns  : OpenPLZ API (openplzapi.org), from OpenStreetMap data (c) OpenStreetMap\n'
+        '            contributors, ODbL 1.0, and the Destatis municipality list.\n'
+        '            Municipalities only; not a postal address check.\n'
         '*/\n'
         'window.KAIRO_ZONES = [\n%s\n];\n'
     ) % (retrieved, len(zones), sum(len(z['places']) for z in zones), ',\n'.join(lines))

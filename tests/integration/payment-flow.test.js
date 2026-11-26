@@ -6,7 +6,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../../worker/index.js';
+import worker from '../helpers/page-worker.js';
 import {
   workerEnv, fakePayPal, orderResponse, webhookEvent, webhookHeaders
 } from '../helpers/env.js';

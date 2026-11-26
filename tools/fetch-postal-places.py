@@ -42,7 +42,12 @@ def localities(postcode):
         request = urllib.request.Request(
             ENDPOINT % (postcode, page), headers={'User-Agent': 'postcode-snapshot'})
         with urllib.request.urlopen(request, timeout=20) as response:
-            pages = int(response.headers.get('x-total-pages') or 1)
+            # The page count is the directory's own statement of completeness. Without
+            # it a missing page would look like a shorter list (DP-22, DP-21-01).
+            header = response.headers.get('x-total-pages')
+            if header is None or not header.strip().isdigit() or int(header) < 1:
+                sys.exit('directory sent no usable x-total-pages for %s (%r)' % (postcode, header))
+            pages = int(header)
             for row in json.load(response):
                 if row.get('postalCode') != postcode:
                     sys.exit('directory answered %r for %s' % (row.get('postalCode'), postcode))

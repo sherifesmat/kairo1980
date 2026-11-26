@@ -123,7 +123,13 @@
     body.method = method;
 
     return api('/api/payments', { method: 'POST', body: body }).then(function (payment) {
-      remember({ id: payment.id, reference: payment.reference, amount: payment.amount, at: Date.now() });
+      /* The order the payment is for, kept beside it on this device so a reload
+         hands over THAT order, not whatever the page shows by then. No name, no
+         phone, no address: only what the server matches the payment by. */
+      var o = spec.order || {};
+      remember({ id: payment.id, reference: payment.reference, amount: payment.amount, at: Date.now(),
+                 order: { items: o.items, type: o.type, business: !!o.business,
+                          postcode: o.postcode, town: o.town || null } });
       return payment;
     });
   }

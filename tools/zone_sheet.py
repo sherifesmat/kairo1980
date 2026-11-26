@@ -48,7 +48,11 @@ def amount_of(cell):
         value = Decimal(str(cell).strip().replace(',', '.'))
     except InvalidOperation:
         return None
-    if not value.is_finite() or value < 0 or value != value.quantize(Decimal('0.01')):
+    # Bounded before rounding: quantize raises on a value too large for the context,
+    # and no fee, minimum or distance here is anywhere near ten thousand.
+    if not value.is_finite() or value < 0 or value > 9999:
+        return None
+    if value != value.quantize(Decimal('0.01')):
         return None
     return value
 

@@ -70,12 +70,42 @@ test('"postcode not listed" is an enquiry: its own field, its own wording, no fe
   await page.locator('#cartSend').click();
   await expect(page.locator('#fPlzOther')).toHaveClass(/is-invalid/);
 
+  // The sum is the food alone, said so, and no fee is claimed or waived.
+  await expect(page.locator('.cart-sum.is-total')).toContainText('Essen, ohne Lieferung');
+
   await page.locator('#fPlzOther').fill('69118');
   await page.locator('#cartSend').click();
   const message = decodeURIComponent((await whatsapp()).split('?text=')[1]);
   expect(message).toContain('69118');
-  expect(message).not.toMatch(/Lieferung: \d/);
+  expect(message).toContain('Essen, ohne Lieferung');
+  expect(message).not.toMatch(/^Lieferung: /m);   // no fee line
 });
+
+for (const typed of ['69118', '68723']) {
+  test(`an enquiry for ${typed} is never paid for and never recorded as an order`, async ({ page }, testInfo) => {
+    const announced = [];
+    const paymentsAsked = [];
+    await page.route('**/api/orders/announce', (route) => {
+      announced.push(route.request().postDataJSON());
+      return route.fulfill({ contentType: 'application/json', body: '{"recorded":true}' });
+    });
+    await page.route('**/api/payments', (route) => { paymentsAsked.push(1); return route.abort(); });
+    await captureWhatsApp(page);
+    await deliveryBasket(page, testInfo);
+    await fillContact(page, { address: 'Teststr. 1' });
+    const online = page.locator('[data-pay="online"]');
+    if (await online.count()) await online.click();
+    await page.locator('#fPlz').selectOption('not-listed');
+    // A postcode we serve, typed as an enquiry, stays an enquiry until chosen.
+    await page.locator('#fPlzOther').fill(typed);
+    await expect(page.locator('#cartSend')).toHaveText('Unverbindliche Anfrage senden');
+    await page.locator('#cartSend').click();
+    await expect(page.locator('.cart-sent.is-request')).toBeVisible();
+    await expect(page.locator('.cart-pay-step')).toHaveCount(0);
+    expect(announced.length).toBe(0);
+    expect(paymentsAsked.length).toBe(0);
+  });
+}
 
 test('switching to pickup and back keeps the choice, and pickup needs none', async ({ page }, testInfo) => {
   await deliveryBasket(page, testInfo);

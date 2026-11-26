@@ -184,7 +184,68 @@ test('when the server prices another total, nothing is charged and the guest is 
   const step = page.locator('.cart-pay-step');
   await expect(step).toContainText('Betrag hat sich inzwischen geändert');
   await expect(step).toContainText('nichts abgebucht');
-  await expect(page.locator('[data-payact="onsite"]')).toBeVisible();
+  // The old figure is not offered again, not even to pay on arrival: reload.
+  await expect(page.locator('[data-payact="reload"]')).toBeVisible();
+  await expect(page.locator('[data-payact="onsite"]')).toHaveCount(0);
+  await expect(page.locator('[data-payact="retry"]')).toHaveCount(0);
+});
+
+test('a page too old to name its total is asked to reload, and is charged nothing', async ({ page }) => {
+  await stubPayments(page);
+  await page.route('**/api/payments', (route) => route.fulfill({
+    status: 409, contentType: 'application/json',
+    body: JSON.stringify({ error: { code: 'reload_required', message: 'Please reload.' } })
+  }));
+  await reachPaymentStep(page);
+  await page.locator('.fake-pay-button').first().click();
+  await expect(page.locator('.cart-pay-step')).toContainText('nicht mehr aktuell');
+  await page.locator('[data-payact="reload"]').click();
+  await page.waitForLoadState('load');
+  await expect(page.locator('#cartFabCount')).toHaveText('2', { timeout: 10000 });
+});
+
+test('a reload after paying hands over the order that was paid for, not the basket as it is now', async ({ page }) => {
+  const whatsapp = await captureWhatsApp(page);
+  const announced = [];
+  await page.route('**/api/payments/config', (route) => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ online: true, methods: ['paypal'] }) }));
+  await page.route('**/api/payments/PAY-REMEMBERED', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ payment: { id: 'PAY-REMEMBERED', reference: 'K-PAID1', status: 'captured', amount: 1710 } }) }));
+  await page.route('**/api/orders/announce', (route) => {
+    announced.push(route.request().postDataJSON());
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ recorded: true, reference: 'K-PAID1' }) });
+  });
+  await page.goto('/');
+  // The basket now holds something else; the payment remembers what it paid for.
+  await page.evaluate(() => {
+    localStorage.setItem('kairo.payment.v1', JSON.stringify({
+      id: 'PAY-REMEMBERED', reference: 'K-PAID1', amount: 1710, at: Date.now(),
+      order: { items: { hummus: 2 }, type: 'pickup', business: false, postcode: null, town: null }
+    }));
+  });
+  await addItem(page, 'koshary', 1);
+  await page.reload();
+  await expect.poll(() => announced.length, { timeout: 15000 }).toBe(1);
+  expect(announced[0].items).toEqual({ hummus: 2 });
+  expect(announced[0].type).toBe('pickup');
+  expect(announced[0].paymentId).toBe('PAY-REMEMBERED');
+  const message = decodeURIComponent((await whatsapp()).split('?text=')[1]);
+  expect(message).toContain('Hummus');
+  expect(message).not.toContain('Koshary');
+});
+
+test('a paid handover the server could not match tells the guest not to pay again', async ({ page }) => {
+  const stub = await stubPayments(page);
+  await page.route('**/api/orders/announce', (route) => {
+    stub.announced.push(route.request().postDataJSON());
+    return route.fulfill({ status: 409, contentType: 'application/json',
+      body: JSON.stringify({ recorded: false, reason: 'payment_conflict', reference: 'X' }) });
+  });
+  await captureWhatsApp(page);
+  await reachPaymentStep(page);
+  await page.locator('.fake-pay-button').first().click();
+  await expect(page.locator('.cart-sent-check')).toContainText('nicht noch einmal bezahlen');
 });
 
 test('a declined card says nothing was charged, and offers to pay on arrival', async ({ page }) => {

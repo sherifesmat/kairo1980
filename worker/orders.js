@@ -20,7 +20,7 @@
 
 import { quote, PricingError } from './pricing.js';
 import { newReference } from './payments/store.js';
-import { legacyPostcode } from './site-data.js';
+import { readPostcode, townsOf } from './site-data.js';
 
 /* Ten announcements from one address in ten minutes is far beyond a person
    ordering dinner and far below anything a real guest could trip. Counting
@@ -88,11 +88,15 @@ const LINKABLE = new Set(['captured', 'pending']);
    This is read from the request alone, before pricing and before the
    throttle, so a replay at the limit is still answered with its order. Loop
    WEBSITE_ORDERING, R3-01 / R3-03. */
-export function orderIdentity(body) {
-  const items = Object.entries((body && body.items) || {})
+function basketOf(items) {
+  return Object.entries(items || {})
     .map(([key, qty]) => [String(key), Math.floor(Number(qty))])
     .filter(([, qty]) => Number.isFinite(qty) && qty > 0)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+export function orderIdentity(body) {
+  const items = basketOf(body && body.items);
   const delivery = !!body && body.type !== 'pickup';
   const identity = {
     items,
@@ -108,59 +112,73 @@ export function orderIdentity(body) {
   return JSON.stringify(identity);
 }
 
-/* Is this the destination an old payment was made for?
+/* Is this request going where a stored row (an order or a payment) goes?
    ---------------------------------------------------------------------------
-   A payment made before the list stored the postcode as typed ("68799
-   Reilingen") and no town. It is the same destination as a request only when the
-   two agree as written, or both read as the same five-digit postcode. Two values
-   that hold no postcode ("Schwetzingen", "") are never the same place. */
-function sameLegacyDestination(stored, requested) {
-  if (clip(stored, 16) === clip(requested, 16) && clip(stored, 16) !== null) return true;
-  const code = legacyPostcode(stored);
-  return code !== null && code === legacyPostcode(requested);
+   Two rows made from the list match only as the exact same pair.
+
+   A row or request from before the list holds the postcode as typed ("68799
+   Reilingen") and no town. Either side may be one. They are the same place only
+   when both read as the same five-digit postcode (a value with no postcode in it
+   is never a place, so "Schwetzingen" never matches "Schwetzingen"), and
+   - both name the same town, or neither names one; or
+   - one names a town and the other none, and the list has exactly that one
+     town for the postcode: "68799" is Reilingen, while a bare "68723" is three
+     towns and matches none of them.
+   So "68723 Oftersheim" never pays for "68723 Plankstadt". DP-22-02. */
+function placeOf(postcode, town) {
+  if (town != null) {
+    return typeof postcode === 'string' && typeof town === 'string'
+      ? { code: postcode, town, listed: true } : { code: null };
+  }
+  const read = readPostcode(clip(postcode, 16));
+  return { code: read.code, town: read.town, listed: false };
 }
 
-/* Does this payment pay for exactly this order?
-   ---------------------------------------------------------------------------
-   A matching amount is not enough: two different baskets can cost the same,
-   and two delivery postcodes can carry the same fee.
+function sameDestination(storedPostcode, storedTown, body) {
+  const was = placeOf(storedPostcode, storedTown);
+  const now = placeOf(body.postcode, body.town);
+  if (!was.code || was.code !== now.code) return false;
+  if (was.listed && now.listed) return was.town === now.town;
+  const fold = (town) => town.toLocaleLowerCase('de');
+  if (was.town && now.town) return fold(was.town) === fold(now.town);
+  if (!was.town && !now.town) return true;
+  const towns = townsOf(was.code);
+  return towns.length === 1 && fold(towns[0]) === fold(was.town || now.town);
+}
 
-   The payment's lines were priced by the same function from the same menu at
-   payment time, so they are compared as canonical JSON. So are the order
-   type, the company flag and every amount, and, for a delivery, the postcode
-   the guest paid to have it brought to.
-
-   A menu price changed between paying and sending makes them differ, and that
-   is right: such an order is resolved by a person, not guessed at.
-   W02-04, R3-02. */
-async function verifiedPayment(env, paymentId, priced, body) {
-  if (!paymentId) return null;
-  const row = await env.DB.prepare(
-    `SELECT id, reference, status, amount, currency, subtotal, discount, fee,
-            order_type, business, postcode, town, lines
-       FROM payments WHERE id = ?1`
-  ).bind(paymentId).first();
-  if (!row || !LINKABLE.has(row.status)) return null;
-
+/** The basket a stored row was priced for, from its own lines. */
+function basketOfLines(json) {
   let lines;
-  try { lines = JSON.stringify(JSON.parse(row.lines || '[]')); } catch { return null; }
-  const delivery = body.type !== 'pickup';
-  // A payment made from the list names its pair, and only that pair matches. One
-  // from before the list is matched by its recoverable postcode (above).
-  const sameDestination = !delivery || (row.town != null
-    ? row.postcode === body.postcode && row.town === body.town
-    : sameLegacyDestination(row.postcode, body.postcode));
-  const same =
-    lines === JSON.stringify(priced.lines) &&
-    row.order_type === (delivery ? 'delivery' : 'pickup') &&
-    !!row.business === !!body.business &&
-    sameDestination &&
-    row.amount === priced.total &&
-    row.subtotal === priced.subtotal &&
-    row.discount === priced.discount &&
-    row.fee === priced.fee &&
-    (row.currency || 'EUR') === 'EUR';
-  return same ? row : null;
+  try { lines = JSON.parse(json || '[]'); } catch { return null; }
+  if (!Array.isArray(lines)) return null;
+  const items = {};
+  for (const line of lines) items[line.id] = (items[line.id] || 0) + Number(line.qty);
+  return items;
+}
+
+/* Is this handover the order a stored row is for: an order already stored, or
+   the payment the guest made? The same basket (from the row's own lines, never
+   re-priced), the same type, the same company flag and, for a delivery, the
+   same destination (above). The money is the row's own: a menu price changed
+   since does not make the paid dinner a different one. DP-22-02. */
+function sameOrder(row, body) {
+  if (row.order_type !== body.type) return false;
+  if (!!row.business !== !!body.business) return false;
+  const items = basketOfLines(row.lines);
+  if (!items || JSON.stringify(basketOf(items)) !== JSON.stringify(basketOf(body.items))) return false;
+  return body.type !== 'delivery' || sameDestination(row.postcode, row.town, body);
+}
+
+/* What a request must say before anything is read from it: delivery or pickup
+   in so many words, and a company flag that is a flag. A request that leaves
+   the type out is not taken for a delivery. DP-22-01. */
+export function checkRequestShape(body) {
+  if (!body || (body.type !== 'delivery' && body.type !== 'pickup')) {
+    throw new PricingError('invalid_type', 'Please choose delivery or pickup.');
+  }
+  if (body.business != null && typeof body.business !== 'boolean') {
+    throw new PricingError('invalid_request', 'The request could not be read.');
+  }
 }
 
 /* The order this handover repeats, if it is a repeat.
@@ -175,51 +193,56 @@ async function verifiedPayment(env, paymentId, priced, body) {
 const REPEAT_COLUMNS = `id, reference, total, requested_time, customer_address,
        customer_phone, notes, details_purged_at`;
 
-async function repeatedOrder(env, paymentId, identity) {
+/* Every order stored under this payment id, as paid or as claimed, that this
+   handover is. A row is this order when its identity is this handover's, or
+   when it is the same order read from its own columns (sameOrder): that finds
+   an order stored before 0006 (no identity), one stored under another spelling
+   of the same postcode, and one stored before the towns. Two candidates is not
+   a guess to make: it is answered as a conflict for a person. On a match the
+   identity is written onto a row that has none, once. R4-01, DP-22-02. */
+async function repeatedOrder(env, paymentId, body, identity) {
+  if (!paymentId) return null;
+  const { results } = await env.DB.prepare(
+    `SELECT ${REPEAT_COLUMNS}, order_identity, lines, order_type, business, postcode, town
+       FROM orders WHERE payment_id = ?1 OR claimed_payment_id = ?1`
+  ).bind(paymentId).all();
+  const matches = (results || []).filter((row) =>
+    row.order_identity === identity || sameOrder(row, body));
+  if (matches.length > 1) return { ambiguous: true, reference: matches[0].reference };
+  const match = matches[0];
+  if (!match) return null;
+  if (match.order_identity == null) {
+    await env.DB.prepare(
+      'UPDATE orders SET order_identity = ?2 WHERE id = ?1 AND order_identity IS NULL'
+    ).bind(match.id, identity).run();
+  }
+  return match;
+}
+
+/* A payment that is real money or money under review, as the provider left it. */
+async function knownPayment(env, paymentId) {
   if (!paymentId) return null;
   const row = await env.DB.prepare(
-    `SELECT ${REPEAT_COLUMNS} FROM orders
-      WHERE order_identity = ?2 AND (payment_id = ?1 OR claimed_payment_id = ?1)
-      LIMIT 1`
-  ).bind(paymentId, identity).first();
-  return row || legacyRepeat(env, paymentId, identity);
+    `SELECT id, reference, status, amount, currency, subtotal, discount, fee,
+            order_type, business, postcode, town, lines
+       FROM payments WHERE id = ?1`
+  ).bind(paymentId).first();
+  return row && LINKABLE.has(row.status) ? row : null;
 }
 
-/* The identity of an order stored before migration 0006, rebuilt from what it
-   kept. Pricing writes one line per basket key with the guest's quantity
-   (`{id: key, qty}`), under the same whole-number rule `orderIdentity` uses, so
-   nothing is lost in the rebuild. R4-01. */
-function storedIdentity(row) {
-  let lines;
-  try { lines = JSON.parse(row.lines || '[]'); } catch { return null; }
-  if (!Array.isArray(lines)) return null;
-  const items = {};
-  for (const line of lines) items[line.id] = (items[line.id] || 0) + Number(line.qty);
-  return orderIdentity({
-    items,
-    type: row.order_type,
-    business: !!row.business,
-    postcode: row.postcode
-  });
-}
-
-/* An order from before 0006 carries no identity, so the lookup above can never
-   find it. Without this, a guest's browser handing an old paid order over again
-   would meet a payment already taken and be stored as a second, flagged order.
-   The rebuilt identity must equal this handover's; a different basket under the
-   same payment id is still a new order. On a match the identity is written onto
-   the row, once, so the next replay is found directly. R4-01. */
-async function legacyRepeat(env, paymentId, identity) {
-  const { results } = await env.DB.prepare(
-    `SELECT ${REPEAT_COLUMNS}, lines, order_type, business, postcode FROM orders
-      WHERE order_identity IS NULL AND (payment_id = ?1 OR claimed_payment_id = ?1)`
-  ).bind(paymentId).all();
-  const match = (results || []).find((row) => storedIdentity(row) === identity);
-  if (!match) return null;
-  await env.DB.prepare(
-    'UPDATE orders SET order_identity = ?2 WHERE id = ?1 AND order_identity IS NULL'
-  ).bind(match.id, identity).run();
-  return match;
+/* The order as it was paid for: the payment's own lines and money, and its own
+   destination. Never re-priced. */
+function asPaid(payment) {
+  return {
+    lines: JSON.parse(payment.lines || '[]'),
+    subtotal: payment.subtotal,
+    discount: payment.discount,
+    fee: payment.fee,
+    total: payment.amount,
+    destination: payment.order_type === 'delivery'
+      ? { postcode: payment.postcode, town: payment.town ?? null }
+      : null
+  };
 }
 
 /* What a guest may still change about an order they already sent.
@@ -318,7 +341,8 @@ async function correctOrder(env, stored, body, ip) {
  *                    alerted: boolean, replay?: boolean} | null>}
  *          null when nothing was stored (throttled)
  */
-export async function recordOrder(env, body, ip) {
+export async function recordOrder(env, body, ip, { recoveryOnly = false } = {}) {
+  checkRequestShape(body);
   const claimed = clip(body.paymentId, 64);
   const identity = orderIdentity(body);
 
@@ -332,18 +356,34 @@ export async function recordOrder(env, body, ip) {
      A replay that changes when, where to, how to reach the guest or what to
      cook differently is a correction. It counts against the throttle like any
      other write, and it reaches the kitchen. R4-02. */
-  const already = await repeatedOrder(env, claimed, identity);
+  const already = await repeatedOrder(env, claimed, body, identity);
+  if (already && already.ambiguous) return { paymentConflict: true, reference: already.reference };
   if (already) return correctOrder(env, already, body, ip);
 
   if (await throttled(env, ip)) return null;
   await recordAttempt(env, ip);
 
-  /* A delivery paid for before the list existed, handed over after it.
-     Its payment is the agreed price: it is linked as it was paid, never priced
-     again, never charged again, and never made to choose a town it did not
-     have. DELIVERY_PRICING round 21, G4 / DP-21-03. */
-  const paidBefore = await paidBeforeTheList(env, claimed, body);
-  if (paidBefore) return insertOrder(env, body, paidBefore.priced, paidBefore.payment, claimed, identity);
+  /* A payment that is real (captured, or pending with the provider) and pays for
+     no order yet. Its own snapshot is the agreed order: the same basket, type,
+     company flag and destination link it, at the money it was paid for, whatever
+     the menu, the tariff or the list says now. Anything else is NOT this
+     payment's order, and it is not guessed at: nothing is stored, the guest's
+     payment keeps its reference and status, and a person resolves it. It is
+     never turned into an order to be paid on site. DP-22-02.
+
+     A payment already linked to another order, or a payment id that is not real
+     money, is a claim, as before (R3-01, W01-05): the order below is stored to be
+     paid on site and flagged. */
+  const payment = await knownPayment(env, claimed);
+  if (payment && !(await paymentTaken(env, payment.id))) {
+    if (!sameOrder(payment, body) || (payment.currency || 'EUR') !== 'EUR') {
+      return { paymentConflict: true, reference: payment.reference, payment };
+    }
+    return insertOrder(env, body, asPaid(payment), payment, claimed, identity);
+  }
+
+  /* While the restaurant is closed, only money already taken is recorded. */
+  if (recoveryOnly) return { closed: true };
 
   // Prices come from the menu, never from the browser. Throws PricingError for
   // an unknown dish or an empty basket, which the route turns into a plain 400.
@@ -354,58 +394,7 @@ export async function recordOrder(env, body, ip) {
   if (!priced.deliverable) {
     throw new PricingError('postcode_not_listed', 'Please choose your postcode and town from the list.');
   }
-
-  /* A payment counts only when it is real, is for this food, and is not
-     already the payment of another order. An order paid online reuses the
-     payment's reference, which is printed on the payment and in the chat. Only
-     an order without a verified payment mints a new reference.
-
-     A payment the browser named but that does not check out is kept beside the
-     order, never as its payment. The order is:
-     - stored as to be paid on site and marked `unverified`;
-     - reported that way to the books and shown that way at /admin;
-     - ALWAYS announced.
-     That way the counter checks it by hand rather than handing food over on a
-     claim or charging a guest twice. W01-05. */
-  let payment = await verifiedPayment(env, claimed, priced, body);
-  if (payment && await paymentTaken(env, payment.id)) payment = null;
-  return insertOrder(env, body, priced, payment, claimed, identity);
-}
-
-/* The payment, and its own priced snapshot, of a delivery paid before the list
-   (town NULL) that this request repeats: same basket, type, company flag and a
-   recoverable same postcode. Anything less is not that payment's order, and
-   takes the ordinary path. */
-async function paidBeforeTheList(env, paymentId, body) {
-  if (!paymentId || body.type === 'pickup') return null;
-  const row = await env.DB.prepare(
-    `SELECT id, reference, status, amount, currency, subtotal, discount, fee,
-            order_type, business, postcode, town, lines
-       FROM payments WHERE id = ?1`
-  ).bind(paymentId).first();
-  if (!row || !LINKABLE.has(row.status) || row.order_type !== 'delivery' || row.town != null) {
-    return null;
-  }
-  if (!!row.business !== !!body.business || !sameLegacyDestination(row.postcode, body.postcode)) {
-    return null;
-  }
-  let lines;
-  try { lines = JSON.parse(row.lines || '[]'); } catch { return null; }
-  if (!Array.isArray(lines)) return null;
-  const paidItems = {};
-  for (const line of lines) paidItems[line.id] = (paidItems[line.id] || 0) + Number(line.qty);
-  const asked = orderIdentity({ items: body.items, type: 'delivery', business: body.business, postcode: '' });
-  const paid = orderIdentity({ items: paidItems, type: 'delivery', business: body.business, postcode: '' });
-  if (asked !== paid || (row.currency || 'EUR') !== 'EUR') return null;
-  if (await paymentTaken(env, row.id)) return null;
-  return {
-    payment: row,
-    priced: {
-      lines, subtotal: row.subtotal, discount: row.discount, fee: row.fee, total: row.amount,
-      // Stored as it was paid for: the postcode as typed then, no town.
-      destination: { postcode: row.postcode, town: null }
-    }
-  };
+  return insertOrder(env, body, priced, null, claimed, identity);
 }
 
 async function insertOrder(env, body, priced, payment, claimed, identity) {
@@ -455,18 +444,18 @@ async function insertOrder(env, body, priced, payment, claimed, identity) {
   try {
     return await insert(payment);
   } catch (err) {
-    /* A race that the unique indexes settled.
-       - If the winner is this same order (two handovers of one dinner arriving
-         together), answer with it.
-       - If the winner is a DIFFERENT order that took this payment first, this
-         one is still a real order. It is stored as an unverified claim and
-         announced. */
-    const winner = await repeatedOrder(env, claimed, identity);
-    if (winner) {
+    /* Only a race the unique indexes settled is answered here; any other failure
+       is a failure. The winner is found the way a replay is (sameOrder), so two
+       spellings of one dinner racing each other are one order. A paid handover
+       that lost to something that is NOT this order is a conflict for a person:
+       it is never stored again as an order to be paid on site. DP-22-02. */
+    if (!/UNIQUE/i.test(String(err && err.message))) throw err;
+    const winner = await repeatedOrder(env, claimed, body, identity);
+    if (winner && !winner.ambiguous) {
       return { id: winner.id, reference: winner.reference, total: winner.total,
                alerted: false, replay: true };
     }
-    if (payment) return insert(null);
+    if (payment) return { paymentConflict: true, reference: payment.reference, payment };
     throw err;
   }
 }

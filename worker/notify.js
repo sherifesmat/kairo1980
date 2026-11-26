@@ -197,6 +197,28 @@ export async function sendOrderCorrection(env, order, changed, options) {
 /** Send it. Never throws, never returns a rejected promise: a notification is
  *  the last thing that may be allowed to fail a payment, and by the time this
  *  runs the money is already taken. Every failure is logged and swallowed. */
+/** A payment handed over with an order that is not what was paid for. Plain
+ *  text, no personal data (as composeCashOrderMessage): the reference, the
+ *  amount and the payment's state, and what to do about it. */
+export function composePaymentConflictMessage(payment) {
+  const state = payment.status === 'captured' ? 'bezahlt' : 'in Prüfung beim Anbieter';
+  return [
+    'ZAHLUNG PRÜFEN',
+    '',
+    `Referenz: ${payment.reference}`,
+    `Betrag:   ${money(payment.amount, payment.currency)} (${state})`,
+    '',
+    'Die übergebene Bestellung passt nicht zu dem, was bezahlt wurde',
+    '(Gerichte, Art oder Lieferort). Es wurde keine Bestellung angelegt.',
+    'Bitte mit dem Gast klären (WhatsApp). Nicht noch einmal kassieren.'
+  ].join('\n');
+}
+
+export async function sendPaymentConflict(env, payment) {
+  if (!notifyConfigured(env) || !payment) return { ok: false, error: 'not configured' };
+  return post(env, composePaymentConflictMessage(payment));
+}
+
 export async function sendOrderNotification(env, payment) {
   if (!notifyConfigured(env) || !payment) return { ok: false, error: 'not configured' };
   return post(env, composeOrderMessage(payment));

@@ -53,6 +53,14 @@ function minimumApplies(type, business) {
  *                    fee: number, total: number, zone: object|null, belowMinimum: boolean}>}
  */
 export async function quote(env, req) {
+  /* Delivery or pickup, said in so many words: a request that leaves the type
+     out, or names another, is not priced as a delivery (DP-22-01). */
+  if (!req || (req.type !== 'delivery' && req.type !== 'pickup')) {
+    throw new PricingError('invalid_type', 'Please choose delivery or pickup.');
+  }
+  if (req.business != null && typeof req.business !== 'boolean') {
+    throw new PricingError('invalid_request', 'The request could not be read.');
+  }
   const published = await menuData(env);
 
   /* THE ONE REFUSAL ON THIS SITE. An unknown postcode, a closed slot and a
@@ -78,8 +86,8 @@ export async function quote(env, req) {
   const { dishes, addonGroups } = effectiveMenu(published, addons);
   const unavailable = effectiveSoldOut(dishes, soldOut);
   const price = (id) => priceOf(dishes, overrides, id);
-  const type = req.type === 'pickup' ? 'pickup' : 'delivery';
-  const business = !!req.business;
+  const type = req.type;
+  const business = req.business === true;
 
   const lines = [];
   let subtotal = 0;

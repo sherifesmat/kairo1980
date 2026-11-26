@@ -1,11 +1,14 @@
 /* AUTO-GENERATED — DO NOT EDIT.
    Source : data/delivery_zones.xlsx + data/postal_places.json (retrieved 2026-11-26)
    Rebuild: python tools/build-zones.py
-   Zones  : 33 postcodes, 35 towns
+   Zones  : 33 postcodes, 35 postcode-town pairs
 
    Edit the spreadsheet, re-run the command, commit both files.
    Columns: [ postcode, label, km, minimum order EUR, delivery fee EUR, towns ]
    The label is ours (it may name a district); the towns are the directory's.
+   Towns  : OpenPLZ API (openplzapi.org), from OpenStreetMap data (c) OpenStreetMap
+            contributors, ODbL 1.0, and the Destatis municipality list.
+            Municipalities only; not a postal address check.
 */
 window.KAIRO_ZONES = [
   ["68766", "Hockenheim", 0, 15, 1, ["Hockenheim"]],

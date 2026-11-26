@@ -76,6 +76,11 @@ class ReadingTheSheet(unittest.TestCase):
             _, errors = zone_sheet.read_zone_rows(sheet(('68766', 'Hockenheim', 0, 0, 15, bad)))
             self.assertEqual(len(errors), 1, bad)
 
+    def test_an_absurd_amount_is_refused_cleanly_not_with_a_crash(self):
+        for bad in ('1e999999', '10000', '1E+30', 'NaN', 'Infinity'):
+            _, errors = zone_sheet.read_zone_rows(sheet(('68766', 'Hockenheim', 0, 0, 15, bad)))
+            self.assertEqual(len(errors), 1, bad)
+
     def test_one_postcode_has_one_price(self):
         _, errors = zone_sheet.read_zone_rows(
             sheet(('68766', 'Hockenheim', 0, 0, 15, 1), ('68766', 'Hockenheim', 0, 0, 20, 2)))
@@ -117,7 +122,10 @@ class JoiningTheDirectory(unittest.TestCase):
         self.assertIn('68799', errors[0])
 
     def test_repeated_or_empty_towns_are_refused(self):
-        for towns in (['Hockenheim', 'Hockenheim'], ['']):
+        # A string would iterate as letters; an object or a number is not a list of
+        # towns; a name with padding is not the name the directory wrote.
+        for towns in (['Hockenheim', 'Hockenheim'], [''], 'Hockenheim', {'a': 1}, [1],
+                      [' Hockenheim'], [['Hockenheim']], 7):
             _, errors = build_zones.build(
                 self.zones(('68766', 'Hockenheim', 0, 0, 15, 1)), snapshot({'68766': towns}))
             self.assertEqual(len(errors), 1, towns)
@@ -149,6 +157,16 @@ class TheCommittedFiles(unittest.TestCase):
         self.assertEqual(errors, [])
         with io.open(os.path.join(ROOT, 'zones.js'), encoding='utf-8') as committed:
             self.assertEqual(committed.read(), text)
+
+    def test_every_tariff_is_the_one_that_was_live_before_the_towns(self):
+        """PO-15 changed no price: all 33 [postcode, label, km, minimum, fee] as at 5e71675."""
+        with io.open(os.path.join(ROOT, 'tests', 'fixtures', 'tariffs-5e71675.json'),
+                     encoding='utf-8') as pinned:
+            before = json.load(pinned)['rows']
+        text = io.open(os.path.join(ROOT, 'zones.js'), encoding='utf-8').read()
+        now = json.loads(text.split('window.KAIRO_ZONES = ')[1].rstrip().rstrip(';'))
+        self.assertEqual(len(before), 33)
+        self.assertEqual([row[:5] for row in now], before)
 
     def test_oftersheim_is_offered_under_68723(self):
         places = json.load(io.open(os.path.join(ROOT, 'data', 'postal_places.json'), encoding='utf-8'))
