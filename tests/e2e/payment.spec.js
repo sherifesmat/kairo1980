@@ -462,9 +462,9 @@ test('two payment methods tapped at once start one payment, never two', async ({
   expect(stub.captures).toBe(1);
 });
 
-test('an older checkout whose payment lands late never borrows the details typed for a newer one', async ({ page }) => {
-  await captureWhatsApp(page);
-  await stubPayments(page, { createDelay: 2500 });
+test('an older checkout whose payment lands late is cancelled before it opens, and the newer one pays with its own details', async ({ page }) => {
+  const whatsapp = await captureWhatsApp(page);
+  const stub = await stubPayments(page, { createDelay: 2500 });
   await page.goto('/');
   await addItem(page, 'hummus', 2);
   await openBasket(page);
@@ -477,21 +477,75 @@ test('an older checkout whose payment lands late never borrows the details typed
   await page.locator('.fake-pay-button').first().click();
   await page.locator('#cartClose').click();
 
-  // Checkout B, with other details, reaches its own payment step meanwhile.
+  // Checkout B, with other details, is held until A's start is over: A is
+  // cancelled at the server, never continued, and only then does B go on.
   await openBasket(page);
   await fillContact(page, { name: 'Bert Neu', phone: '+49 170 0000000' });
   await page.locator('[data-pay="online"]').click();
   await page.locator('#cartSend').click();
-  await expect(page.locator('.fake-pay-button')).toHaveCount(1);
+  await expect(page.locator('.fake-pay-button')).toHaveCount(1, { timeout: 15000 });
+  expect(stub.cancels).toBe(1);
+  expect(stub.captures).toBe(0);
+  expect(await page.evaluate(() => localStorage.getItem('kairo.payment.v1'))).toBeNull();
 
-  // A's payment lands and is taken. Its answers belong to A's checkout, not B's.
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('kairo.payment.v1')), { timeout: 15000 }).toBeTruthy();
-  await page.waitForTimeout(500);
-  await expect(page.locator('.cart-sent.is-paid')).toHaveCount(0);
-
-  // B tries to pay: A's money is shown first, and asked for its own details.
   await page.locator('.fake-pay-button').first().click();
+  await expect(page.locator('.cart-sent.is-paid')).toBeVisible({ timeout: 15000 });
+  const message = decodeURIComponent((await whatsapp()).split('?text=')[1]);
+  expect(message).toContain('Bert Neu');
+  expect(message).not.toContain('Anna Alt');
+  expect(stub.created.length).toBe(2);
+  expect(stub.captures).toBe(1);
+});
+
+test('money another tab started is never handed over with the details typed in this one', async ({ page }) => {
+  await captureWhatsApp(page);
+  await stubPayments(page, { status: 'captured' });
+  await reachPaymentStep(page);   // this tab's checkout, details typed, no payment started
+  // Another tab of the same site starts and pays a payment: the record is shared.
+  await page.evaluate(() => localStorage.setItem('kairo.payment.v1', JSON.stringify({
+    id: 'test-payment-id', reference: 'K7F3QA', amount: 1710, at: Date.now(),
+    order: { items: { hummus: 2 }, type: 'pickup', business: false, postcode: '', town: null,
+             time: null, when: null, lines: [{ id: 'hummus', name: 'Hummus', qty: 2, amount: 1900 }],
+             subtotal: 1900, discount: 190, fee: 0, total: 1710 } })));
+  await page.locator('.fake-pay-button').first().click();
+  // Shown first, and asked for its own details: none of this checkout's.
   await expect(page.locator('#cartRecoverForm')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('#rName')).toHaveValue('');
   expect(await page.evaluate(() => window.__waUrl)).toBeNull();
 });
+
+/* DP-26-02: a payment still being created holds the on-site road too. */
+for (const [answer, outcome] of [['cancelled', 'goes on site, once the provider confirmed it unapproved'],
+                                 ['approved', 'is held and shown by its reference']]) {
+  test(`pay on arrival sent while the payment is still being created ${outcome}`, async ({ page }) => {
+    const whatsapp = await captureWhatsApp(page);
+    const announced = [];
+    // The provider's word on the abandoned payment, at cancel and when asked.
+    const stub = await stubPayments(page, { createDelay: 2500, status: answer });
+    stub.cancelAnswer = answer;
+    page.on('request', (r) => { if (r.url().endsWith('/api/orders/announce')) announced.push(stub.cancels); });
+    await reachPaymentStep(page);
+    await page.locator('.fake-pay-button').first().click();
+    await page.locator('#cartClose').click();
+    await openBasket(page);
+    await page.locator('[data-pay="onsite"]').click();
+    await page.locator('#cartSend').click();
+    await page.waitForTimeout(800);
+    expect(announced).toHaveLength(0);
+    expect(await page.evaluate(() => window.__waUrl)).toBeNull();
+
+    if (answer === 'cancelled') {
+      await whatsapp();
+      expect(announced).toEqual([1]);   // only after the cancel was confirmed
+      expect(await page.evaluate(() => localStorage.getItem('kairo.payment.v1'))).toBeNull();
+    } else {
+      await expect(page.locator('.cart-pay-step')).toContainText('noch nicht bestätigt', { timeout: 15000 });
+      await page.waitForTimeout(500);
+      expect(announced).toHaveLength(0);
+      expect(await page.evaluate(() => window.__waUrl)).toBeNull();
+      expect(await page.evaluate(() => JSON.parse(localStorage.getItem('kairo.payment.v1')).id)).toBe('test-payment-id');
+    }
+    expect(stub.created.length).toBe(1);
+    expect(stub.captures).toBe(0);
+  });
+}

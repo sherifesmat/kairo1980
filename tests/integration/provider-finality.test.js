@@ -425,3 +425,139 @@ test('a quiet recovery for a payment that is a person\'s to resolve is a conflic
   assert.equal(status, 409);
   assert.equal(body.reason, 'payment_conflict');
 });
+
+/* --- DP-26-01: every capture caller is admitted, or does not capture ------- */
+
+/* Runs `change` once, just before the first statement that tries to move this
+   payment to `approved` — the old settle and the new admission alike — so a
+   cancel can be made to win in exactly the gap between a caller's read and its
+   write. */
+function beforeApproval(env, change) {
+  const prepare = env.DB.prepare.bind(env.DB);
+  let done = false;
+  const wrap = (st, sql) => ({
+    bind: (...args) => wrap(st.bind(...args), sql),
+    first: () => st.first(),
+    all: () => st.all(),
+    run: async () => {
+      const approving = /UPDATE payments SET/.test(sql)
+        && (/status = 'approved'/.test(sql) || (st.args || []).includes('approved'));
+      if (approving && !done) { done = true; change(); }
+      return st.run();
+    }
+  });
+  env.DB.prepare = (sql) => wrap(prepare(sql), sql);
+  return () => { env.DB.prepare = prepare; };
+}
+// What the page's cancel writes when the provider still shows the order unapproved.
+const cancelWins = (env, id) => () => env.DB._raw.prepare(
+  "UPDATE payments SET status = 'cancelled', failure_code = 'abandoned_unapproved' WHERE id = ? AND status = 'created'"
+).run(id);
+
+test('an approved webhook that read the payment before a cancel won never captures it', async (t) => {
+  const env = workerEnv(MENU, TELEGRAM);
+  const c = ctx();
+  const { state } = provider(t);
+  const payment = await start(env, c, state);
+  state.status = 'APPROVED';
+  const undo = beforeApproval(env, cancelWins(env, payment.id));
+  const event = webhookEvent({ id: 'WH-R1', type: 'CHECKOUT.ORDER.APPROVED', paymentId: payment.id,
+                               reference: payment.reference, orderId: 'PP-ORDER-1' });
+  await worker.fetch(post('/api/webhooks/paypal', event, webhookHeaders()), env, c);
+  await c.settled();
+  undo();
+  assert.equal(state.captureCalls, 0, 'no capture was asked of the provider');
+  assert.equal(state.captured, false);
+  assert.equal(row(env, payment.id).status, 'cancelled');
+  assert.equal((await show(env, c, payment.id)).money, 'none');
+});
+
+test('the sweep, with a row selected before a cancel won, never captures it', async (t) => {
+  const env = workerEnv(MENU, TELEGRAM);
+  const c = ctx();
+  const { state } = provider(t);
+  const payment = await start(env, c, state);
+  state.status = 'APPROVED';
+  backdate(env, payment.id);
+  const undo = beforeApproval(env, cancelWins(env, payment.id));
+  await reconcileStuckPayments(env);
+  undo();
+  assert.equal(state.captureCalls, 0);
+  assert.equal(row(env, payment.id).status, 'cancelled');
+});
+
+test('the other way round, an approved webhook admitted first takes the money and a cancel then cancels nothing', async (t) => {
+  const env = workerEnv(MENU, TELEGRAM);
+  const c = ctx();
+  let during = null;
+  const { state, alerts } = provider(t, {
+    capture: async ({ take }) => { during = await cancel(env, ctx(), state.payment.id); return take(); }
+  });
+  const payment = await start(env, c, state);
+  state.status = 'APPROVED';
+  const event = webhookEvent({ id: 'WH-R2', type: 'CHECKOUT.ORDER.APPROVED', paymentId: payment.id,
+                               reference: payment.reference, orderId: 'PP-ORDER-1' });
+  await worker.fetch(post('/api/webhooks/paypal', event, webhookHeaders()), env, c);
+  await c.settled();
+  assert.equal(during.money, 'open', 'the cancel landed while the capture was admitted');
+  assert.equal(row(env, payment.id).status, 'captured');
+  assert.equal(alerts().length, 1);
+});
+
+for (const issue of ['ORDER_NOT_APPROVED', 'PAYER_ACTION_REQUIRED']) {
+  test(`${issue} is "not yet", never "no money"`, async (t) => {
+    const env = workerEnv(MENU);
+    const c = ctx();
+    const { state } = provider(t, {
+      capture: () => ({ status: 422, body: { name: 'UNPROCESSABLE_ENTITY', details: [{ issue }] } })
+    });
+    const payment = await start(env, c, state);
+    const { status, body } = await capture(env, c, payment.id);
+    assert.equal(status, 202);
+    assert.equal(body.payment.money, 'open');
+  });
+}
+
+test('a decline answered while another capture is on its way is not "no money"', async (t) => {
+  const env = workerEnv(MENU, TELEGRAM);
+  const c = ctx();
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const { state } = provider(t, {
+    capture: async ({ take, state: s }) => {
+      if (s.captureCalls === 1) { await held; return take(); }
+      return { status: 422, body: { name: 'UNPROCESSABLE_ENTITY', details: [{ issue: 'INSTRUMENT_DECLINED' }] } };
+    }
+  });
+  const payment = await start(env, c, state);
+  state.status = 'APPROVED';
+  const first = worker.fetch(post(`/api/payments/${payment.id}/capture`), env, c);
+  for (let i = 0; i < 50 && state.captureCalls < 1; i++) await new Promise((r) => setTimeout(r, 5));
+  const second = await capture(env, c, payment.id);
+  assert.notEqual(second.body.payment.money, 'none', 'the other capture may still take the money');
+  assert.notEqual(second.status, 402);
+  release();
+  await first;
+  await c.settled();
+  assert.equal(row(env, payment.id).status, 'captured');
+  assert.equal(row(env, payment.id).captures_in_flight, 0, 'and nothing is left counted');
+});
+
+test('a payment that turns failed with no reason at the claim write stores no order to be paid on site', async (t) => {
+  const env = workerEnv(MENU, TELEGRAM);
+  const c = ctx();
+  const { state } = provider(t);
+  const payment = await start(env, c, state);
+  env.DB._raw.prepare("UPDATE payments SET status = 'failed', failure_code = 'DECLINED' WHERE id = ?").run(payment.id);
+  const prepare = env.DB.prepare.bind(env.DB);
+  env.DB.prepare = (sql) => {
+    if (/INSERT INTO orders/.test(sql)) {
+      env.DB._raw.prepare("UPDATE payments SET failure_code = NULL WHERE id = ?").run(payment.id);
+    }
+    return prepare(sql);
+  };
+  const res = await announce(env, c, { ...HANDOVER, paymentId: payment.id });
+  env.DB.prepare = prepare;
+  assert.equal(res.status, 409);
+  assert.equal(orders(env).length, 0);
+});

@@ -40,7 +40,8 @@ function shownAs(spec, amount) {
            money: moneyState({ status, failure_code: failureCode }) };
 }
 
-async function remembering(page, { record, status = 'captured', amount = 4870, announce = 200, body, slow = 0 } = {}) {
+async function remembering(page, { record, status = 'captured', amount = 4870, announce = 200, body, slow = 0,
+                                    announceDelay = 0 } = {}) {
   const whatsapp = await captureWhatsApp(page);
   const announced = [];
   await page.route('**/api/payments/config', (route) => route.fulfill({
@@ -59,11 +60,15 @@ async function remembering(page, { record, status = 'captured', amount = 4870, a
       : { payment: shownAs(now, amount) };
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(answer) }).catch(() => {});
   });
-  await page.route('**/api/orders/announce', (route) => {
+  /* `announce` is a status, 'network', or a function of the call count giving
+     either; `announceDelay` holds every answer that long. */
+  await page.route('**/api/orders/announce', async (route) => {
     announced.push(route.request().postDataJSON());
-    if (announce === 'network') return route.abort();
-    return route.fulfill({ status: announce, contentType: 'application/json',
-      body: JSON.stringify(body || { recorded: true, reference: 'K-PAID1' }) });
+    const now = typeof announce === 'function' ? announce(announced.length) : announce;
+    if (announceDelay) await new Promise((r) => setTimeout(r, announceDelay));
+    if (now === 'network') return route.abort().catch(() => {});
+    return route.fulfill({ status: now, contentType: 'application/json',
+      body: JSON.stringify(body || { recorded: true, reference: 'K-PAID1' }) }).catch(() => {});
   });
   await page.goto('/');
   await page.evaluate(([key, value]) => localStorage.setItem(key, JSON.stringify(value)),
@@ -400,4 +405,37 @@ test('a recheck answered after the guest left its screen changes nothing on scre
   expect(announced.length).toBe(0);
   expect((await stored()).id).toBe('PAY-REMEMBERED');
   await expect(page.locator('#cartFabCount')).toHaveText('1');
+});
+
+test('a quiet answer that arrives after the device took on another payment sends nothing', async ({ page }) => {
+  // The visit's own retry is lost; the one a send waits on is slow, and lands
+  // after the device has started holding another payment.
+  const { announced } = await remembering(page, {
+    record: { order: PAID_ORDER, handedOver: true }, status: 'captured',
+    announce: (n) => (n === 1 ? 'network' : 200), announceDelay: 1500 });
+  await page.reload();
+  await expect.poll(() => announced.length, { timeout: 15000 }).toBe(1);
+  await sendOnSite(page);
+  await expect.poll(() => announced.length, { timeout: 15000 }).toBe(2);
+  await page.evaluate(() => localStorage.setItem('kairo.payment.v1',
+    JSON.stringify({ id: 'PAY-NEWER', reference: 'K-NEW1', amount: 100, at: Date.now() })));
+  await page.waitForTimeout(3000);
+  expect(await page.evaluate(() => window.__waUrl)).toBeNull();
+  expect(announced.every((a) => a.recovery === true)).toBe(true);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('kairo.payment.v1')).id)).toBe('PAY-NEWER');
+});
+
+test('a second tap while the quiet answer is on its way starts nothing more, and the order goes once', async ({ page }) => {
+  const { announced } = await remembering(page, {
+    record: { order: PAID_ORDER, handedOver: true }, status: 'captured',
+    announce: (n) => (n === 1 ? 'network' : 200), announceDelay: 1500 });
+  await page.reload();
+  await expect.poll(() => announced.length, { timeout: 15000 }).toBe(1);
+  await sendOnSite(page);
+  await expect.poll(() => announced.length, { timeout: 15000 }).toBe(2);
+  // Tapped again while the quiet answer is still on its way.
+  await page.locator('#cartSend').click({ force: true }).catch(() => {});
+  await page.waitForTimeout(4000);
+  expect(announced.filter((a) => a.recovery === true)).toHaveLength(2);
+  expect(announced.filter((a) => a.recovery !== true).length).toBeLessThanOrEqual(1);
 });

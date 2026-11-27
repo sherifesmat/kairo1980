@@ -13,6 +13,7 @@
      - and the one that costs money: ordering resumes and something,
        somewhere, is still holding the closed state. */
 
+import { berlinDate } from './berlin-dates.js';
 import { test, expect } from '@playwright/test';
 import { addItem, openBasket, choosePickup, chooseDelivery, fillContact, captureWhatsApp, requireDelivery } from './helpers.js';
 import { resetOrderRate, reportedOrders, observeAnnounce, centsOf, euro } from './fixtures.js';
@@ -228,15 +229,14 @@ test('@gate an order scheduled past the closure goes through untouched', async (
   // "As soon as possible" is a moment we are closed: the basket withholds it.
   await expect(page.locator('#cartSend')).toBeDisabled();
 
-  // Pick a moment after we reopen — tomorrow, so no clock arithmetic can make
-  // this test fail at some hours of the day and pass at others.
-  const tomorrow = await page.evaluate(() => {
-    const d = new Date(Date.now() + 86400000);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  });
+  /* Pick a moment after we reopen: two days out on BERLIN's calendar. The
+     closure is Berlin's and ends today or, after 23:30, tomorrow; "tomorrow" on
+     the browser's clock fell inside it every night between 23:30 and 01:00
+     Berlin on a UTC machine (DP-26-03; tests/unit/berlin-dates.test.js checks
+     the choice at every instant of those nights). */
+  const later = berlinDate(Date.now(), 2);
   await page.locator('[data-when="scheduled"]').click();
-  await page.fill('#fDate', tomorrow);
+  await page.fill('#fDate', later);
   await page.fill('#fTime', '19:00');
 
   const send = page.locator('#cartSend');
@@ -256,7 +256,7 @@ test('@gate an order scheduled past the closure goes through untouched', async (
      "now", inside the closure, and answered 503 — the guest's WhatsApp went,
      the restaurant's books never had it. */
   const { status, request, body } = await announced();
-  expect(request.when).toEqual({ date: tomorrow, time: '19:00' });
+  expect(request.when).toEqual({ date: later, time: '19:00' });
   expect(status).toBe(200);
   expect(body.recorded).toBe(true);
   const rows = (await reportedOrders(page)).filter((o) => o.reference === body.reference);

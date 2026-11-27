@@ -536,7 +536,7 @@ test('0007 adds the town to a database with orders and payments in it, and chang
              'EUR', 'identity-1', datetime('now'))`).run();
   const before = [db.prepare('SELECT * FROM payments').get(), db.prepare('SELECT * FROM orders').get()];
 
-  for (const name of files.filter((n) => n >= '0007')) db.exec(readFileSync(dir + name, 'utf8'));
+  for (const name of files.filter((n) => n >= '0007' && n < '0008')) db.exec(readFileSync(dir + name, 'utf8'));
   const after = [db.prepare('SELECT * FROM payments').get(), db.prepare('SELECT * FROM orders').get()];
   for (const [i, row] of after.entries()) {
     assert.equal(row.town, null);
@@ -547,4 +547,20 @@ test('0007 adds the town to a database with orders and payments in it, and chang
   assert.throws(() => db.prepare(
     `INSERT INTO orders (id, reference, payment_id, order_type, pay_method, lines, subtotal, total, created_at)
      VALUES ('o2', 'K-2', 'p1', 'pickup', 'online', '[]', 0, 0, 'now')`).run(), /UNIQUE/);
+});
+
+test('0008 adds the capture count to a database with payments in it: 0 for every row, nothing else changed', () => {
+  const dir = fileURLToPath(new URL('../../migrations/', import.meta.url));
+  const files = readdirSync(dir).filter((n) => n.endsWith('.sql')).sort();
+  const db = new DatabaseSync(':memory:');
+  for (const name of files.filter((n) => n < '0008')) db.exec(readFileSync(dir + name, 'utf8'));
+  db.prepare(`INSERT INTO payments (id, reference, provider, status, amount, currency, subtotal, discount, fee,
+                order_type, business, lines, created_at, updated_at)
+              VALUES ('p1', 'K-1', 'paypal', 'approved', 100, 'EUR', 100, 0, 0, 'pickup', 0, '[]', 'now', 'now')`).run();
+  const before = db.prepare('SELECT * FROM payments').get();
+  for (const name of files.filter((n) => n >= '0008' && n < '0009')) db.exec(readFileSync(dir + name, 'utf8'));
+  const after = db.prepare('SELECT * FROM payments').get();
+  const { captures_in_flight: count, ...rest } = after;
+  assert.equal(count, 0);
+  assert.deepEqual(rest, { ...before });
 });
