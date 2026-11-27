@@ -4303,7 +4303,7 @@
        in; forgotten only on the server's own "recorded" for that reference.
      `next` is null at page load, or the new payment the guest was about to
      start: it waits until nothing is outstanding. */
-  function settleRecord(record, payment, next) {
+  function settleRecord(record, payment, next, guarded) {
     var money = window.KairoPay.moneyOf(payment);
     /* No answer, an empty one, or one about another payment: not known, so
        nothing is let go and nothing is offered instead (DP-25-02). */
@@ -4326,10 +4326,27 @@
     // Never handed over: the checkout that started it hands it over with the
     // details it holds for this very payment; any other asks for them again.
     if (!record.handedOver) { showRecovery(function () { paidNow(payment); }); return; }
+    /* Asked quietly whether the order is in. When a send is waiting on this
+       (`guarded`), the guard is held until the answer has been read, and the
+       send goes on only if, by then, this device holds no other payment and no
+       other checkout has been started (DP-26-02). */
+    var generation = checkouts;
+    var then = next && function () {
+      if (checkouts !== generation) return;
+      if (readRecord()) { beforeNewOrder(next); return; }
+      next();
+    };
     var retry = announceOrder(restoreOrderData(told.order, record), told, true);
-    if (retry && retry.then) {
-      retry.then(function (answer) { noteAnnounceAnswer(answer, null, told, true, next); });
-    }
+    if (!retry || !retry.then) return;
+    if (guarded) guarding = true;
+    retry.then(function (answer) {
+      var read = answer && answer.json ? answer.json().catch(function () { return null; }) : Promise.resolve(null);
+      read.then(function (body) {
+        // Read: released whatever it said; only a recorded answer runs `then`.
+        if (guarded) guarding = false;
+        tellAnswer(answer, body, null, told, true, then);
+      });
+    });
   }
 
   /* Nothing new leaves this device over a payment it has not settled: not a
@@ -4354,6 +4371,15 @@
   }
   function beforeNewOrder(next) {
     if (guarding) return;
+    /* A payment still being created on this page holds every send until its
+       answer is in (DP-26-02); then the question is asked again, of whatever
+       record that left. */
+    var wait = window.KairoPay && window.KairoPay.holdNew ? window.KairoPay.holdNew() : null;
+    if (wait) {
+      guarding = true;
+      wait.then(function () { guarding = false; beforeNewOrder(next); });
+      return;
+    }
     var raw = readRecord();
     if (!raw) { if (next) next(); return; }
     guarding = true;
@@ -4365,7 +4391,7 @@
         guarding = false;
         var still = window.KairoPay.remembered();
         if (!still || still.id !== record.id) { beforeNewOrder(next); return; }
-        settleRecord(still, payment, next);
+        settleRecord(still, payment, next, true);
       }, function () {
         guarding = false;
         showRecovery(function () { paymentUncertain(asPayment(record)); });

@@ -164,18 +164,37 @@
      is refused, and the page is told so: it shows that payment, never a second
      one over it. */
   var creating = false;
+  var creation = null;     // settles when the payment being created has an answer
+  var abandoned = false;   // the page sent something else meanwhile (DP-26-02)
   function refusal(code) { var err = new Error(code); err.code = code; return err; }
+
+  /* The page is about to send something while a payment is being created: it
+     waits for the answer (holdNew returns a promise, or null when nothing is
+     being created), and the payment, once it exists, is not continued to the
+     provider's window. It is cancelled at the server instead; if the provider
+     confirms it unapproved it is forgotten, otherwise it stays remembered and
+     is shown by its reference. */
+  function holdNew() {
+    if (!creation) return null;
+    if (creating) abandoned = true;
+    var held = creation;
+    return held.then(function () {}, function () {}).then(function () {
+      if (creation === held) creation = null;
+    });
+  }
 
   function createPayment(spec, method) {
     if (creating) return Promise.reject(refusal('busy'));
     if (remembered()) return Promise.reject(refusal('unsettled'));
     creating = true;
+    abandoned = false;
     spec.onState('paying');
     var body = {};
     Object.keys(spec.order).forEach(function (k) { body[k] = spec.order[k]; });
     body.method = method;
 
-    return api('/api/payments', { method: 'POST', body: body }).then(function (payment) {
+    // Held until the whole start is over, a cancel after it included.
+    var chain = api('/api/payments', { method: 'POST', body: body }).then(function (payment) {
       /* The order the payment is for, kept beside it on this device so a reload
          hands over THAT order, not whatever the page shows by then. No name, no
          phone, no address: only what the server matches the payment by.
@@ -204,13 +223,17 @@
          discount), stops here, before the provider's window opens. The payment
          is cancelled at the server, which forgets it once the provider confirms
          it unapproved, and the page is reloaded to show the server's figures. */
-      if (!agreed) {
-        return cancel(payment.id).then(function () { throw refusal('total_changed'); },
-                                       function () { throw refusal('total_changed'); });
+      if (!agreed || abandoned) {
+        var why = abandoned ? 'abandoned' : 'total_changed';
+        abandoned = false;
+        return cancel(payment.id).then(function () { throw refusal(why); },
+                                       function () { throw refusal(why); });
       }
       spec.onState('created', { payment: payment });
       return payment;
     }, function (err) { creating = false; throw err; });
+    creation = chain;
+    return chain;
   }
 
   /* A start that did not happen, said to the page. A second click is silent; a
@@ -218,7 +241,7 @@
      before any money could move. */
   function refused(spec, err) {
     var code = err && err.code;
-    if (code === 'busy') return;
+    if (code === 'busy' || code === 'abandoned') return;
     if (code === 'unsettled') { spec.onState('unsettled'); return; }
     spec.onState('failed', { code: code });
   }
@@ -635,6 +658,7 @@
     forget: forget,
     cancel: cancel,
     moneyOf: moneyOf,
+    holdNew: holdNew,
     wholeOrder: wholeOrder,
     markHandedOver: markHandedOver
   };

@@ -116,9 +116,13 @@ export async function settle(db, id, status, fields = {}) {
   if (status === 'captured') { binds.push(ts); set.push(`captured_at = ?${binds.length}`); }
 
   const placeholders = from.map((_, i) => `?${binds.length + i + 1}`).join(',');
+  /* `inFlight`: written only while no more captures are on their way than the
+     caller's own (0, or 1 from inside an admitted capture). A decline beside
+     another capture in flight is not "no money" (DP-26-01). */
+  const alone = Number.isInteger(fields.inFlight) ? ` AND captures_in_flight <= ${fields.inFlight}` : '';
   const result = await db.prepare(
     `UPDATE payments SET ${set.join(', ')}
-      WHERE id = ?1 AND status IN (${placeholders || "''"})`
+      WHERE id = ?1 AND status IN (${placeholders || "''"})${alone}`
   ).bind(...binds, ...from).run();
 
   const changed = (result.meta?.changes || 0) > 0;
@@ -177,11 +181,14 @@ export async function logEvent(db, event) {
 
    The reasons are kept as written, so a payment recorded before this existed
    is judged by what was actually known about it. */
+/* A refusal the provider made of the instrument or the payer. Deliberately NOT
+   here: ORDER_NOT_APPROVED and PAYER_ACTION_REQUIRED, which say only "not yet"
+   and can be followed by an approval and a capture (DP-26-01). They leave a
+   payment open. */
 export const DECLINE_ISSUES = [
   'INSTRUMENT_DECLINED', 'TRANSACTION_REFUSED', 'PAYER_CANNOT_PAY',
   'PAYER_ACCOUNT_RESTRICTED', 'PAYER_ACCOUNT_LOCKED_OR_CLOSED', 'PAYEE_ACCOUNT_RESTRICTED',
-  'MAX_NUMBER_OF_PAYMENT_ATTEMPTS_EXCEEDED', 'ORDER_NOT_APPROVED', 'PAYER_ACTION_REQUIRED',
-  'CARD_EXPIRED', 'COMPLIANCE_VIOLATION'
+  'MAX_NUMBER_OF_PAYMENT_ATTEMPTS_EXCEEDED', 'CARD_EXPIRED', 'COMPLIANCE_VIOLATION'
 ];
 export const NO_CHARGE_CODES = [
   'DECLINED', 'VOIDED', 'PAYMENT.CAPTURE.DENIED', 'CHECKOUT.ORDER.VOIDED',
@@ -199,8 +206,49 @@ export function moneyState(payment) {
 
 /* The same rule, as SQL over a `payments` row, for statements that must decide
    in the database (the claim insert). Kept beside the function it mirrors. */
-export const NO_CHARGE_SQL = `(status IN ('failed','cancelled') AND failure_code IN (${
+/* COALESCE, because `NULL IN (...)` is NULL, NOT NULL is NULL too, and a NULL
+   inside NOT EXISTS would let a claim through beside a payment with no reason.
+   `status` is NOT NULL (0001), so with the reason made total the predicate is
+   always true or false, never unknown (DP-26-01). */
+export const NO_CHARGE_SQL = `(status IN ('failed','cancelled') AND COALESCE(failure_code, '') IN (${
   NO_CHARGE_CODES.map((c) => `'${c}'`).join(',')}))`;
+
+/* Capture admission (DP-26-01). Every caller that is about to ask the provider
+   to capture (the page, the approved webhook, the sweep) is admitted here
+   first, by a conditional UPDATE: only a created or approved payment is
+   admitted, `created` becomes `approved` in the same statement, and the count
+   of captures on their way goes up. A cancel moves only `created`, so a cancel
+   and an admission can never both win, whichever read what first. Not
+   admitted means: do not call the provider. */
+export async function admitCapture(db, id, source) {
+  const ts = now();
+  const fresh = await db.prepare(
+    `UPDATE payments SET status = 'approved', updated_at = ?2, captures_in_flight = captures_in_flight + 1
+      WHERE id = ?1 AND status = 'created'`
+  ).bind(id, ts).run();
+  if ((fresh.meta?.changes || 0) > 0) {
+    const row = await get(db, id);
+    await logEvent(db, {
+      paymentId: id, provider: row.provider,
+      eventKey: `${row.provider}:approved:${id}:${ts}`, eventType: 'payment.approved',
+      source: source || 'api', statusFrom: 'created', statusTo: 'approved', amount: row.amount,
+      payload: { capture: 'admitted' }
+    });
+    return true;
+  }
+  const again = await db.prepare(
+    `UPDATE payments SET captures_in_flight = captures_in_flight + 1
+      WHERE id = ?1 AND status = 'approved'`
+  ).bind(id).run();
+  return (again.meta?.changes || 0) > 0;
+}
+
+/** The admitted capture has returned, however it returned. */
+export async function releaseCapture(db, id) {
+  await db.prepare(
+    'UPDATE payments SET captures_in_flight = MAX(captures_in_flight - 1, 0) WHERE id = ?1'
+  ).bind(id).run();
+}
 
 export function isTerminal(status) {
   return TERMINAL.includes(status);

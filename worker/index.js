@@ -372,26 +372,32 @@ async function capturePayment(request, env, id, ctx) {
   if (payment.status !== 'created' && payment.status !== 'approved') {
     return json({ payment: store.publicView(payment) });
   }
-  /* Claimed before the provider is called: from here a cancel from the page
-     can no longer win the race and call this payment abandoned while its
-     capture is on its way. */
-  if (payment.status === 'created') {
-    const claim = await store.settle(env.DB, id, 'approved', { source: 'api', from: ['created'],
-                                                                payload: { capture: 'requested' } });
-    if (!claim.changed && claim.payment && claim.payment.status !== 'approved') {
-      return json({ payment: store.publicView(claim.payment) });
-    }
-  }
+  const run = await runCapture(env, provider, payment, 'api', ctx);
+  const view = store.publicView(run.payment);
+  if (run.declined) return json({ payment: view, error: friendlyFailure(run.code) }, 402);
+  if (run.unknown) return json({ payment: view, unconfirmed: true }, 202);
+  return json({ payment: view });
+}
 
-  let result;
+/* The one way any caller captures (DP-26-01): admitted first, the provider
+   called only if admitted, released however the call returns. Shared by the
+   page, the approved webhook and the sweep, so a cancel that won against any of
+   them is never followed by a capture. */
+async function runCapture(env, provider, payment, source, ctx) {
+  if (!(await store.admitCapture(env.DB, payment.id, source))) {
+    return { admitted: false, payment: await store.get(env.DB, payment.id) };
+  }
   try {
-    result = await provider.captureOrder(env, payment.provider_order_id, payment.id);
-  } catch (err) {
-    return captureFailed(env, id, provider, payment, err, ctx);
+    let result;
+    try {
+      result = await provider.captureOrder(env, payment.provider_order_id, payment.id);
+    } catch (err) {
+      return { admitted: true, ...(await captureFailed(env, payment.id, provider, payment, err, source, ctx)) };
+    }
+    return { admitted: true, payment: await applyCaptureResult(env, payment, result, source, ctx, 1) };
+  } finally {
+    await store.releaseCapture(env.DB, payment.id);
   }
-
-  const after = await applyCaptureResult(env, payment, result, 'api', ctx);
-  return json({ payment: store.publicView(after) });
 }
 
 /* The capture call did not answer with an order. That is not "no money": the
@@ -401,27 +407,27 @@ async function capturePayment(request, env, id, ctx) {
    is recorded as failed; a transport error, a 5xx, a timeout, credentials,
    anything else leaves the payment open, for the webhook and the sweep, and
    the page is told it is not yet known (DP-25-01). */
-async function captureFailed(env, id, provider, payment, err, ctx) {
+async function captureFailed(env, id, provider, payment, err, source, ctx) {
   let remote = null;
   try { remote = await provider.getOrder(env, payment.provider_order_id); }
   catch (readErr) { console.error('capture read-back failed', id, readErr && readErr.message); }
   if (remote && (remote.captureStatus || remote.status === 'COMPLETED')) {
-    const after = await applyCaptureResult(env, await store.get(env.DB, id), remote, 'api', ctx);
-    return json({ payment: store.publicView(after) });
+    return { payment: await applyCaptureResult(env, await store.get(env.DB, id), remote, source, ctx, 1) };
   }
   if (err instanceof ProviderError && err.status === 422 && store.DECLINE_ISSUES.includes(err.code)) {
-    await store.settle(env.DB, id, 'failed', {
+    /* Recorded as failed only while this is the one capture on its way: with
+       another in flight, that one may still take the money (DP-26-01). */
+    const { changed } = await store.settle(env.DB, id, 'failed', {
       failureCode: err.code,
       failureMessage: err.message,
-      source: 'api',
+      source,
+      inFlight: 1,
       payload: err.raw
     });
-    const after = await store.get(env.DB, id);
-    return json({ payment: store.publicView(after), error: friendlyFailure(err.code) }, 402);
+    if (changed) return { payment: await store.get(env.DB, id), declined: true, code: err.code };
   }
   console.error('capture outcome unknown', id, err && (err.code || err.message));
-  const now = await store.get(env.DB, id);
-  return json({ payment: store.publicView(now), unconfirmed: true }, 202);
+  return { payment: await store.get(env.DB, id), unknown: true };
 }
 
 /* --- the order itself -----------------------------------------------------
@@ -604,7 +610,7 @@ function announcePaid(env, ctx, payment) {
 /** Turn a provider capture/read into a stored state. Shared by the browser
  *  path, the webhook path and the reconciliation path so all three can never
  *  interpret the same facts differently. */
-async function applyCaptureResult(env, payment, result, source, ctx) {
+async function applyCaptureResult(env, payment, result, source, ctx, mine = 0) {
   const common = {
     source,
     providerOrderId: result.providerOrderId,
@@ -655,9 +661,12 @@ async function applyCaptureResult(env, payment, result, source, ctx) {
   }
 
   if (result.captureStatus === 'DECLINED' || result.status === 'VOIDED') {
-    await store.settle(env.DB, payment.id, result.status === 'VOIDED' ? 'cancelled' : 'failed', {
+    const voided = result.status === 'VOIDED';
+    await store.settle(env.DB, payment.id, voided ? 'cancelled' : 'failed', {
       ...common,
-      failureCode: result.captureStatus || result.status
+      failureCode: result.captureStatus || result.status,
+      // A declined capture is "no money" only with no other capture on its way.
+      ...(voided ? {} : { inFlight: mine })
     });
     return store.get(env.DB, payment.id);
   }
@@ -827,9 +836,9 @@ async function handleEvent(env, provider, event) {
     // callback, a closed tab, a dead phone battery. Take the money here: the
     // guest agreed to pay and is expecting to have paid.
     if (meaning === 'approved' && payment.status === 'created') {
-      await store.settle(env.DB, payment.id, 'approved', { source: 'webhook', payload: { event: event.id } });
-      const result = await provider.captureOrder(env, payment.provider_order_id, payment.id);
-      await applyCaptureResult(env, await store.get(env.DB, payment.id), result, 'webhook');
+      // Admitted, or not captured at all: a cancel that won since the read above
+      // is never followed by a capture (DP-26-01).
+      await runCapture(env, provider, payment, 'webhook', null);
       return;
     }
 
@@ -928,11 +937,10 @@ async function reconcileOne(env, payment) {
      `settle` to `approved` first so the ledger records that we saw the
      approval — it is a no-op if the webhook already did. */
   if (read.status === 'APPROVED' && !read.captureStatus) {
-    await store.settle(env.DB, payment.id, 'approved', {
-      source: 'reconcile', payload: { read: read.status }
-    });
-    const captured = await provider.captureOrder(env, payment.provider_order_id, payment.id);
-    return applyCaptureResult(env, await store.get(env.DB, payment.id), captured, 'reconcile', null);
+    /* The row was selected a moment ago and may be stale: only an admitted
+       capture calls the provider (DP-26-01). */
+    const run = await runCapture(env, provider, payment, 'reconcile', null);
+    return run.payment;
   }
 
   return applyCaptureResult(env, payment, read, 'reconcile', null);
