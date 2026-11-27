@@ -5,11 +5,32 @@
 import { test, expect } from '@playwright/test';
 import {
   addItem, openBasket, captureWhatsApp, fillContact, chooseDelivery, choosePickup,
-  requireDelivery, choosePostcode
+  requireDelivery, choosePostcode, serviceMode
 } from './helpers.js';
+import { signIn, setServiceMode } from './fixtures.js';
+
+/* The deploy gate runs against the repository's own config.js, whose service
+   mode is whatever the restaurant runs today (pickup since October). There the
+   two @gate scenarios below would skip, and the gate rightly refuses a skip:
+   the first production run of 07a93e0 stopped exactly there. So in the gate
+   project, which is serial (one worker), the scenario puts the service into
+   delivery itself and puts it back afterwards. In the parallel mobile/desktop
+   projects nothing is switched: shared state would disturb other tests, and
+   requireDelivery skips as before. */
+let restoreMode = null;
+test.afterEach(async ({ page }) => {
+  if (restoreMode) { await setServiceMode(page, restoreMode); restoreMode = null; }
+});
 
 async function deliveryBasket(page, testInfo) {
   await page.goto('/');
+  if (testInfo.project.name === 'gate' && await serviceMode(page) === 'pickup') {
+    await signIn(page);
+    await setServiceMode(page, 'delivery');
+    restoreMode = 'pickup';
+    await page.goto('/');
+    expect(await serviceMode(page), 'the gate runs its delivery scenario in delivery').toBe('delivery');
+  }
   await requireDelivery(page, testInfo);
   await addItem(page, 'hummus', 2);
   await openBasket(page);
